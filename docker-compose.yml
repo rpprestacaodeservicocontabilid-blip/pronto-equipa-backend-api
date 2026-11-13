@@ -1,0 +1,244 @@
+version: "3.9"
+
+services:
+
+  # =========================================================
+  # MYSQL (LEGACY - FUTURE PROOF)
+  # =========================================================
+  mysql:
+    image: mysql:8
+
+    container_name: ${APP_NAME:-peladeiro}-mysql
+
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+
+    ports:
+      - "${DB_PORT_EXTERNAL:-3306}:3306"
+
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    networks:
+      - ${NETWORK_NAME}
+
+    restart: unless-stopped
+
+  # =========================================================
+  # REDIS (MATCHMAKING + CACHE)
+  # =========================================================
+  redis:
+    image: redis:7-alpine
+    container_name: ${APP_NAME:-peladeiro}-redis
+
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass ${REDIS_PASSWORD}
+
+    ports:
+      - "${REDIS_PORT_EXTERNAL:-6379}:6379"
+
+    volumes:
+      - redis_data:/data
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    networks:
+      - ${NETWORK_NAME}
+
+    restart: unless-stopped
+
+
+  # =========================================================
+  # RABBITMQ (EVENT BUS - FUTURE PROOF)
+  # =========================================================
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: ${APP_NAME:-peladeiro}-rabbitmq
+
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+
+    ports:
+      - "${RABBITMQ_PORT}:5672"
+      - "${RABBITMQ_UI_PORT}:15672"
+
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    networks:
+      - ${NETWORK_NAME}
+
+    restart: unless-stopped
+
+    profiles: ["messaging"]
+
+
+  # =========================================================
+  # API (NODE + SOCKET.IO)
+  # =========================================================
+  api:
+    build:
+      context: .
+      dockerfile: ${DOCKERFILE:-Dockerfile}
+
+    container_name: ${APP_NAME:-peladeiro}-api
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    environment:
+
+      # =========================
+      # APP
+      # =========================
+      NODE_ENV: ${NODE_ENV}
+      APP_NAME: ${APP_NAME}
+      PORT: ${PORT}
+
+      # =========================
+      # DATABASE
+      # =========================
+      DB_DIALECT: ${DB_DIALECT}
+      DB_HOST: mysql
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_POOL_MAX: ${DB_POOL_MAX}
+      DB_POOL_MIN: ${DB_POOL_MIN}
+
+      # =========================
+      # REDIS
+      # =========================
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:${REDIS_PORT}
+      PAYSLIPS_WORKER_ENABLED: ${PAYSLIPS_WORKER_ENABLED:-false}
+      PAYSLIPS_STORAGE_PATH: /app/storage/payslips
+      PAYSLIPS_S3_ENDPOINT: ${PAYSLIPS_S3_ENDPOINT:-}
+      PAYSLIPS_S3_BUCKET: ${PAYSLIPS_S3_BUCKET:-}
+      PAYSLIPS_S3_REGION: ${PAYSLIPS_S3_REGION:-us-east-1}
+      PAYSLIPS_S3_ACCESS_KEY: ${PAYSLIPS_S3_ACCESS_KEY:-}
+      PAYSLIPS_S3_SECRET_KEY: ${PAYSLIPS_S3_SECRET_KEY:-}
+      PAYSLIPS_EVENTS_URL: ${PAYSLIPS_EVENTS_URL:-}
+      PAYSLIPS_EVENTS_TOKEN: ${PAYSLIPS_EVENTS_TOKEN:-}
+
+      # =========================
+      # RABBITMQ
+      # =========================
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:${RABBITMQ_PORT}
+
+      # =========================
+      # AUTH
+      # =========================
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+
+      # =========================
+      # LOGGING
+      # =========================
+      LOG_LEVEL: ${LOG_LEVEL}
+
+    ports:
+      - "${APP_PORT}:3333"
+
+    volumes:
+      - ./src:/app/src
+      - ./logs:/app/logs
+      - payslips_data:/app/storage/payslips
+
+    networks:
+      - ${NETWORK_NAME}
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+
+  # =========================================================
+  # PGADMIN (OPTIONAL)
+  # =========================================================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: ${APP_NAME:-peladeiro}-pgadmin
+
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+
+    ports:
+      - "${PGADMIN_PORT}:80"
+
+    depends_on:
+      - mysql
+
+    networks:
+      - ${NETWORK_NAME}
+
+    restart: unless-stopped
+
+    profiles: ["admin"]
+
+
+  # =========================================================
+  # REDIS INSPECTOR (DEBUG ONLY)
+  # =========================================================
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+
+    environment:
+      REDIS_HOSTS: local:redis:${REDIS_PORT}
+
+    ports:
+      - "${REDIS_INSPECTOR_PORT}:8081"
+
+    networks:
+      - ${NETWORK_NAME}
+
+    profiles: ["debug"]
+
+
+# =========================================================
+# VOLUMES
+# =========================================================
+volumes:
+  mysql_data:
+  payslips_data:
+  redis_data:
+  rabbitmq_data:
+
+
+# =========================================================
+# NETWORK
+# =========================================================
+networks:
+  peladeiro-network:
+    driver: bridge
+
+

@@ -1,0 +1,56 @@
+# Version Control
+.git
+.gitignore
+.github
+
+# Dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+# Keep package-lock.json in the build context so `npm ci` works in Docker.
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build
+dist
+build
+*.tsbuildinfo
+
+# Documentation
+README.md
+CHANGELOG.md
+*.md
+
+# Testing
+coverage
+.nyc_output
+jest.config.js
+
+# Temporary files
+.cache
+tmp
+temp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

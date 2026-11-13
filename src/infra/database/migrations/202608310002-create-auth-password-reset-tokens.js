@@ -1,0 +1,64 @@
+"use strict";
+
+/** @type {import('sequelize-cli').Migration} */
+module.exports = {
+  async up(queryInterface, Sequelize) {
+    await queryInterface.createTable(
+      "auth_password_reset_tokens",
+      {
+        id: {
+          type: Sequelize.INTEGER,
+          allowNull: false,
+          autoIncrement: true,
+          primaryKey: true,
+        },
+
+        authAccountId: {
+          type: Sequelize.INTEGER,
+          allowNull: false,
+        },
+
+        tokenHash: {
+          type: Sequelize.STRING(255),
+          allowNull: false,
+          unique: true,
+        },
+
+        expiresAt: {
+          type: Sequelize.DATE,
+          allowNull: false,
+        },
+
+        usedAt: {
+          type: Sequelize.DATE,
+          allowNull: true,
+        },
+
+        createdAt: {
+          type: Sequelize.DATE,
+          allowNull: false,
+        },
+      },
+    );
+
+    // ============================================================
+    // INDEXES
+    // ============================================================
+
+    await queryInterface.addIndex(
+      "auth_password_reset_tokens",
+      ["authAccountId"],
+      {
+        name: "idx_auth_password_reset_tokens_auth_account_id",
+      },
+    );
+
+    // O unique: true do tokenHash já cria uma restrição UNIQUE.
+  },
+
+  async down(queryInterface) {
+    await queryInterface.dropTable(
+      "auth_password_reset_tokens",
+    );
+  },
+};

@@ -1,0 +1,21 @@
+services:
+  payroll-postgres-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: payroll_test
+      POSTGRES_USER: payroll_test
+      POSTGRES_PASSWORD: payroll_test
+    ports:
+      - '127.0.0.1:55432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U payroll_test -d payroll_test']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    tmpfs:
+      - /var/lib/postgresql/data
+  payroll-redis-test:
+    image: redis:7-alpine
+    ports:
+      - '127.0.0.1:56379:6379'
+    command: redis-server --save '' --appendonly no

@@ -1,0 +1,12 @@
+.DS_Store
+dist/
+build/
+coverage/
+.env
+*.log
+logs/
+.idea/
+.vscode/
+*.exe
+node_modules
+uploads/

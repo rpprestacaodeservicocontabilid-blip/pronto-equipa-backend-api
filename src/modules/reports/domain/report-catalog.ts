@@ -1,0 +1,15 @@
+export type ReportDomain = 'hr' | 'contracts' | 'attendance' | 'leave' | 'payroll' | 'tax' | 'payments' | 'loans' | 'payslips';
+export interface ReportDefinition { code: string; name: string; description: string; domain: ReportDomain; source: string; dateField?: string; sensitive?: boolean; }
+const groups: Array<[ReportDomain, string, string[], string[], boolean]> = [
+  ['hr','HR',['Mapa geral de trabalhadores','Efectivos por departamento','Admissões','Saídas','Evolução dos efectivos','Antiguidade','Distribuição por categoria','Aniversários e datas relevantes','Movimentações internas'],Array(9).fill('employees'),false],
+  ['contracts','CTR',['Contratos activos','Contratos a expirar','Contratos cessados','Contratos por tipo','Histórico de contratos','Renovações pendentes'],Array(6).fill('contracts'),false],
+  ['attendance','ATT',['Registo de presenças','Atrasos e pontualidade','Horas extraordinárias','Ausências','Resumo de assiduidade','Assiduidade por departamento','Ocorrências de ponto'],Array(7).fill('attendance'),false],
+  ['leave','LEV',['Férias e licenças','Férias aprovadas','Ausências por tipo','Saldos de férias','Pedidos pendentes','Mapa anual de ausências'],Array(6).fill('leave'),false],
+  ['payroll','PAY',['Resumo de processamento salarial','Mapa salarial por trabalhador','Remuneração bruta e líquida','Descontos por trabalhador','Componentes remuneratórias','Custos patronais','Folha por departamento','Histórico de processamento','Variação salarial','Processamentos encerrados'],Array(10).fill('payroll'),true],
+  ['tax','TAX',['Mapa de IRT','Resumo de IRT por período','Mapa de INSS','Contribuições por trabalhador','Resumo de retenções','Exportação fiscal de apoio'],Array(6).fill('payroll'),true],
+  ['payments','PMT',['Pagamentos pendentes','Pagamentos confirmados','Pagamentos devolvidos','Ordens de pagamento','Taxa de liquidação','Pagamentos por período','Reconciliações','Histórico de pagamentos'],Array(8).fill('payments'),true],
+  ['loans','LON',['Empréstimos activos','Saldos de empréstimos','Prestações pendentes','Amortizações','Empréstimos por trabalhador','Histórico de empréstimos'],Array(6).fill('loans'),true],
+  ['payslips','PSL',['Recibos emitidos','Recibos publicados','Recibos pendentes','Entregas de recibos','Recibos por período','Histórico de publicações'],Array(6).fill('payslips'),true],
+];
+export const REPORT_CATALOG: ReportDefinition[] = groups.flatMap(([domain,prefix,names,sources,sensitive]) => names.map((name,index) => ({ code:`RPT-${prefix}-${String(index+1).padStart(3,'0')}`,name,description:`${name}; leitura consolidada, filtrada pela empresa activa.`,domain,source:sources[index],sensitive })));
+export const REPORT_PERMISSION: Record<ReportDomain,string> = { hr:'reports:hr:read',contracts:'reports:contracts:read',attendance:'reports:attendance:read',leave:'reports:leave:read',payroll:'reports:payroll:read',tax:'reports:tax:read',payments:'reports:payments:read',loans:'reports:loans:read',payslips:'reports:payslips:read' };

@@ -1,0 +1,7 @@
+export enum ProfileType {
+    PERSONAL = "PERSONAL",
+    PROFESSIONAL = "PROFESSIONAL",
+    PLAYER = "PLAYER",
+    ORGANIZER = "ORGANIZER",
+    BUSINESS = "BUSINESS",
+}
