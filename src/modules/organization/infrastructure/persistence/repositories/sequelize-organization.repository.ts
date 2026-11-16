@@ -6,8 +6,8 @@ import {
   NotFoundError,
   ValidationError,
 } from '../../../../../shared/errors/app.error';
-import { EmployeeModel } from '../../../../employees/infrastructure/persistence/model/employee.model';
-import { CompanyModel } from '../../../../tenancy/infrastructure/persistence/model/company.model';
+import { EmployeeModel } from '../../../../employees/infrastructure/persistence/models/employee.model';
+import { CompanyModel } from '../../../../tenancy/infrastructure/persistence/models/company.model';
 import { OrganizationCode } from '../../../domain/value-objects/organization-code.vo';
 import { AllocationPercentage } from '../../../domain/value-objects/allocation-percentage.vo';
 import {
@@ -21,9 +21,9 @@ import {
   OrganizationRecordInput,
   OrganizationRepository,
 } from '../../../domain/repositories/organization.repository';
-import { OrganizationHistoryModel } from '../model/organization-history.model';
-import { OrganizationOutboxModel } from '../model/organization-outbox.model';
-import { OrganizationRecordModel } from '../model/organization-record.model';
+import { OrganizationHistoryModel } from '../models/organization-history.model';
+import { OrganizationOutboxModel } from '../models/organization-outbox.model';
+import { OrganizationRecordModel } from '../models/organization-record.model';
 
 const mapRecord = (row: OrganizationRecordModel): OrganizationRecord => ({
   id: row.id,
@@ -176,7 +176,7 @@ export class SequelizeOrganizationRepository implements OrganizationRepository {
       if (new Set(inputs.map((input) => input.relatedId)).size !== inputs.length) {
         throw new ValidationError('A cost center can only appear once in an allocation batch.');
       }
-      const employeeId = inputs[0].employeeId;
+      const { employeeId } = inputs[0];
       if (!employeeId) throw new ValidationError('Employee is required for a cost allocation.');
       const employee = await EmployeeModel.findOne({
         where: { id: employeeId, companyId },

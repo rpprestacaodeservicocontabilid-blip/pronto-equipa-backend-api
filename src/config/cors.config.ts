@@ -1,5 +1,5 @@
-import type { EnvVars } from "./env";
-import { parseOrigins } from "./env";
+import type { EnvVars } from './env';
+import { parseOrigins } from './env';
 
 export interface CorsConfig {
   /**
@@ -26,22 +26,22 @@ export interface CorsConfig {
  * o middleware em `bootstrap/register-middlewares`.
  */
 export function createCorsConfig(
-  env: Pick<EnvVars, "NODE_ENV" | "FRONTEND_URL" | "CORS_ORIGIN">,
+  env: Pick<EnvVars, 'NODE_ENV' | 'FRONTEND_URL' | 'CORS_ORIGIN'>,
 ): CorsConfig {
-  const isProd = env.NODE_ENV === "production";
-  const raw = [env.CORS_ORIGIN, env.FRONTEND_URL].filter(Boolean).join(",");
+  const isProd = env.NODE_ENV === 'production';
+  const raw = [env.CORS_ORIGIN, env.FRONTEND_URL].filter(Boolean).join(',');
   const origins = parseOrigins(raw);
 
   const problems: string[] = [];
 
   if (isProd && origins.length === 0) {
     problems.push(
-      "CORS_ORIGIN or FRONTEND_URL is required in production (no wildcard, no empty list)",
+      'CORS_ORIGIN or FRONTEND_URL is required in production (no wildcard, no empty list)',
     );
   }
 
   for (const origin of origins) {
-    if (origin === "*") {
+    if (origin === '*') {
       problems.push('CORS wildcard "*" is not allowed');
       continue;
     }
@@ -53,31 +53,22 @@ export function createCorsConfig(
 
     if (isProd) {
       const host = safeHost(origin);
-      if (host === "localhost" || host === "127.0.0.1" || host === "[::1]") {
-        problems.push(
-          `CORS loopback origin not allowed in production: ${origin}`,
-        );
+      if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') {
+        problems.push(`CORS loopback origin not allowed in production: ${origin}`);
       }
     }
   }
 
   if (problems.length > 0) {
-    throw new Error(
-      `[config] invalid CORS configuration:\n - ${problems.join("\n - ")}`,
-    );
+    throw new Error(`[config] invalid CORS configuration:\n - ${problems.join('\n - ')}`);
   }
 
   return {
     allowAnyOrigin: !isProd && origins.length === 0,
     origins,
     credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "X-Company-Id",
-      "X-Request-Id",
-    ],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Company-Id', 'X-Request-Id'],
   };
 }
 
@@ -85,6 +76,6 @@ function safeHost(origin: string): string {
   try {
     return new URL(origin).hostname;
   } catch {
-    return "";
+    return '';
   }
 }

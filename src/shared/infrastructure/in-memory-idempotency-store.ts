@@ -14,10 +14,7 @@
  *     partilhada (ver lista de pendências do módulo).
  */
 
-import type {
-  IdempotencyEntry,
-  IdempotencyStore,
-} from "../application/idempotency";
+import type { IdempotencyEntry, IdempotencyStore } from '../application/idempotency';
 
 export interface InMemoryIdempotencyOptions {
   /** TTL por omissão das entradas (ms). Omissão: 5 minutos. */
@@ -46,7 +43,7 @@ export class InMemoryIdempotencyStore implements IdempotencyStore {
 
     this.entries.set(key, {
       key,
-      status: "in-progress",
+      status: 'in-progress',
       createdAt: now,
       expiresAt: new Date(now.getTime() + this.resolveTtl(ttlMs)),
     });
@@ -54,11 +51,7 @@ export class InMemoryIdempotencyStore implements IdempotencyStore {
     return true;
   }
 
-  public async complete<T>(
-    key: string,
-    response: T,
-    ttlMs?: number,
-  ): Promise<void> {
+  public async complete<T>(key: string, response: T, ttlMs?: number): Promise<void> {
     this.prune();
 
     const now = new Date();
@@ -66,7 +59,7 @@ export class InMemoryIdempotencyStore implements IdempotencyStore {
 
     this.entries.set(key, {
       key,
-      status: "completed",
+      status: 'completed',
       response,
       createdAt: existing?.createdAt ?? now,
       expiresAt: new Date(now.getTime() + this.resolveTtl(ttlMs)),
@@ -95,6 +88,6 @@ export class InMemoryIdempotencyStore implements IdempotencyStore {
   }
 
   private resolveTtl(ttlMs?: number): number {
-    return typeof ttlMs === "number" && ttlMs > 0 ? ttlMs : this.defaultTtlMs;
+    return typeof ttlMs === 'number' && ttlMs > 0 ? ttlMs : this.defaultTtlMs;
   }
 }

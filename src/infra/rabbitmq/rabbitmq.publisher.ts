@@ -12,10 +12,6 @@ export class RabbitMQPublisher {
 
     await channel.assertQueue(queue, { durable: true });
 
-    return channel.sendToQueue(
-      queue,
-      Buffer.from(JSON.stringify(payload)),
-      { persistent: true },
-    );
+    return channel.sendToQueue(queue, Buffer.from(JSON.stringify(payload)), { persistent: true });
   }
 }

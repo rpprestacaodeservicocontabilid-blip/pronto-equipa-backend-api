@@ -25,51 +25,34 @@ export class PasswordResetToken {
 
   private _usedAt: Date | null;
 
-  private constructor(
-    props: PasswordResetTokenProps,
-  ) {
+  private constructor(props: PasswordResetTokenProps) {
     this._id = props.id;
-    this._authAccountId =
-      props.authAccountId;
+    this._authAccountId = props.authAccountId;
     this._token = props.token;
     this._expiresAt = props.expiresAt;
     this._createdAt = props.createdAt;
     this._usedAt = props.usedAt;
   }
 
-  public static create(
-    props: PasswordResetTokenProps,
-  ): PasswordResetToken {
+  public static create(props: PasswordResetTokenProps): PasswordResetToken {
     if (props.authAccountId <= 0) {
-      throw new Error(
-        "Auth account ID must be greater than zero.",
-      );
+      throw new Error('Auth account ID must be greater than zero.');
     }
 
     if (!props.token?.trim()) {
-      throw new Error(
-        "Password reset token is required.",
-      );
+      throw new Error('Password reset token is required.');
     }
 
-    if (
-      props.expiresAt <= props.createdAt
-    ) {
-      throw new Error(
-        "Password reset token expiration must be after creation.",
-      );
+    if (props.expiresAt <= props.createdAt) {
+      throw new Error('Password reset token expiration must be after creation.');
     }
 
-    return new PasswordResetToken(
-      props,
-    );
+    return new PasswordResetToken(props);
   }
 
   public use(): void {
     if (!this.isValid()) {
-      throw new Error(
-        "Password reset token is no longer valid.",
-      );
+      throw new Error('Password reset token is no longer valid.');
     }
 
     this._usedAt = new Date();
@@ -79,19 +62,12 @@ export class PasswordResetToken {
     return this._usedAt !== null;
   }
 
-  public isExpired(
-    now: Date = new Date(),
-  ): boolean {
+  public isExpired(now: Date = new Date()): boolean {
     return this._expiresAt <= now;
   }
 
-  public isValid(
-    now: Date = new Date(),
-  ): boolean {
-    return (
-      !this.isUsed() &&
-      !this.isExpired(now)
-    );
+  public isValid(now: Date = new Date()): boolean {
+    return !this.isUsed() && !this.isExpired(now);
   }
 
   public get id(): number {

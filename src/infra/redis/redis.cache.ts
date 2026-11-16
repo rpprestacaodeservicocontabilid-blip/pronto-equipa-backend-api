@@ -23,20 +23,11 @@ export const RedisCache = {
     }
   },
 
-  async set(
-    key: string,
-    value: unknown,
-    ttlSeconds = DEFAULT_TTL_SECONDS,
-  ): Promise<void> {
+  async set(key: string, value: unknown, ttlSeconds = DEFAULT_TTL_SECONDS): Promise<void> {
     if (!RedisManager.isEnabled()) return;
 
     try {
-      await RedisManager.client.set(
-        key,
-        JSON.stringify(value),
-        'EX',
-        ttlSeconds,
-      );
+      await RedisManager.client.set(key, JSON.stringify(value), 'EX', ttlSeconds);
     } catch (error) {
       logger.debug('RedisCache.set falhou', {
         key,

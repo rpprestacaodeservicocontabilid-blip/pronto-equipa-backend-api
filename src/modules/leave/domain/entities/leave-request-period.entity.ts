@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { ValidationError } from '../../../../shared/errors/app.error';
+
 import { LeaveDays } from '../value-objects/leave-days.vo';
 import { LeavePeriod } from '../value-objects/leave-period.vo';
 

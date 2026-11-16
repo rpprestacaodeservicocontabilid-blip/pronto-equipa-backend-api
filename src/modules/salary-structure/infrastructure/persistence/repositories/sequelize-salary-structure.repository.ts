@@ -17,8 +17,8 @@ import {
   NotFoundError,
   ValidationError,
 } from '../../../../../shared/errors/app.error';
-import { EmployeeModel } from '../../../../employees/infrastructure/persistence/model/employee.model';
-import { EmploymentContractModel } from '../../../../contracts/infrastructure/persistence/model/employment-contract.model';
+import { EmployeeModel } from '../../../../employees/infrastructure/persistence/models/employee.model';
+import { EmploymentContractModel } from '../../../../contracts/infrastructure/persistence/models/employment-contract.model';
 import {
   EmployeeSalaryAssignmentModel,
   EmployeeSalaryComponentModel,
@@ -37,7 +37,7 @@ import {
   SalaryStructureVersionModel,
   SalaryTableModel,
   SalaryTableVersionModel,
-} from '../model/salary-structure.models';
+} from '../models/salary-structure.models';
 import {
   SalaryCalculationComponent,
   SalaryComponentEvaluatorService,

@@ -1,4 +1,4 @@
-import { TokenType } from "../enums/token-type.enum";
+import { TokenType } from '../enums/token-type.enum';
 
 export interface VerificationTokenProps {
   id: number;
@@ -43,12 +43,9 @@ export class VerificationToken {
 
   private readonly _destination: string | null;
 
-  private constructor(
-    props: VerificationTokenProps,
-  ) {
+  private constructor(props: VerificationTokenProps) {
     this._id = props.id;
-    this._authAccountId =
-      props.authAccountId;
+    this._authAccountId = props.authAccountId;
     this._token = props.token;
     this._type = props.type;
     this._expiresAt = props.expiresAt;
@@ -62,39 +59,25 @@ export class VerificationToken {
     this._destination = props.destination ?? null;
   }
 
-  public static create(
-    props: VerificationTokenProps,
-  ): VerificationToken {
+  public static create(props: VerificationTokenProps): VerificationToken {
     if (props.authAccountId <= 0) {
-      throw new Error(
-        "Auth account ID must be greater than zero.",
-      );
+      throw new Error('Auth account ID must be greater than zero.');
     }
 
     if (!props.token?.trim()) {
-      throw new Error(
-        "Verification token is required.",
-      );
+      throw new Error('Verification token is required.');
     }
 
-    if (
-      props.expiresAt <= props.createdAt
-    ) {
-      throw new Error(
-        "Verification token expiration must be after creation.",
-      );
+    if (props.expiresAt <= props.createdAt) {
+      throw new Error('Verification token expiration must be after creation.');
     }
 
-    return new VerificationToken(
-      props,
-    );
+    return new VerificationToken(props);
   }
 
   public use(): void {
     if (!this.isValid()) {
-      throw new Error(
-        "Verification token is no longer valid.",
-      );
+      throw new Error('Verification token is no longer valid.');
     }
 
     this._usedAt = new Date();
@@ -115,9 +98,7 @@ export class VerificationToken {
     this._attempts++;
   }
 
-  public hasReachedMaxAttempts(
-    maxAttempts: number,
-  ): boolean {
+  public hasReachedMaxAttempts(maxAttempts: number): boolean {
     return this._attempts >= maxAttempts;
   }
 
@@ -125,19 +106,12 @@ export class VerificationToken {
     return this._usedAt !== null;
   }
 
-  public isExpired(
-    now: Date = new Date(),
-  ): boolean {
+  public isExpired(now: Date = new Date()): boolean {
     return this._expiresAt <= now;
   }
 
-  public isValid(
-    now: Date = new Date(),
-  ): boolean {
-    return (
-      !this.isUsed() &&
-      !this.isExpired(now)
-    );
+  public isValid(now: Date = new Date()): boolean {
+    return !this.isUsed() && !this.isExpired(now);
   }
 
   public get id(): number {

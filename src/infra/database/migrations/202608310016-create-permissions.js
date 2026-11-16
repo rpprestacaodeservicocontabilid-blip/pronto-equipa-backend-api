@@ -1,10 +1,10 @@
-"use strict";
+'use strict';
 
 /** @type {import('sequelize-cli').Migration} */
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("permissions", {
+    await queryInterface.createTable('permissions', {
       id: {
         type: Sequelize.INTEGER.UNSIGNED,
         allowNull: false,
@@ -35,7 +35,7 @@ module.exports = {
       scope: {
         type: Sequelize.STRING(50),
         allowNull: false,
-        defaultValue: "GLOBAL",
+        defaultValue: 'GLOBAL',
       },
 
       isSystem: {
@@ -59,33 +59,29 @@ module.exports = {
     // UNIQUE INDEX — NAME
     // ============================================================
 
-    await queryInterface.addIndex("permissions", ["name"], {
+    await queryInterface.addIndex('permissions', ['name'], {
       unique: true,
-      name: "uq_permissions_name",
+      name: 'uq_permissions_name',
     });
 
     // ============================================================
     // INDEX — RESOURCE + ACTION
     // ============================================================
 
-    await queryInterface.addIndex(
-      "permissions",
-      ["resource", "action"],
-      {
-        name: "idx_permissions_resource_action",
-      },
-    );
+    await queryInterface.addIndex('permissions', ['resource', 'action'], {
+      name: 'idx_permissions_resource_action',
+    });
 
     // ============================================================
     // INDEX — SCOPE
     // ============================================================
 
-    await queryInterface.addIndex("permissions", ["scope"], {
-      name: "idx_permissions_scope",
+    await queryInterface.addIndex('permissions', ['scope'], {
+      name: 'idx_permissions_scope',
     });
   },
 
   async down(queryInterface) {
-    await queryInterface.dropTable("permissions");
+    await queryInterface.dropTable('permissions');
   },
 };

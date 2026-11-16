@@ -2,7 +2,7 @@
  * Declaração de tipo para `swagger-jsdoc` (o pacote não publica tipos próprios).
  * Evita o erro TS7016 sem instalar dependências adicionais.
  */
-declare module "swagger-jsdoc" {
+declare module 'swagger-jsdoc' {
   namespace swaggerJsdoc {
     interface Options {
       definition: Record<string, unknown>;
@@ -14,9 +14,7 @@ declare module "swagger-jsdoc" {
     }
   }
 
-  function swaggerJsdoc(
-    options: swaggerJsdoc.Options,
-  ): swaggerJsdoc.SwaggerSpec;
+  function swaggerJsdoc(options: swaggerJsdoc.Options): swaggerJsdoc.SwaggerSpec;
 
   export = swaggerJsdoc;
 }

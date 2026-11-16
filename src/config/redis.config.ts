@@ -1,4 +1,4 @@
-import type { EnvVars } from "./env";
+import type { EnvVars } from './env';
 
 export interface RedisConfig {
   /** `true` quando há URL/prefix configurados; o cliente decide. */
@@ -14,7 +14,7 @@ export interface RedisConfig {
  * falhar o arranque.
  */
 export function createRedisConfig(
-  env: Pick<EnvVars, "REDIS_URL" | "REDIS_PASSWORD" | "REDIS_PREFIX">,
+  env: Pick<EnvVars, 'REDIS_URL' | 'REDIS_PASSWORD' | 'REDIS_PREFIX'>,
 ): RedisConfig {
   return {
     enabled: env.REDIS_URL.length > 0,

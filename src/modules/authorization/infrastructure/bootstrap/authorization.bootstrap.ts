@@ -6,9 +6,9 @@ import { AuthorizationService } from '../../application/services/authorization.s
 import { AuthorizationPolicyService } from '../../domain/services/authorization-policy.service';
 import { SequelizePlatformRoleChecker } from '../persistence/sequelize-platform-role-checker';
 import { SequelizeTenantPermissionChecker } from '../persistence/sequelize-tenant-permission-checker';
-import { createTenantContextMiddleware } from '../http/middleware/tenant-context.middleware';
-import { createRequireCompanyPermission } from '../http/middleware/require-company-permission.middleware';
-import { createRequirePlatformRole } from '../http/middleware/require-platform-role.middleware';
+import { createTenantContextMiddleware } from '../../presentation/middlewares/tenant-context.middleware';
+import { createRequireCompanyPermission } from '../../presentation/middlewares/require-company-permission.middleware';
+import { createRequirePlatformRole } from '../../presentation/middlewares/require-platform-role.middleware';
 
 type Middleware = (req: Request, res: Response, next: NextFunction) => void;
 

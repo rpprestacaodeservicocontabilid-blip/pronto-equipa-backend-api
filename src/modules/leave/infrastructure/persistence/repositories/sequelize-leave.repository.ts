@@ -17,12 +17,12 @@ import {
 import { LeaveMovementType } from '../../../domain/value-objects/leave-balance.vo';
 import { LeaveBalance } from '../../../domain/value-objects/leave-balance.vo';
 import { BLOCKING_LEAVE_STATUSES } from '../../../domain/value-objects/leave-status.vo';
-import { LeaveAccountModel } from '../model/leave-account.model';
-import { LeaveApprovalModel } from '../model/leave-approval.model';
-import { LeaveBalanceMovementModel } from '../model/leave-balance-movement.model';
-import { LeaveEntitlementModel } from '../model/leave-entitlement.model';
-import { LeaveRequestModel } from '../model/leave-request.model';
-import { LeaveRequestPeriodModel } from '../model/leave-request-period.model';
+import { LeaveAccountModel } from '../models/leave-account.model';
+import { LeaveApprovalModel } from '../models/leave-approval.model';
+import { LeaveBalanceMovementModel } from '../models/leave-balance-movement.model';
+import { LeaveEntitlementModel } from '../models/leave-entitlement.model';
+import { LeaveRequestModel } from '../models/leave-request.model';
+import { LeaveRequestPeriodModel } from '../models/leave-request-period.model';
 
 // ============================================================
 // Helpers
@@ -53,7 +53,7 @@ const mapAccount = (row: LeaveAccountModel): LeaveAccountProps => ({
   id: row.id,
   companyId: row.companyId,
   employeeId: row.employeeId,
-  status: row.status as LeaveAccountProps['status'],
+  status: row.status,
   version: row.version,
 });
 
@@ -254,10 +254,7 @@ export class SequelizeLeaveRepository implements LeaveRepository {
   // Direitos e movimentos
   // ----------------------------------------------------------
 
-  async listEntitlements(
-    companyId: number,
-    accountId: string,
-  ): Promise<LeaveEntitlementRecord[]> {
+  async listEntitlements(companyId: number, accountId: string): Promise<LeaveEntitlementRecord[]> {
     return withTenant(companyId, async (transaction) => {
       const rows = await LeaveEntitlementModel.findAll({
         where: { companyId, accountId },
@@ -458,8 +455,7 @@ export class SequelizeLeaveRepository implements LeaveRepository {
 
       return periods.map((period) => ({
         requestId: period.requestId,
-        status: (statusById.get(period.requestId) ??
-          'DRAFT') as LeavePeriodRecord['status'],
+        status: (statusById.get(period.requestId) ?? 'DRAFT') as LeavePeriodRecord['status'],
         startDate: dateOnly(period.startDate),
         endDate: dateOnly(period.endDate),
         calculatedDays: period.calculatedDays,

@@ -12,13 +12,13 @@
  *  /api-docs      Swagger (dev/test)
  */
 
-import express, { type Express, type Request, type Response } from "express";
+import express, { type Express, type Request, type Response } from 'express';
 
-import routes from "../main/routes";
-import { ENV } from "../config/env";
-import { swaggerDocs } from "../docs/swaggers";
+import routes from '../main/routes';
+import { ENV } from '../config/env';
+import { swaggerDocs } from '../docs/swaggers';
 
-import type { ApplicationContext } from "./types/application-context";
+import type { ApplicationContext } from './types/application-context';
 
 /**
  * Readiness: só responde 200 quando o ciclo de vida está `ready`
@@ -28,30 +28,26 @@ import type { ApplicationContext } from "./types/application-context";
 function sendReadiness(context: ApplicationContext, res: Response): void {
   const snapshot = context.health.snapshot();
 
-  const ready =
-    context.lifecycle.isReady && snapshot.status !== "down";
+  const ready = context.lifecycle.isReady && snapshot.status !== 'down';
 
   res.status(ready ? 200 : 503).json({
-    status: ready ? "ready" : "not_ready",
+    status: ready ? 'ready' : 'not_ready',
     state: context.lifecycle.state,
     checks: snapshot.checks,
     timestamp: new Date().toISOString(),
   });
 }
 
-export function registerRoutes(
-  app: Express,
-  context: ApplicationContext,
-): void {
+export function registerRoutes(app: Express, context: ApplicationContext): void {
   // --------------------------------------------------------
   // LIVENESS (BOOT-009) — o processo responde?
   // --------------------------------------------------------
   // Não depende de nenhuma outra dependência: responde 200
   // sempre que o processo HTTP está vivo, mesmo durante o
   // encerramento (os orquestradores precisam disto).
-  app.get("/health/live", (_req: Request, res: Response) => {
+  app.get('/health/live', (_req: Request, res: Response) => {
     res.status(200).json({
-      status: "alive",
+      status: 'alive',
       app: ENV.APP.NAME,
       env: ENV.NODE_ENV,
       state: context.lifecycle.state,
@@ -60,9 +56,9 @@ export function registerRoutes(
   });
 
   // Alias legacy — mesmo significado da liveness.
-  app.get("/health", (_req: Request, res: Response) => {
+  app.get('/health', (_req: Request, res: Response) => {
     res.status(200).json({
-      status: "ok",
+      status: 'ok',
       app: ENV.APP.NAME,
       env: ENV.NODE_ENV,
       state: context.lifecycle.state,
@@ -73,24 +69,24 @@ export function registerRoutes(
   // --------------------------------------------------------
   // READINESS (BOOT-009)
   // --------------------------------------------------------
-  app.get("/health/ready", (_req: Request, res: Response) => {
+  app.get('/health/ready', (_req: Request, res: Response) => {
     sendReadiness(context, res);
   });
 
-  app.get("/ready", (_req: Request, res: Response) => {
+  app.get('/ready', (_req: Request, res: Response) => {
     sendReadiness(context, res);
   });
 
   // --------------------------------------------------------
   // API
   // --------------------------------------------------------
-  app.use("/api/v1", routes);
+  app.use('/api/v1', routes);
 
   /**
    * Ficheiros enviados (ex.: mensagens de voz do chat).
    * Em dev ficam em `uploads/`; em produção usa-se storage externo.
    */
-  app.use("/uploads", express.static("uploads"));
+  app.use('/uploads', express.static('uploads'));
 
   // Documentação (apenas ambientes de desenvolvimento/teste)
   if (ENV.FLAGS.isDev || ENV.FLAGS.isTest) {

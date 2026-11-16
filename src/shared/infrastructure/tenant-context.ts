@@ -17,7 +17,7 @@
  * (token + membership), nunca o `X-Company-Id` bruto.
  */
 
-import { AsyncLocalStorage } from "async_hooks";
+import { AsyncLocalStorage } from 'async_hooks';
 
 export interface TenantScope {
   /** Empresa activa. `null` = contexto global (sem tenant). */

@@ -18,9 +18,12 @@ export interface SalaryStructureModuleOptions {
 
 export const createSalaryStructureModule = (
   options: SalaryStructureModuleOptions,
-): { routes: Router } => {
+): { routes: Router; service: ManageSalaryStructureUseCase } => {
   const repository = new SequelizeSalaryStructureRepository();
   const useCase = new ManageSalaryStructureUseCase(repository, options.audit);
   const controller = new SalaryStructureController(useCase);
-  return { routes: createSalaryStructureRoutes(controller, options.requirePermission) };
+  return {
+    routes: createSalaryStructureRoutes(controller, options.requirePermission),
+    service: useCase,
+  };
 };

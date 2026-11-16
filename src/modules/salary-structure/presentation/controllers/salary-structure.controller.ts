@@ -1,12 +1,9 @@
 import { Request, Response } from 'express';
 import { ManageSalaryStructureUseCase } from '../../application/use-cases/manage-salary-structure.use-case';
-import { SequelizeSalaryStructureRepository } from '../../infrastructure/persistence/repositories/sequelize-salary-structure.repository';
+import { SalaryStructureRepositoryPort } from '../../application/ports/salary-structure.repository.port';
 
 type Context = { companyId: number; actorUserId: number };
-type Operation<T> = (
-  repository: SequelizeSalaryStructureRepository,
-  context: Context,
-) => Promise<T>;
+type Operation<T> = (repository: SalaryStructureRepositoryPort, context: Context) => Promise<T>;
 
 export class SalaryStructureController {
   constructor(private readonly salaryStructure: ManageSalaryStructureUseCase) {}
@@ -14,7 +11,7 @@ export class SalaryStructureController {
   async read<T>(
     req: Request,
     res: Response,
-    operation: (repository: SequelizeSalaryStructureRepository, companyId: number) => Promise<T>,
+    operation: (repository: SalaryStructureRepositoryPort, companyId: number) => Promise<T>,
   ): Promise<void> {
     const companyId = this.companyId(res);
     if (companyId === null) return;

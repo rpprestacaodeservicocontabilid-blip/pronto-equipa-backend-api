@@ -41,7 +41,17 @@ export class PayrollPeriod {
 
 export class PayrollRun {
   static cancel(status: RunStatus): RunStatus {
-    if (!['DRAFT', 'VALIDATING', 'VALIDATION_FAILED', 'READY_FOR_REVIEW', 'PARTIALLY_PROCESSED', 'FAILED', 'REJECTED'].includes(status))
+    if (
+      ![
+        'DRAFT',
+        'VALIDATING',
+        'VALIDATION_FAILED',
+        'READY_FOR_REVIEW',
+        'PARTIALLY_PROCESSED',
+        'FAILED',
+        'REJECTED',
+      ].includes(status)
+    )
       throw new ConflictError('This execution cannot be cancelled.');
     return 'CANCELLED';
   }

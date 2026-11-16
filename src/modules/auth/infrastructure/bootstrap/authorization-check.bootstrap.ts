@@ -1,23 +1,21 @@
-import { Router } from "express";
-import { Op } from "sequelize";
+import { SessionManagerService } from '../service/session-manager.service';
+import { Router } from 'express';
+import { Op } from 'sequelize';
 
-import { ENV } from "../../../../config/env";
-import { RolePermissionModel } from "../persistence/model/role-permission.model";
-import { UserRoleModel } from "../persistence/model/user-role.model";
-import { PermissionModel } from "../persistence/model/permission.model";
-import { JwtTokenService } from "../service/jwt-token.service";
-import { authenticationMiddleware } from "../http/middleware/authentication.middleware";
-import { roleMiddleware } from "../http/middleware/role.middleware";
+import { ENV } from '../../../../config/env';
+import { RolePermissionModel } from '../persistence/models/role-permission.model';
+import { UserRoleModel } from '../persistence/models/user-role.model';
+import { PermissionModel } from '../persistence/models/permission.model';
+import { JwtTokenService } from '../service/jwt-token.service';
+import { authenticationMiddleware } from '../../presentation/middlewares/authentication.middleware';
+import { roleMiddleware } from '../../presentation/middlewares/role.middleware';
 
 export function createAuthorizationCheckRoutes(): Router {
   const router = Router();
-  const tokenService = new JwtTokenService(
-    ENV.JWT.SECRET,
-    ENV.JWT.EXPIRES_IN || "15m",
-  );
+  const tokenService = new JwtTokenService(ENV.JWT.SECRET, ENV.JWT.EXPIRES_IN || '15m');
 
-  router.use(authenticationMiddleware(tokenService));
-  router.use(roleMiddleware("ADMIN"));
+  router.use(authenticationMiddleware(tokenService, new SessionManagerService()));
+  router.use(roleMiddleware('ADMIN'));
 
   /**
    * @swagger
@@ -56,21 +54,21 @@ export function createAuthorizationCheckRoutes(): Router {
    *       500:
    *         $ref: '#/components/responses/InternalServerError'
    */
-  router.get("/users/:userId/permissions/:permission", async (req, res, next) => {
+  router.get('/users/:userId/permissions/:permission', async (req, res, next) => {
     const userId = Number(req.params.userId);
     const permissionName = req.params.permission;
 
     if (!Number.isInteger(userId) || userId <= 0 || !permissionName) {
       res.status(400).json({
         success: false,
-        error: "Invalid user ID or permission.",
+        error: 'Invalid user ID or permission.',
       });
       return;
     }
 
     try {
       const assignments = await UserRoleModel.findAll({
-        attributes: ["roleId"],
+        attributes: ['roleId'],
         where: { userId },
       });
       const roleIds = [...new Set(assignments.map(({ roleId }) => roleId))];
@@ -81,16 +79,14 @@ export function createAuthorizationCheckRoutes(): Router {
       }
 
       const rolePermissions = await RolePermissionModel.findAll({
-        attributes: ["permissionId"],
+        attributes: ['permissionId'],
         where: { roleId: { [Op.in]: roleIds } },
       });
-      const permissionIds = [
-        ...new Set(rolePermissions.map(({ permissionId }) => permissionId)),
-      ];
+      const permissionIds = [...new Set(rolePermissions.map(({ permissionId }) => permissionId))];
 
       const permission = permissionIds.length
         ? await PermissionModel.findOne({
-            attributes: ["id"],
+            attributes: ['id'],
             where: {
               id: { [Op.in]: permissionIds },
               name: permissionName,

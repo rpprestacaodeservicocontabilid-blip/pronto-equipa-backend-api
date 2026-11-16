@@ -12,10 +12,7 @@ const skipInTest = () => process.env.NODE_ENV === 'test';
  * Só é usado quando o Redis está pronto; caso contrário
  * o limiter usa MemoryStore (uma instância partilhada).
  */
-function createRedisStore(
-  prefix: string,
-  windowMs: number,
-): Store | undefined {
+function createRedisStore(prefix: string, windowMs: number): Store | undefined {
   if (!RedisManager.isEnabled()) {
     return undefined;
   }
@@ -23,7 +20,7 @@ function createRedisStore(
   return {
     async increment(key: string) {
       const redisKey = `ratelimit:${prefix}:${key}`;
-      const client = RedisManager.client;
+      const { client } = RedisManager;
       const totalHits = await client.incr(redisKey);
 
       if (totalHits === 1) {
@@ -77,21 +74,17 @@ function buildLimiter(
       // e acusa falso ERR_ERL_DOUBLE_COUNT quando dois limites são encadeados.
       localKeys: true,
       async increment(key: string) {
-        const store =
-          createRedisStore(prefix, windowMs) ??
-          (memoryFallback ??= new MemoryStore());
+        const store = createRedisStore(prefix, windowMs) ?? (memoryFallback ??= new MemoryStore());
 
         return store.increment(key);
       },
       async decrement(key: string) {
-        const store =
-          createRedisStore(prefix, windowMs) ?? memoryFallback;
+        const store = createRedisStore(prefix, windowMs) ?? memoryFallback;
 
         if (store) await store.decrement(key);
       },
       async resetKey(key: string) {
-        const store =
-          createRedisStore(prefix, windowMs) ?? memoryFallback;
+        const store = createRedisStore(prefix, windowMs) ?? memoryFallback;
 
         if (store) await store.resetKey(key);
       },
@@ -135,14 +128,10 @@ export const createLimiter = buildLimiter(
 );
 
 /** Limiter com chave por utilizador autenticado (ou IP em fallback). */
-export function createUserRateLimiter(
-  prefix: string,
-  windowMs = 15 * 60 * 1000,
-  limit = 100,
-) {
+export function createUserRateLimiter(prefix: string, windowMs = 15 * 60 * 1000, limit = 100) {
   return buildLimiter(prefix, windowMs, limit, 'Limite excedido.', {
     keyGenerator: (req) => {
-      const user = (req as unknown as { user?: { id?: number } }).user;
+      const { user } = req as unknown as { user?: { id?: number } };
       if (user?.id !== undefined) {
         return `user-${user.id}`;
       }

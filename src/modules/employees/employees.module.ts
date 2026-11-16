@@ -1,3 +1,7 @@
+import { z } from 'zod';
+import { createEmployeeSchema } from './presentation/schemas/employee.schema';
+import { EmployeeEntity } from './domain/entities/employee.entity';
+
 import { Router } from 'express';
 import { AuditRecorderPort } from '../audit/application/ports/audit-recorder.port';
 import { ChangeEmployeeStatusUseCase } from './application/use-cases/change-employee-status.use-case';
@@ -22,6 +26,8 @@ import { SequelizeEmployeeDetailsRepository } from './infrastructure/persistence
 import { EmployeesController } from './presentation/controllers/employees.controller';
 import { createEmployeesRoutes } from './presentation/routes/employees.routes';
 
+const initialEmployeeSchema = createEmployeeSchema.extend({ id: z.string().uuid() });
+
 type Middleware = (
   req: import('express').Request,
   res: import('express').Response,
@@ -35,6 +41,7 @@ export interface EmployeesModuleOptions {
 
 export interface EmployeesModule {
   routes: Router;
+  importInitial(companyId: number, actor: number, input: unknown): Promise<EmployeeEntity>;
 }
 
 export const createEmployeesModule = (options: EmployeesModuleOptions): EmployeesModule => {
@@ -58,6 +65,11 @@ export const createEmployeesModule = (options: EmployeesModuleOptions): Employee
   );
 
   return {
+    async importInitial(companyId, actor, input) {
+      const parsed = initialEmployeeSchema.parse(input);
+      const old = await repository.findById(companyId, parsed.id);
+      return old || createEmployee.execute({ ...parsed, companyId, actorUserId: actor });
+    },
     routes: createEmployeesRoutes(controller, options.requirePermission),
   };
 };

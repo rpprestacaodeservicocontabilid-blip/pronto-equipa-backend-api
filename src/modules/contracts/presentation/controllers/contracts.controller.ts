@@ -1,3 +1,4 @@
+import { createContractTypeSchema } from '../schemas/contract.schema';
 import { Request, Response } from 'express';
 import { ManageContractsUseCase } from '../../application/use-cases/manage-contracts.use-case';
 import { CreateContractDto, UpdateDraftDto } from '../schemas/contract.schema';
@@ -182,7 +183,10 @@ export class ContractsController {
   async createType(req: Request, res: Response): Promise<void> {
     const context = this.context(req, res);
     if (!context) return;
-    const data = await this.contracts.createType({ ...context, ...req.body });
+    const data = await this.contracts.createType({
+      ...createContractTypeSchema.parse(req.body),
+      ...context,
+    });
     res.status(201).json({ success: true, data });
   }
 

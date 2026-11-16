@@ -1,6 +1,6 @@
-import type { EnvVars } from "./env";
+import type { EnvVars } from './env';
 
-export type DatabaseDialect = "sqlite" | "mysql";
+export type DatabaseDialect = 'sqlite' | 'mysql' | 'postgres';
 
 export interface DatabaseConfig {
   dialect: DatabaseDialect;
@@ -36,21 +36,26 @@ export interface DatabaseConfig {
  * DERIVA as opções: quem liga é o adaptador em
  * `infra/database`.
  */
-export function createDatabaseConfig(env: Pick<EnvVars,
-  | "DB_DIALECT"
-  | "DB_HOST"
-  | "DB_PORT"
-  | "DB_NAME"
-  | "DB_USER"
-  | "DB_PASSWORD"
-  | "DB_STORAGE"
-  | "DB_POOL_MAX"
-  | "DB_POOL_MIN"
-  | "DB_POOL_ACQUIRE"
-  | "DB_POOL_IDLE"
-  | "DB_SSL"
-  | "DB_SSL_REJECT_UNAUTHORIZED">): DatabaseConfig {
-  const dialect = (env.DB_DIALECT === "mysql" ? "mysql" : "sqlite");
+export function createDatabaseConfig(
+  env: Pick<
+    EnvVars,
+    | 'DB_DIALECT'
+    | 'DB_HOST'
+    | 'DB_PORT'
+    | 'DB_NAME'
+    | 'DB_USER'
+    | 'DB_PASSWORD'
+    | 'DB_STORAGE'
+    | 'DB_POOL_MAX'
+    | 'DB_POOL_MIN'
+    | 'DB_POOL_ACQUIRE'
+    | 'DB_POOL_IDLE'
+    | 'DB_SSL'
+    | 'DB_SSL_REJECT_UNAUTHORIZED'
+  >,
+): DatabaseConfig {
+  const dialect: DatabaseDialect =
+    env.DB_DIALECT === 'postgres' ? 'postgres' : env.DB_DIALECT === 'mysql' ? 'mysql' : 'sqlite';
 
   return {
     dialect,
@@ -59,7 +64,7 @@ export function createDatabaseConfig(env: Pick<EnvVars,
     database: env.DB_NAME,
     username: env.DB_USER,
     password: env.DB_PASSWORD,
-    ...(dialect === "sqlite" ? { storage: env.DB_STORAGE } : {}),
+    ...(dialect === 'sqlite' ? { storage: env.DB_STORAGE } : {}),
     pool: {
       max: env.DB_POOL_MAX,
       min: env.DB_POOL_MIN,
@@ -67,8 +72,8 @@ export function createDatabaseConfig(env: Pick<EnvVars,
       idle: env.DB_POOL_IDLE,
     },
     ssl: {
-      enabled: env.DB_SSL === "true",
-      rejectUnauthorized: env.DB_SSL_REJECT_UNAUTHORIZED === "true",
+      enabled: env.DB_SSL === 'true',
+      rejectUnauthorized: env.DB_SSL_REJECT_UNAUTHORIZED === 'true',
     },
     synchronize: false,
   };

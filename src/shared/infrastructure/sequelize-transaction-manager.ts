@@ -17,19 +17,17 @@
  * (contrato), pelo que os testes podem substituí-la.
  */
 
-import type { Transaction } from "sequelize";
+import type { Transaction } from 'sequelize';
 
-import { sequelize } from "../../infra/database";
+import { sequelize } from '../../infra/database';
 import type {
   TransactionManager,
   TransactionOptions,
   TransactionScope,
-} from "../application/transaction-manager";
-import { runWithTenant } from "./tenant-context";
+} from '../application/transaction-manager';
+import { runWithTenant } from './tenant-context';
 
-export class SequelizeTransactionManager
-  implements TransactionManager<Transaction>
-{
+export class SequelizeTransactionManager implements TransactionManager<Transaction> {
   public async run<T>(
     callback: (handle: Transaction, scope: TransactionScope) => Promise<T>,
     options: TransactionOptions = {},

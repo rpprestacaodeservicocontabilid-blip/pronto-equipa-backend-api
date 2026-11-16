@@ -31,7 +31,9 @@ export interface PaymentProviderPort {
 }
 
 export class PaymentSubmissionUnknownError extends Error {
-  constructor(message = 'Provider submission outcome is unknown; query the provider before retrying.') {
+  constructor(
+    message = 'Provider submission outcome is unknown; query the provider before retrying.',
+  ) {
     super(message);
     this.name = 'PaymentSubmissionUnknownError';
   }

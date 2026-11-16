@@ -13,32 +13,28 @@
  * `loadEnvironment`   → validação do ambiente (BOOT-001)
  */
 
-export { createApp, createApplicationContext } from "./app";
-export { startServer } from "./server";
-export { Lifecycle } from "./lifecycle";
-export { HealthRegistry } from "./health";
-export { Container } from "./container";
+export { createApp, createApplicationContext } from './app';
+export { startServer } from './server';
+export { Lifecycle } from './lifecycle';
+export { HealthRegistry } from './health';
+export { Container } from './container';
 export {
   createShutdownHandler,
   closeHttpServer,
   ShutdownError,
   type ShutdownFn,
   type ShutdownOptions,
-} from "./shutdown";
-export { HttpError } from "./register-error-handlers";
-export {
-  defaultModules,
-  initializeModules,
-  shutdownModules,
-} from "./register-modules";
-export { registerMiddlewares } from "./register-middlewares";
-export { registerRoutes } from "./register-routes";
-export { registerErrorHandlers } from "./register-error-handlers";
+} from './shutdown';
+export { HttpError } from './register-error-handlers';
+export { defaultModules, initializeModules, shutdownModules } from './register-modules';
+export { registerMiddlewares } from './register-middlewares';
+export { registerRoutes } from './register-routes';
+export { registerErrorHandlers } from './register-error-handlers';
 export {
   loadEnvironment,
   validateEnvironment,
   type BootstrapEnvironment,
-} from "./validate-environment";
+} from './validate-environment';
 
 export type {
   ApplicationContext,
@@ -49,4 +45,4 @@ export type {
   LifecycleState,
   Logger,
   ModuleDefinition,
-} from "./types/application-context";
+} from './types/application-context';

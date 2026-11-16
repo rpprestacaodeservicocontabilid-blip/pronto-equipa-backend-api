@@ -58,7 +58,7 @@ export class AuthorizationPolicyService {
       return false;
     }
 
-    const context = input.scope.context;
+    const { context } = input.scope;
 
     if (context.type === 'tenant') {
       if (!input.membership?.active || input.membership.tenantId !== context.tenantId) {

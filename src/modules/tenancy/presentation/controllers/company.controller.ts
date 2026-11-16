@@ -1,13 +1,12 @@
-import { Request, Response } from "express";
+import { Request, Response } from 'express';
 
-import { CreateCompanyUseCase } from "../../application/use-cases/create-company.use-case";
-import { ListMyCompaniesUseCase } from "../../application/use-cases/list-my-companies.use-case";
-import { ListAllCompaniesUseCase } from "../../application/use-cases/list-all-companies.use-case";
-import { GetCompanyContextUseCase } from "../../application/use-cases/get-company-context.use-case";
-import { UpdateCompanyUseCase } from "../../application/use-cases/update-company.use-case";
-import { ChangeCompanyStatusUseCase } from "../../application/use-cases/change-company-status.use-case";
-import { CreateCompanyDto, UpdateCompanyDto, ListCompaniesDto } from "../schemas/company.schema";
-import { RoleModel } from "../../../user/infrastructure/persistence/models/role.model";
+import { CreateCompanyUseCase } from '../../application/use-cases/create-company.use-case';
+import { ListMyCompaniesUseCase } from '../../application/use-cases/list-my-companies.use-case';
+import { ListAllCompaniesUseCase } from '../../application/use-cases/list-all-companies.use-case';
+import { GetCompanyContextUseCase } from '../../application/use-cases/get-company-context.use-case';
+import { UpdateCompanyUseCase } from '../../application/use-cases/update-company.use-case';
+import { ChangeCompanyStatusUseCase } from '../../application/use-cases/change-company-status.use-case';
+import { CreateCompanyDto, UpdateCompanyDto, ListCompaniesDto } from '../schemas/company.schema';
 
 /**
  * Controllers de empresa.
@@ -17,198 +16,184 @@ import { RoleModel } from "../../../user/infrastructure/persistence/models/role.
  * vêm do body do cliente para definir o âmbito.
  */
 export class CompanyController {
-    constructor(
-        private readonly createCompanyUseCase: CreateCompanyUseCase,
-        private readonly listMyCompaniesUseCase: ListMyCompaniesUseCase,
-        private readonly listAllCompaniesUseCase: ListAllCompaniesUseCase,
-        private readonly getCompanyContextUseCase: GetCompanyContextUseCase,
-        private readonly updateCompanyUseCase: UpdateCompanyUseCase,
-        private readonly changeCompanyStatusUseCase: ChangeCompanyStatusUseCase,
-    ) { }
+  constructor(
+    private readonly createCompanyUseCase: CreateCompanyUseCase,
+    private readonly listMyCompaniesUseCase: ListMyCompaniesUseCase,
+    private readonly listAllCompaniesUseCase: ListAllCompaniesUseCase,
+    private readonly getCompanyContextUseCase: GetCompanyContextUseCase,
+    private readonly updateCompanyUseCase: UpdateCompanyUseCase,
+    private readonly changeCompanyStatusUseCase: ChangeCompanyStatusUseCase,
+  ) {}
 
-    /** POST /api/v1/companies */
-    async create(req: Request, res: Response): Promise<void> {
-        const actorUserId = req.user?.userId;
+  /** POST /api/v1/companies */
+  async create(req: Request, res: Response): Promise<void> {
+    const actorUserId = req.user?.userId;
 
-        if (!actorUserId) {
-            res.status(401).json({ message: "Authentication required." });
-            return;
-        }
-
-        const body = req.body as CreateCompanyDto;
-
-        // O papel do criador: ADMIN (role global canónica).
-        const adminRoleId = await this.resolveAdminRoleId();
-
-        const company = await this.createCompanyUseCase.execute({
-            actorUserId,
-            name: body.name,
-            slug: body.slug ?? null,
-            nif: body.nif ?? null,
-            email: body.email ?? null,
-            phone: body.phone ?? null,
-            timezone: body.timezone,
-            locale: body.locale,
-            adminRoleId,
-            ipAddress: req.ip ?? null,
-            userAgent: req.get("user-agent") ?? null,
-        });
-
-        res.status(201).json({
-            success: true,
-            data: company,
-        });
+    if (!actorUserId) {
+      res.status(401).json({ message: 'Authentication required.' });
+      return;
     }
 
-    /** GET /api/v1/companies */
-    async listMy(req: Request, res: Response): Promise<void> {
-        const actorUserId = req.user?.userId;
+    const body = req.body as CreateCompanyDto;
 
-        if (!actorUserId) {
-            res.status(401).json({ message: "Authentication required." });
-            return;
-        }
+    // O papel do criador: ADMIN (role global canónica).
 
-        const result = await this.listMyCompaniesUseCase.execute(actorUserId);
+    const company = await this.createCompanyUseCase.execute({
+      actorUserId,
+      name: body.name,
+      slug: body.slug ?? null,
+      nif: body.nif ?? null,
+      email: body.email ?? null,
+      phone: body.phone ?? null,
+      timezone: body.timezone,
+      locale: body.locale,
 
-        res.status(200).json({
-            success: true,
-            data: result.data,
-        });
+      ipAddress: req.ip ?? null,
+      userAgent: req.get('user-agent') ?? null,
+    });
+
+    res.status(201).json({
+      success: true,
+      data: company,
+    });
+  }
+
+  /** GET /api/v1/companies */
+  async listMy(req: Request, res: Response): Promise<void> {
+    const actorUserId = req.user?.userId;
+
+    if (!actorUserId) {
+      res.status(401).json({ message: 'Authentication required.' });
+      return;
     }
 
-    /** GET /api/v1/platform/companies */
-    async listAll(req: Request, res: Response): Promise<void> {
-        const query = req.query as unknown as ListCompaniesDto;
+    const result = await this.listMyCompaniesUseCase.execute(actorUserId);
 
-        const result = await this.listAllCompaniesUseCase.execute({
-            page: query.page,
-            limit: query.limit,
-            search: query.search,
-        });
+    res.status(200).json({
+      success: true,
+      data: result.data,
+    });
+  }
 
-        res.status(200).json({
-            success: true,
-            data: result.data,
-            pagination: result.pagination,
-        });
+  /** GET /api/v1/platform/companies */
+  async listAll(req: Request, res: Response): Promise<void> {
+    const query = req.query as unknown as ListCompaniesDto;
+
+    const result = await this.listAllCompaniesUseCase.execute({
+      page: query.page,
+      limit: query.limit,
+      search: query.search,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result.data,
+      pagination: result.pagination,
+    });
+  }
+
+  /** GET /api/v1/company/context */
+  async context(req: Request, res: Response): Promise<void> {
+    const companyId = req.tenant?.companyId;
+    const userId = req.user?.userId;
+
+    if (!companyId || !userId) {
+      res.status(400).json({
+        success: false,
+        error: {
+          message: 'Company context is required.',
+          code: 'VALIDATION_ERROR',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        },
+      });
+      return;
     }
 
-    /** GET /api/v1/company/context */
-    async context(req: Request, res: Response): Promise<void> {
-        const companyId = req.tenant?.companyId;
-        const userId = req.user?.userId;
+    const result = await this.getCompanyContextUseCase.execute({
+      companyId,
+      userId,
+    });
 
-        if (!companyId || !userId) {
-            res.status(400).json({
-                success: false,
-                error: {
-                    message: "Company context is required.",
-                    code: "VALIDATION_ERROR",
-                    statusCode: 400,
-                    timestamp: new Date().toISOString(),
-                },
-            });
-            return;
-        }
+    res.status(200).json({
+      success: true,
+      data: result,
+    });
+  }
 
-        const result = await this.getCompanyContextUseCase.execute({
-            companyId,
-            userId,
-        });
+  /** PATCH /api/v1/company */
+  async update(req: Request, res: Response): Promise<void> {
+    const companyId = req.tenant?.companyId;
+    const actorUserId = req.user?.userId;
 
-        res.status(200).json({
-            success: true,
-            data: result,
-        });
+    if (!companyId || !actorUserId) {
+      res.status(400).json({
+        success: false,
+        error: {
+          message: 'Company context is required.',
+          code: 'VALIDATION_ERROR',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        },
+      });
+      return;
     }
 
-    /** PATCH /api/v1/company */
-    async update(req: Request, res: Response): Promise<void> {
-        const companyId = req.tenant?.companyId;
-        const actorUserId = req.user?.userId;
+    const body = req.body as UpdateCompanyDto;
 
-        if (!companyId || !actorUserId) {
-            res.status(400).json({
-                success: false,
-                error: {
-                    message: "Company context is required.",
-                    code: "VALIDATION_ERROR",
-                    statusCode: 400,
-                    timestamp: new Date().toISOString(),
-                },
-            });
-            return;
-        }
+    const company = await this.updateCompanyUseCase.execute({
+      companyId,
+      actorUserId,
+      name: body.name,
+      nif: body.nif,
+      email: body.email,
+      phone: body.phone,
+      timezone: body.timezone,
+      locale: body.locale,
+      ipAddress: req.ip ?? null,
+      userAgent: req.get('user-agent') ?? null,
+    });
 
-        const body = req.body as UpdateCompanyDto;
+    res.status(200).json({
+      success: true,
+      data: company,
+    });
+  }
 
-        const company = await this.updateCompanyUseCase.execute({
-            companyId,
-            actorUserId,
-            name: body.name,
-            nif: body.nif,
-            email: body.email,
-            phone: body.phone,
-            timezone: body.timezone,
-            locale: body.locale,
-            ipAddress: req.ip ?? null,
-            userAgent: req.get("user-agent") ?? null,
-        });
+  /** PATCH /api/v1/platform/companies/:id/suspend */
+  async suspend(req: Request, res: Response): Promise<void> {
+    await this.changeStatus(req, res, 'company.suspended');
+  }
 
-        res.status(200).json({
-            success: true,
-            data: company,
-        });
+  /** PATCH /api/v1/platform/companies/:id/activate */
+  async activate(req: Request, res: Response): Promise<void> {
+    await this.changeStatus(req, res, 'company.activated');
+  }
+
+  private async changeStatus(
+    req: Request,
+    res: Response,
+    action: 'company.suspended' | 'company.activated',
+  ): Promise<void> {
+    const actorUserId = req.user?.userId;
+    const companyId = Number(req.params.id);
+
+    if (!actorUserId) {
+      res.status(401).json({ message: 'Authentication required.' });
+      return;
     }
 
-    /** PATCH /api/v1/platform/companies/:id/suspend */
-    async suspend(req: Request, res: Response): Promise<void> {
-        await this.changeStatus(req, res, "company.suspended");
-    }
+    const company = await this.changeCompanyStatusUseCase.execute({
+      companyId,
+      actorUserId,
+      action,
+      ipAddress: req.ip ?? null,
+      userAgent: req.get('user-agent') ?? null,
+    });
 
-    /** PATCH /api/v1/platform/companies/:id/activate */
-    async activate(req: Request, res: Response): Promise<void> {
-        await this.changeStatus(req, res, "company.activated");
-    }
-
-    private async changeStatus(
-        req: Request,
-        res: Response,
-        action: "company.suspended" | "company.activated",
-    ): Promise<void> {
-        const actorUserId = req.user?.userId;
-        const companyId = Number(req.params.id);
-
-        if (!actorUserId) {
-            res.status(401).json({ message: "Authentication required." });
-            return;
-        }
-
-        const company = await this.changeCompanyStatusUseCase.execute({
-            companyId,
-            actorUserId,
-            action,
-            ipAddress: req.ip ?? null,
-            userAgent: req.get("user-agent") ?? null,
-        });
-
-        res.status(200).json({
-            success: true,
-            data: company,
-        });
-    }
-
-    /** Resolve o id da role global ADMIN (canónica do sistema). */
-    private async resolveAdminRoleId(): Promise<number> {
-        const role = await RoleModel.findOne({
-            where: { name: "ADMIN", companyId: null },
-        });
-
-        if (!role) {
-            throw new Error("System role ADMIN not found.");
-        }
-
-        return role.id;
-    }
+    res.status(200).json({
+      success: true,
+      data: company,
+    });
+  }
 }

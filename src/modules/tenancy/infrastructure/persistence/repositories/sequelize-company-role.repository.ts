@@ -127,7 +127,7 @@ export class SequelizeCompanyRoleRepository implements CompanyRoleRepository {
     }
 
     // Membros ainda usam a role: bloqueia a remoção.
-    const { CompanyMemberModel } = await import('../model/company-member.model');
+    const { CompanyMemberModel } = await import('../models/company-member.model');
 
     const members = await CompanyMemberModel.count({
       where: { roleId, status: { [Op.ne]: 'REMOVED' } },

@@ -19,15 +19,9 @@ export interface SecurityCheckResult {
 }
 
 export interface SecurityServicePort {
-  check(
-    input: SecurityCheckInput,
-  ): Promise<SecurityCheckResult>;
+  check(input: SecurityCheckInput): Promise<SecurityCheckResult>;
 
-  recordFailedAttempt(
-    input: SecurityCheckInput,
-  ): Promise<void>;
+  recordFailedAttempt(input: SecurityCheckInput): Promise<void>;
 
-  recordSuccessfulAttempt(
-    input: SecurityCheckInput,
-  ): Promise<void>;
+  recordSuccessfulAttempt(input: SecurityCheckInput): Promise<void>;
 }

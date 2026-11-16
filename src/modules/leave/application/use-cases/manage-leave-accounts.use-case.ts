@@ -1,14 +1,8 @@
 import { AuditRecorderPort } from '../../../audit/application/ports/audit-recorder.port';
 import { NotFoundError, ValidationError } from '../../../../shared/errors/app.error';
 import { LeaveAccountProps } from '../../domain/aggregates/leave-account.aggregate';
-import {
-  LeaveAccountExistsError,
-  LeaveNotFoundError,
-} from '../../domain/errors/leave.error';
-import {
-  LeaveAccountListQuery,
-  LeaveRepository,
-} from '../../domain/repositories/leave.repository';
+import { LeaveAccountExistsError, LeaveNotFoundError } from '../../domain/errors/leave.error';
+import { LeaveAccountListQuery, LeaveRepository } from '../../domain/repositories/leave.repository';
 import { LeaveWorkUnit } from '../../domain/repositories/leave-work-unit';
 import { EmployeeReader } from '../ports/employee-reader.port';
 
@@ -35,10 +29,7 @@ export class ManageLeaveAccountsUseCase {
     const employee = await this.employees.findActive(input.companyId, input.employeeId);
     if (!employee) throw new NotFoundError('Employee');
 
-    const existing = await this.repository.findAccountByEmployee(
-      input.companyId,
-      input.employeeId,
-    );
+    const existing = await this.repository.findAccountByEmployee(input.companyId, input.employeeId);
     if (existing) throw new LeaveAccountExistsError();
 
     const account = await this.workUnit.createAccount({
@@ -195,7 +186,11 @@ export class ManageLeaveAccountsUseCase {
   async listMovements(
     companyId: number,
     accountId: string,
-    query: { page: number; limit: number; movementType?: 'ACCRUAL' | 'ADJUSTMENT' | 'RESERVATION' | 'RELEASE' | 'USAGE' },
+    query: {
+      page: number;
+      limit: number;
+      movementType?: 'ACCRUAL' | 'ADJUSTMENT' | 'RESERVATION' | 'RELEASE' | 'USAGE';
+    },
   ) {
     await this.requireAccount(companyId, accountId);
     return this.repository.listMovements(companyId, accountId, query);

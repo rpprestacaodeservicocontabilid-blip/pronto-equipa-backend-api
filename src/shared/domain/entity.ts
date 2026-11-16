@@ -37,7 +37,7 @@ export abstract class Entity<TProps> {
       return false;
     }
 
-    const id = this.id;
+    const { id } = this;
 
     return id !== null && id === other.id;
   }

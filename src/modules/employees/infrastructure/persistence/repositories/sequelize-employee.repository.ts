@@ -10,9 +10,9 @@ import {
   EmployeeSnapshot,
   EmployeeStatusHistory,
 } from '../../../domain/repositories/employee.repository';
-import { EmployeeModel } from '../model/employee.model';
-import { EmployeeProfessionalHistoryModel } from '../model/employee-professional-history.model';
-import { EmployeeStatusHistoryModel } from '../model/employee-status-history.model';
+import { EmployeeModel } from '../models/employee.model';
+import { EmployeeProfessionalHistoryModel } from '../models/employee-professional-history.model';
+import { EmployeeStatusHistoryModel } from '../models/employee-status-history.model';
 
 type EmployeeRow = EmployeeModel;
 

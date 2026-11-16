@@ -1,53 +1,50 @@
 /**
  * Estados possíveis de uma empresa (tenant).
  */
-export const COMPANY_STATUSES = ["ACTIVE", "SUSPENDED"] as const;
+export const COMPANY_STATUSES = ['ACTIVE', 'SUSPENDED'] as const;
 
 export type CompanyStatusValue = (typeof COMPANY_STATUSES)[number];
 
 export class CompanyStatus {
-    private constructor(
-        public readonly value: CompanyStatusValue,
-    ) { }
+  private constructor(public readonly value: CompanyStatusValue) {}
 
-    static active(): CompanyStatus {
-        return new CompanyStatus("ACTIVE");
+  static active(): CompanyStatus {
+    return new CompanyStatus('ACTIVE');
+  }
+
+  static suspended(): CompanyStatus {
+    return new CompanyStatus('SUSPENDED');
+  }
+
+  static from(value: string): CompanyStatus {
+    const normalized = String(value).toUpperCase() as CompanyStatusValue;
+
+    if (!COMPANY_STATUSES.includes(normalized)) {
+      throw new Error(`Invalid company status: ${value}.`);
     }
 
-    static suspended(): CompanyStatus {
-        return new CompanyStatus("SUSPENDED");
-    }
+    return new CompanyStatus(normalized);
+  }
 
-    static from(value: string): CompanyStatus {
-        const normalized =
-            String(value).toUpperCase() as CompanyStatusValue;
+  isActive(): boolean {
+    return this.value === 'ACTIVE';
+  }
 
-        if (!COMPANY_STATUSES.includes(normalized)) {
-            throw new Error(`Invalid company status: ${value}.`);
-        }
+  isSuspended(): boolean {
+    return this.value === 'SUSPENDED';
+  }
 
-        return new CompanyStatus(normalized);
-    }
+  /** Só uma empresa activa pode ser suspensa. */
+  canSuspend(): boolean {
+    return this.isActive();
+  }
 
-    isActive(): boolean {
-        return this.value === "ACTIVE";
-    }
+  /** Só uma empresa suspensa pode ser reactivada. */
+  canActivate(): boolean {
+    return this.isSuspended();
+  }
 
-    isSuspended(): boolean {
-        return this.value === "SUSPENDED";
-    }
-
-    /** Só uma empresa activa pode ser suspensa. */
-    canSuspend(): boolean {
-        return this.isActive();
-    }
-
-    /** Só uma empresa suspensa pode ser reactivada. */
-    canActivate(): boolean {
-        return this.isSuspended();
-    }
-
-    equals(other: CompanyStatus): boolean {
-        return this.value === other.value;
-    }
+  equals(other: CompanyStatus): boolean {
+    return this.value === other.value;
+  }
 }

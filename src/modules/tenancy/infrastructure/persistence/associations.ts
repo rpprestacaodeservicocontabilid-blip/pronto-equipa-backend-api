@@ -1,7 +1,7 @@
-import { CompanyModel } from "./model/company.model";
-import { CompanyMemberModel } from "./model/company-member.model";
-import { UserModel } from "../../../user/infrastructure/persistence/models/user.model";
-import { RoleModel } from "../../../user/infrastructure/persistence/models/role.model";
+import { CompanyModel } from './models/company.model';
+import { CompanyMemberModel } from './models/company-member.model';
+import { UserModel } from '../../../user/infrastructure/persistence/models/user.model';
+import { RoleModel } from '../../../user/infrastructure/persistence/models/role.model';
 
 /**
  * Associações do módulo tenancy.
@@ -10,26 +10,26 @@ import { RoleModel } from "../../../user/infrastructure/persistence/models/role.
  * ignora associações repetidas com a mesma configuração.
  */
 export const setupTenancyAssociations = (): void => {
-    CompanyModel.hasMany(CompanyMemberModel, {
-        foreignKey: "companyId",
-        as: "members",
-        onDelete: "CASCADE",
-    });
+  CompanyModel.hasMany(CompanyMemberModel, {
+    foreignKey: 'companyId',
+    as: 'members',
+    onDelete: 'CASCADE',
+  });
 
-    CompanyMemberModel.belongsTo(CompanyModel, {
-        foreignKey: "companyId",
-        as: "company",
-    });
+  CompanyMemberModel.belongsTo(CompanyModel, {
+    foreignKey: 'companyId',
+    as: 'company',
+  });
 
-    CompanyMemberModel.belongsTo(UserModel, {
-        foreignKey: "userId",
-        as: "user",
-    });
+  CompanyMemberModel.belongsTo(UserModel, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
 
-    CompanyMemberModel.belongsTo(RoleModel, {
-        foreignKey: "roleId",
-        as: "role",
-    });
+  CompanyMemberModel.belongsTo(RoleModel, {
+    foreignKey: 'roleId',
+    as: 'role',
+  });
 };
 
 setupTenancyAssociations();

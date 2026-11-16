@@ -1,8 +1,5 @@
 import { ValidationError } from '../../../../shared/errors/app.error';
-import {
-  LeaveMovementType,
-  isLeaveMovementType,
-} from '../value-objects/leave-balance.vo';
+import { LeaveMovementType, isLeaveMovementType } from '../value-objects/leave-balance.vo';
 
 export interface LeaveBalanceMovementProps {
   id: number | null;

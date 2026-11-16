@@ -85,7 +85,11 @@ export class LeaveVersionConflictError extends AppError {
 /** Operação de saldo já reconciliada — impede movimentos duplicados (RN-048). */
 export class LeaveAlreadyReconciledError extends AppError {
   constructor() {
-    super('Leave balance was already reconciled for this request.', 409, 'LEAVE_ALREADY_RECONCILED');
+    super(
+      'Leave balance was already reconciled for this request.',
+      409,
+      'LEAVE_ALREADY_RECONCILED',
+    );
     this.name = 'LeaveAlreadyReconciledError';
   }
 }

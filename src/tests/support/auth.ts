@@ -1,11 +1,11 @@
 import { ENV } from '../../config/env';
 
-import { AuthAccountModel } from '../../modules/auth/infrastructure/persistence/model/auth-account.model';
-import { SessionModel } from '../../modules/auth/infrastructure/persistence/model/session.model';
+import { AuthAccountModel } from '../../modules/auth/infrastructure/persistence/models/auth-account.model';
+import { SessionModel } from '../../modules/auth/infrastructure/persistence/models/session.model';
 import { JwtTokenService } from '../../modules/auth/infrastructure/service/jwt-token.service';
 import { UserModel } from '../../modules/user/infrastructure/persistence/models/user.model';
 import { RoleModel } from '../../modules/user/infrastructure/persistence/models/role.model';
-import { UserRoleModel } from '../../modules/auth/infrastructure/persistence/model/user-role.model';
+import { UserRoleModel } from '../../modules/auth/infrastructure/persistence/models/user-role.model';
 
 /** Utilizador autenticado de teste, com token e sessão activos. */
 export interface TestActor {

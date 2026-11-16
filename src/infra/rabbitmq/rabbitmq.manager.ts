@@ -40,9 +40,7 @@ class RabbitMQManagerClass {
     const url = ENV.RABBITMQ.URL;
 
     if (!url) {
-      logger.warn(
-        '⚠️ RABBITMQ_URL não definido — mensageria desativada.',
-      );
+      logger.warn('⚠️ RABBITMQ_URL não definido — mensageria desativada.');
       throw new Error('RABBITMQ_URL missing');
     }
 
@@ -50,10 +48,7 @@ class RabbitMQManagerClass {
 
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        this.connection = await this.withTimeout(
-          amqp.connect(url),
-          CONNECT_TIMEOUT_MS,
-        );
+        this.connection = await this.withTimeout(amqp.connect(url), CONNECT_TIMEOUT_MS);
 
         this.connection.on('error', (error: any) => {
           logger.error('❌ RabbitMQ connection error', {
@@ -77,16 +72,12 @@ class RabbitMQManagerClass {
         lastError = error;
         this.channel = null;
         this.connection = null;
-        logger.warn(
-          `🔁 RabbitMQ tentativa ${attempt}/${retries} falhou.`,
-        );
+        logger.warn(`🔁 RabbitMQ tentativa ${attempt}/${retries} falhou.`);
         await this.sleep(Math.min(attempt * 1000, 5000));
       }
     }
 
-    logger.warn(
-      '⚠️ RabbitMQ indisponível — a correr sem message broker.',
-    );
+    logger.warn('⚠️ RabbitMQ indisponível — a correr sem message broker.');
     logger.debug('RabbitMQ connect detail', {
       error: String(lastError),
     });
@@ -99,9 +90,7 @@ class RabbitMQManagerClass {
 
   getChannel(): any {
     if (!this.channel) {
-      throw new Error(
-        'RabbitMQ channel indisponível (broker offline).',
-      );
+      throw new Error('RabbitMQ channel indisponível (broker offline).');
     }
 
     return this.channel;
@@ -138,10 +127,7 @@ class RabbitMQManagerClass {
         if (timer) clearTimeout(timer);
       }),
       new Promise<T>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error('RabbitMQ connect timeout')),
-          ms,
-        );
+        timer = setTimeout(() => reject(new Error('RabbitMQ connect timeout')), ms);
       }),
     ]);
   }

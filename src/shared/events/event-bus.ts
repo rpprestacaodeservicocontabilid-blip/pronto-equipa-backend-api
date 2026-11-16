@@ -1,18 +1,13 @@
-import { DomainEvent } from "../domain/domain-event";
+import { DomainEvent } from '../domain/domain-event';
 
 // Definição canónica de evento de domínio (Módulo 03) —
 // re-exportada para manter o contrato histórico deste módulo.
 export { DomainEvent };
 
-export type EventHandler<T extends DomainEvent = DomainEvent> = (
-  event: T,
-) => Promise<void> | void;
+export type EventHandler<T extends DomainEvent = DomainEvent> = (event: T) => Promise<void> | void;
 
 export abstract class EventBus {
-  abstract subscribe<T extends DomainEvent>(
-    eventName: string,
-    handler: EventHandler<T>,
-  ): void;
+  abstract subscribe<T extends DomainEvent>(eventName: string, handler: EventHandler<T>): void;
 
   abstract unsubscribe(eventName: string, handler: EventHandler): void;
 
@@ -24,10 +19,7 @@ export abstract class EventBus {
 export class InMemoryEventBus implements EventBus {
   private handlers: Map<string, EventHandler[]> = new Map();
 
-  subscribe<T extends DomainEvent>(
-    eventName: string,
-    handler: EventHandler<T>,
-  ): void {
+  subscribe<T extends DomainEvent>(eventName: string, handler: EventHandler<T>): void {
     if (!this.handlers.has(eventName)) {
       this.handlers.set(eventName, []);
     }
@@ -51,17 +43,12 @@ export class InMemoryEventBus implements EventBus {
       try {
         await handler(event);
       } catch (error) {
-        console.error(
-          `Error handling event ${event.eventName}:`,
-          error,
-        );
+        console.error(`Error handling event ${event.eventName}:`, error);
       }
     }
   }
 
-  async publishAll<T extends DomainEvent>(
-    events: T[],
-  ): Promise<void> {
+  async publishAll<T extends DomainEvent>(events: T[]): Promise<void> {
     for (const event of events) {
       await this.publish(event);
     }

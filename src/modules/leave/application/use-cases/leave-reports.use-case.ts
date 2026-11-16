@@ -18,9 +18,7 @@ export class LeaveReportsUseCase {
 
   /** Σ de dias USAGE registados no intervalo — dias gozados. */
   getTakenDays(companyId: number, query: LeaveReportQuery): Promise<{ days: number }> {
-    return this.repository
-      .sumTakenDays(companyId, query)
-      .then((days) => ({ days }));
+    return this.repository.sumTakenDays(companyId, query).then((days) => ({ days }));
   }
 
   /** Saldo de uma conta específica (composições do ledger). */

@@ -14,16 +14,11 @@
  *      erros genéricos para o envelope `{ success, error }`.
  */
 
-import type {
-  Express,
-  NextFunction,
-  Request,
-  Response,
-} from "express";
+import type { Express, NextFunction, Request, Response } from 'express';
 
-import { errorMiddleware } from "../shared/middlewares/error.middleware";
+import { errorMiddleware } from '../shared/middlewares/error.middleware';
 
-import type { ApplicationContext } from "./types/application-context";
+import type { ApplicationContext } from './types/application-context';
 
 /**
  * Erro operacional do bootstrap/módulos.
@@ -36,22 +31,19 @@ export class HttpError extends Error {
   constructor(
     public readonly statusCode: number,
     message: string,
-    public readonly code = "HTTP_ERROR",
+    public readonly code = 'HTTP_ERROR',
   ) {
     super(message);
-    this.name = "HttpError";
+    this.name = 'HttpError';
   }
 }
 
-export function registerErrorHandlers(
-  app: Express,
-  context: ApplicationContext,
-): void {
+export function registerErrorHandlers(app: Express, context: ApplicationContext): void {
   app.use((req: Request, res: Response, _next: NextFunction) => {
     res.status(404).json({
       success: false,
       error: {
-        message: "Route not found",
+        message: 'Route not found',
         path: req.originalUrl,
         method: req.method,
       },
@@ -59,43 +51,33 @@ export function registerErrorHandlers(
   });
 
   // Erros operacionais explícitos (HttpError).
-  app.use(
-    (
-      error: unknown,
-      _req: Request,
-      res: Response,
-      next: NextFunction,
-    ) => {
-      if (!(error instanceof HttpError)) {
-        next(error);
-        return;
-      }
+  app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
+    if (!(error instanceof HttpError)) {
+      next(error);
+      return;
+    }
 
-      if (res.headersSent) {
-        next(error);
-        return;
-      }
+    if (res.headersSent) {
+      next(error);
+      return;
+    }
 
-      const internal = error.statusCode >= 500;
+    const internal = error.statusCode >= 500;
 
-      if (internal) {
-        context.logger.error(
-          `[bootstrap] internal error: ${error.message}`,
-          error,
-        );
-      }
+    if (internal) {
+      context.logger.error(`[bootstrap] internal error: ${error.message}`, error);
+    }
 
-      res.status(internal ? 500 : error.statusCode).json({
-        success: false,
-        error: {
-          message: internal ? "Internal server error" : error.message,
-          code: internal ? "INTERNAL_SERVER_ERROR" : error.code,
-          statusCode: internal ? 500 : error.statusCode,
-          timestamp: new Date().toISOString(),
-        },
-      });
-    },
-  );
+    res.status(internal ? 500 : error.statusCode).json({
+      success: false,
+      error: {
+        message: internal ? 'Internal server error' : error.message,
+        code: internal ? 'INTERNAL_SERVER_ERROR' : error.code,
+        statusCode: internal ? 500 : error.statusCode,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  });
 
   app.use(errorMiddleware);
 }

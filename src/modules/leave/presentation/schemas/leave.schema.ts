@@ -18,13 +18,7 @@ export const leaveIdSchema = z.string().uuid();
 export const accountIdSchema = z.string().uuid();
 export const employeeIdSchema = z.string().uuid();
 export const versionSchema = z.coerce.number().int().positive();
-export const leaveTypeSchema = z.enum([
-  'ANNUAL',
-  'SICK',
-  'SPECIAL',
-  'UNPAID',
-  'OTHER',
-]);
+export const leaveTypeSchema = z.enum(['ANNUAL', 'SICK', 'SPECIAL', 'UNPAID', 'OTHER']);
 export const leaveStatusSchema = z.enum(LEAVE_STATUSES);
 export const movementTypeSchema = z.enum([
   'ACCRUAL',
@@ -102,7 +96,10 @@ const segmentsSchema = z
         });
       }
       for (let j = i + 1; j < segments.length; j += 1) {
-        if (segments[i].startDate <= segments[j].endDate && segments[j].startDate <= segments[i].endDate) {
+        if (
+          segments[i].startDate <= segments[j].endDate &&
+          segments[j].startDate <= segments[i].endDate
+        ) {
           ctx.addIssue({
             code: 'custom',
             message: 'Leave periods inside one request cannot overlap.',
@@ -128,7 +125,8 @@ export const updateLeaveRequestSchema = z
     segments: segmentsSchema.optional(),
   })
   .refine(
-    (value) => value.leaveType !== undefined || value.reason !== undefined || value.segments !== undefined,
+    (value) =>
+      value.leaveType !== undefined || value.reason !== undefined || value.segments !== undefined,
     { message: 'At least one leave field is required.' },
   );
 

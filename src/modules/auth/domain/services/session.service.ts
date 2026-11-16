@@ -1,17 +1,11 @@
-import { Session } from "../entities/session.entity";
+import { Session } from '../entities/session.entity';
 
 export interface SessionService {
-  createSession(
-    input: CreateSessionInput,
-  ): Session;
+  createSession(input: CreateSessionInput): Session;
 
-  isSessionActive(
-    session: Session,
-  ): boolean;
+  isSessionActive(session: Session): boolean;
 
-  revokeSession(
-    session: Session,
-  ): void;
+  revokeSession(session: Session): void;
 }
 
 export interface CreateSessionInput {

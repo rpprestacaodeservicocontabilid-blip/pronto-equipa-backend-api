@@ -3,12 +3,12 @@
  * (authorization, platform) sem aceder à infraestrutura directamente.
  */
 export interface CompanySummary {
-    id: number;
-    name: string;
-    slug: string;
-    status: string;
+  id: number;
+  name: string;
+  slug: string;
+  status: string;
 }
 
 export interface CompanyReaderPort {
-    findById(id: number): Promise<CompanySummary | null>;
+  findById(id: number): Promise<CompanySummary | null>;
 }

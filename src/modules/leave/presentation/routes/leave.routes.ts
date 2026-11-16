@@ -119,11 +119,8 @@ export const createLeaveRoutes = (
     validate('body', adjustBalanceSchema),
     (req, res) => controller.adjustBalance(req, res),
   );
-  router.get(
-    '/accounts/:id',
-    requirePermission('leave.accounts.read'),
-    validateId,
-    (req, res) => controller.getAccount(req, res),
+  router.get('/accounts/:id', requirePermission('leave.accounts.read'), validateId, (req, res) =>
+    controller.getAccount(req, res),
   );
 
   // ----------------------------------------------------------
@@ -218,11 +215,8 @@ export const createLeaveRoutes = (
     validate('body', updateLeaveRequestSchema),
     (req, res) => controller.updateRequest(req, res),
   );
-  router.get(
-    '/requests/:id',
-    requirePermission('leave.requests.read'),
-    validateId,
-    (req, res) => controller.getRequest(req, res),
+  router.get('/requests/:id', requirePermission('leave.requests.read'), validateId, (req, res) =>
+    controller.getRequest(req, res),
   );
 
   // ----------------------------------------------------------

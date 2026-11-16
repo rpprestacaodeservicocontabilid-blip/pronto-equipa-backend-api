@@ -1,5 +1,5 @@
 import { Op } from 'sequelize';
-import { EmployeeModel } from '../../../employees/infrastructure/persistence/model/employee.model';
+import { EmployeeModel } from '../../../employees/infrastructure/persistence/models/employee.model';
 import { EmployeeReader, EmployeeSummary } from '../../application/ports/employee-reader.port';
 
 /**

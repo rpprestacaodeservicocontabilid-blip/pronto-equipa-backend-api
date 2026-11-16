@@ -174,4 +174,4 @@
  *           description: Existem mensagens mais antigas (usar beforeId para paginar).
  *           example: false
  */
-export { };
+export {};

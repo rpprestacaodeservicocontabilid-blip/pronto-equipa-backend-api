@@ -2,14 +2,9 @@ import { RabbitMQManager } from './rabbitmq.manager';
 import { logger } from '../../config/logger';
 
 export class RabbitMQConsumer {
-  async consume(
-    queue: string,
-    callback: (data: unknown) => Promise<void>,
-  ): Promise<boolean> {
+  async consume(queue: string, callback: (data: unknown) => Promise<void>): Promise<boolean> {
     if (!RabbitMQManager.isConnected()) {
-      logger.warn(
-        `⚠️ Consumo RabbitMQ ignorado (offline): ${queue}`,
-      );
+      logger.warn(`⚠️ Consumo RabbitMQ ignorado (offline): ${queue}`);
       return false;
     }
 

@@ -1,11 +1,15 @@
+import { SequelizePayrollPersistence } from '../../modules/payroll/infrastructure/persistence/repositories/sequelize-payroll-persistence';
+import { resolveRecordTransaction } from '../../shared/infrastructure/persistence/sequelize-record-store';
+import { reservePayrollLoanDeductions } from '../../modules/payroll/infrastructure/adapters/payroll-loans.adapter';
+import { payrollPdf, payrollXlsx } from '../../modules/payroll/infrastructure/payroll-export';
 import { randomUUID } from 'crypto';
 import express from 'express';
 import request from 'supertest';
 import { ENV } from '../../config/env';
 import { sequelize } from '../../infra/database';
 import { resetTestDatabase } from '../support/database';
-import { CompanyModel } from '../../modules/tenancy/infrastructure/persistence/model/company.model';
-import { EmployeeModel } from '../../modules/employees/infrastructure/persistence/model/employee.model';
+import { CompanyModel } from '../../modules/tenancy/infrastructure/persistence/models/company.model';
+import { EmployeeModel } from '../../modules/employees/infrastructure/persistence/models/employee.model';
 import { PayrollWorkflowService } from '../../modules/payroll/application/use-cases/payroll-workflow.service';
 import { PayrollCalculatorPort } from '../../modules/payroll/application/ports/payroll-calculator.port';
 import { PayrollSourceReaderPort } from '../../modules/payroll/application/ports/payroll-integrations.port';
@@ -13,13 +17,13 @@ import {
   PayrollItem,
   PayrollClosing,
   PayrollInstruction,
-} from '../../modules/payroll/infrastructure/payroll-workflow.models';
+} from '../../modules/payroll/infrastructure/persistence/models/payroll-workflow.models';
 import {
   PayrollEmployeeResultModel,
   PayrollInputSnapshotModel,
   PayrollOutboxModel,
   PayrollRunModel,
-} from '../../modules/payroll/infrastructure/payroll.models';
+} from '../../modules/payroll/infrastructure/persistence/models/payroll.models';
 import { createPayrollModule } from '../../modules/payroll/payroll.module';
 
 jest.setTimeout(90000);
@@ -113,7 +117,23 @@ describe('Payroll workflow with deterministic integration fixtures', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    service = new PayrollWorkflowService(sources, calculator);
+    service = new PayrollWorkflowService(
+      sources,
+      calculator,
+      new SequelizePayrollPersistence(),
+      {
+        reserve: (companyId, runId, snapshot, result, context, simulation) =>
+          reservePayrollLoanDeductions(
+            companyId,
+            runId,
+            snapshot,
+            result,
+            resolveRecordTransaction(context)!,
+            simulation,
+          ),
+      },
+      { pdf: payrollPdf, xlsx: payrollXlsx },
+    );
   });
   async function draft(month: string) {
     const period = await service.createPeriod(companyId, 10, {
@@ -130,7 +150,7 @@ describe('Payroll workflow with deterministic integration fixtures', () => {
       idempotencyKey: `month-${month}`,
     });
   }
-  async function process(run: PayrollRunModel) {
+  async function process(run: { id: string; version: number }) {
     await service.validate(companyId, 10, run.id, 1);
     await service.start(companyId, 10, run.id, 2);
     const item = await PayrollItem.findOne({ where: { companyId, runId: run.id } });
@@ -170,28 +190,16 @@ describe('Payroll workflow with deterministic integration fixtures', () => {
     await service.processItem(companyId, item.id);
     expect(await PayrollEmployeeResultModel.count({ where: { companyId, runId: run.id } })).toBe(1);
     expect(await PayrollInputSnapshotModel.count({ where: { companyId, runId: run.id } })).toBe(1);
-    const ready = (await service.get(companyId, 'runs', run.id)) as PayrollRunModel;
-    const submitted = (await service.transition(
-      companyId,
-      10,
-      run.id,
-      ready.version,
-      'submit',
-    )) as PayrollRunModel;
+    const ready = await service.get(companyId, 'runs', run.id);
+    const submitted = await service.transition(companyId, 10, run.id, ready.version, 'submit');
     await expect(
       service.transition(companyId, 10, run.id, submitted.version, 'approve'),
     ).rejects.toThrow('different operator');
-    const approved = (await service.transition(
-      companyId,
-      20,
-      run.id,
-      submitted.version,
-      'approve',
-    )) as PayrollRunModel;
+    const approved = await service.transition(companyId, 20, run.id, submitted.version, 'approve');
     await service.transition(companyId, 20, run.id, approved.version, 'close');
     await service.transition(companyId, 20, run.id, approved.version, 'close');
     expect(await PayrollClosing.count({ where: { companyId, runId: run.id } })).toBe(1);
-    const closed = (await service.get(companyId, 'runs', run.id)) as PayrollRunModel;
+    const closed = await service.get(companyId, 'runs', run.id);
     await service.preparePayments(companyId, 20, run.id, closed.version);
     await service.preparePayments(companyId, 20, run.id, closed.version);
     expect(await PayrollInstruction.count({ where: { companyId, runId: run.id } })).toBe(1);
@@ -218,16 +226,14 @@ describe('Payroll workflow with deterministic integration fixtures', () => {
     fail = true;
     const item = await process(run);
     fail = false;
-    const failed = (await service.get(companyId, 'runs', run.id)) as PayrollRunModel;
+    const failed = await service.get(companyId, 'runs', run.id);
     expect(failed.status).toBe('FAILED');
     await expect(
       service.transition(companyId, 20, run.id, failed.version, 'approve'),
     ).rejects.toThrow();
     await service.start(companyId, 10, run.id, failed.version, true);
     await service.processItem(companyId, item.id);
-    expect(((await service.get(companyId, 'runs', run.id)) as PayrollRunModel).status).toBe(
-      'READY_FOR_REVIEW',
-    );
+    expect((await service.get(companyId, 'runs', run.id)).status).toBe('READY_FOR_REVIEW');
     expect(await PayrollEmployeeResultModel.count({ where: { companyId, runId: run.id } })).toBe(1);
   });
   test('validation commands queue durably and capture immutable inputs asynchronously', async () => {
@@ -237,7 +243,7 @@ describe('Payroll workflow with deterministic integration fixtures', () => {
     expect(first.id).toBe(repeated.id);
     await service.processValidation(companyId, first.id);
     expect(await PayrollInputSnapshotModel.count({ where: { companyId, runId: run.id } })).toBe(1);
-    const validated = await service.get(companyId, 'runs', run.id) as PayrollRunModel;
+    const validated = await service.get(companyId, 'runs', run.id);
     expect(validated.version).toBe(3);
     await service.start(companyId, 10, run.id, validated.version);
   });
@@ -245,25 +251,43 @@ describe('Payroll workflow with deterministic integration fixtures', () => {
     await service.policy(companyId, 10, { code: 'DUAL', requiredApprovals: 2 });
     const run = await draft('05');
     await process(run);
-    const ready = await service.get(companyId, 'runs', run.id) as PayrollRunModel;
-    const submitted = await service.transition(companyId, 10, run.id, ready.version, 'submit') as PayrollRunModel;
+    const ready = await service.get(companyId, 'runs', run.id);
+    const submitted = await service.transition(companyId, 10, run.id, ready.version, 'submit');
     await service.policy(companyId, 10, { code: 'SINGLE', requiredApprovals: 1 });
-    const first = await service.transition(companyId, 20, run.id, submitted.version, 'approve') as PayrollRunModel;
+    const first = await service.transition(companyId, 20, run.id, submitted.version, 'approve');
     expect(first.status).toBe('SUBMITTED');
-    await expect(service.transition(companyId, 20, run.id, first.version, 'approve')).rejects.toThrow('already approved');
-    const second = await service.transition(companyId, 30, run.id, first.version, 'approve') as PayrollRunModel;
+    await expect(
+      service.transition(companyId, 20, run.id, first.version, 'approve'),
+    ).rejects.toThrow('already approved');
+    const second = await service.transition(companyId, 30, run.id, first.version, 'approve');
     expect(second.status).toBe('APPROVED');
   });
   test('regularization preserves the original result and blocks duplicate adjustments', async () => {
     const original = await PayrollRunModel.findOne({ where: { companyId, status: 'CLOSED' } });
-    const period = await service.createPeriod(companyId, 10, { startDate: '2026-06-01', endDate: '2026-06-28', paymentDate: '2026-06-28' });
+    const period = await service.createPeriod(companyId, 10, {
+      startDate: '2026-06-01',
+      endDate: '2026-06-28',
+      paymentDate: '2026-06-28',
+    });
     await service.changePeriod(companyId, 10, period.id, 1, 'open');
-    const input = { periodId: period.id, runType: 'CORRECTION' as const, executionScope: 'INDIVIDUAL' as const, employeeIds: [employeeId], idempotencyKey: 'correction-1', originalRunId: original!.id, reason: 'Corrected source information' };
+    const input = {
+      periodId: period.id,
+      runType: 'CORRECTION' as const,
+      executionScope: 'INDIVIDUAL' as const,
+      employeeIds: [employeeId],
+      idempotencyKey: 'correction-1',
+      originalRunId: original!.id,
+      reason: 'Corrected source information',
+    };
     const correction = await service.createRun(companyId, 10, input);
-    await expect(service.createRun(companyId, 10, { ...input, idempotencyKey: 'correction-2' })).rejects.toThrow('adjustment already exists');
+    await expect(
+      service.createRun(companyId, 10, { ...input, idempotencyKey: 'correction-2' }),
+    ).rejects.toThrow('adjustment already exists');
     await process(correction);
-    expect((await service.get(companyId, 'runs', original!.id) as PayrollRunModel).status).toBe('CLOSED');
-    expect(await PayrollEmployeeResultModel.count({ where: { companyId, runId: original!.id } })).toBe(1);
+    expect((await service.get(companyId, 'runs', original!.id)).status).toBe('CLOSED');
+    expect(
+      await PayrollEmployeeResultModel.count({ where: { companyId, runId: original!.id } }),
+    ).toBe(1);
   });
   test('HTTP routes enforce granular permissions before accessing salaries', async () => {
     const app = express();

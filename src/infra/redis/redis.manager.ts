@@ -42,9 +42,7 @@ class RedisManagerClass {
       this.enabled = false;
       if (!this.warned) {
         this.warned = true;
-        logger.warn(
-          '⚠️ Redis indisponível — cache/rate-limit usam fallback em memória.',
-        );
+        logger.warn('⚠️ Redis indisponível — cache/rate-limit usam fallback em memória.');
       }
       logger.debug('Redis error detail', { error: String(error) });
     });
@@ -65,17 +63,12 @@ class RedisManagerClass {
    */
   async connect(): Promise<boolean> {
     try {
-      await this.withTimeout(
-        this.client.connect(),
-        CONNECT_TIMEOUT_MS,
-      );
+      await this.withTimeout(this.client.connect(), CONNECT_TIMEOUT_MS);
       this.enabled = true;
       return true;
     } catch (error) {
       this.enabled = false;
-      logger.warn(
-        '⚠️ Redis indisponível no arranque — a correr sem cache distribuída.',
-      );
+      logger.warn('⚠️ Redis indisponível no arranque — a correr sem cache distribuída.');
       logger.debug('Redis connect detail', { error: String(error) });
       // Evita retries infinitos em background quando o servidor não existe.
       this.client.disconnect();
@@ -109,10 +102,7 @@ class RedisManagerClass {
         if (timer) clearTimeout(timer);
       }),
       new Promise<T>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error('Redis connect timeout')),
-          ms,
-        );
+        timer = setTimeout(() => reject(new Error('Redis connect timeout')), ms);
       }),
     ]);
   }

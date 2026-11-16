@@ -22,7 +22,9 @@ export class JobsManager {
     try {
       this.contractExpirationJob = new ContractExpirationJob();
       this.contractExpirationJob.start();
-      logger.info('[JobsManager] Contract expiration alerts scheduled daily at 02:00 Africa/Luanda.');
+      logger.info(
+        '[JobsManager] Contract expiration alerts scheduled daily at 02:00 Africa/Luanda.',
+      );
       this.isInitialized = true;
     } catch (error) {
       logger.error('[JobsManager] Erro ao inicializar jobs:', { err: error });

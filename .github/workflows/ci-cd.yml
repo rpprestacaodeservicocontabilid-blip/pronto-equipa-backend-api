@@ -33,6 +33,9 @@ jobs:
       - name: Type-check
         run: npm run type-check
 
+      - name: Check module architecture
+        run: npm run architecture:check
+
       - name: Lint
         run: npm run lint
 

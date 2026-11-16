@@ -1,0 +1,183 @@
+# Migrações activas do Pronto Equipas
+
+Limpeza realizada em 16 de novembro de 2026. Foram removidos 101 ficheiros do sistema antigo e mantidos 65 ficheiros necessários ao backend actual.
+
+Foram preservadas as dependências de Auth, User, permissões, perfis, localização, empresas, auditoria, RH, processamento salarial e módulos recentes. O seed de papéis globais foi mantido porque o registo de Auth ainda referencia esses papéis. A sua adaptação é uma alteração do módulo de identidade.
+
+As notificações actuais utilizam communication_records. Os pagamentos salariais utilizam as respectivas tabelas de payroll. As migrações antigas desses domínios foram removidas por não pertencerem às implementações actuais.
+
+Esta operação alterou apenas ficheiros. Não foram executados DROP, rollback, limpeza de dados nem alterações em sequelize_migrations. Bases que já executaram migrações removidas preservam o seu histórico; para reconstruir ou reverter o sistema antigo deve ser usado o histórico Git correspondente. Não apagar entradas de histórico para tentar sincronizar uma base existente.
+
+A verificação estática de dependências não encontrou referências de chaves estrangeiras das migrações mantidas a tabelas criadas exclusivamente por ficheiros removidos. Isto não equivale a executar o conjunto numa base nova. Configurações e diferenças de dialecto existentes permanecem por validar.
+
+## Ficheiros mantidos
+
+- 202608310001-create-auth-accounts.js
+- 202608310002-create-auth-password-reset-tokens.js
+- 202608310003-create-auth-permissions.js
+- 202608310004-create-auth-refresh-tokens.js
+- 202608310005-create-role-permissions.js
+- 202608310006-create-auth-roles.js
+- 202608310007-create-auth-sessions.js
+- 202608310008-create-user-roles.js
+- 202608310009-create-auth-verification-tokens.js
+- 202608310010-create-users.js
+- 202608310011-add-auth-foreign-keys.js
+- 202608310012-create-user-profiles.js
+- 202608310013-add-user-profile-foreign-key.js
+- 202608310014-create-roles.js
+- 202608310015-add-roles-relationships.js
+- 202608310016-create-permissions.js
+- 202608310019-create-cities.js
+- 202608310053-add-user-profiles-city-relationship.js
+- 20261001202922-add-type-auth-verification-tokens.js
+- 20261009000003-create-user-permissions.js
+- 20261013000000-seed-system-roles.js
+- 20261013000001-add-profile-cover-image.js
+- 20261020000000-extend-cities-with-province-data.js
+- 20261021000000-add-login-otp-support.js
+- 20261021000001-add-terms-accepted-at.js
+- 20261105000000-fix-role-permissions-foreign-keys.js
+- 20261106000001-create-companies.js
+- 20261106000002-create-company-members.js
+- 20261106000003-add-company-id-to-roles.js
+- 20261106000004-create-audit-logs.js
+- 20261106000005-seed-company-permissions.js
+- 20261108000000-seed-authorization-permissions.js
+- 20261108000001-seed-employee-permissions.js
+- 20261108000002-create-employees.js
+- 20261109000000-seed-contract-permissions.js
+- 20261109000001-create-contracts.js
+- 20261109000002-seed-organization-permissions.js
+- 20261109000003-create-organization.js
+- 20261109000010-create-leave.js
+- 20261109000011-seed-leave-permissions.js
+- 20261109000012-create-attendance.js
+- 20261109000013-seed-attendance-permissions.js
+- 20261109000014-create-loans.js
+- 20261109000015-seed-loan-permissions.js
+- 20261109000016-create-salary-structure.js
+- 20261109000017-seed-salary-structure-permissions.js
+- 20261113000000-create-payroll.js
+- 20261113000001-seed-payroll-permissions.js
+- 20261113000002-complete-payroll-workflow.js
+- 20261113000003-seed-payroll-workflow-permissions.js
+- 20261113000005-seed-payslips-permissions.js
+- 202611130001-create-payroll-payments.js
+- 20261114000000-create-legal-rules.js
+- 20261114000001-seed-legal-rules-permissions.js
+- 20261114000002-seed-payments-permissions.js
+- 20261114000003-create-payslips.js
+- 20261114000004-seed-payslip-employee-link-permission.js
+- 20261114000005-create-reports.js
+- 20261114000006-create-simulations.js
+- 20261114000008-create-documents.js
+- 20261114000009-create-subscriptions.js
+- 20261116000001-create-platform-billing.js
+- 20261116000002-create-onboarding.js
+- 20261116000003-create-communications.js
+- 20261116000004-create-onboarding-resources.js
+
+## Ficheiros removidos
+
+- 202608310017-create-teams.js
+- 202608310018-create-bookings.js
+- 202608310020-create-fields.js
+- 202608310021-create-matches.js
+- 202608310022-create-matchmaking-matches.js
+- 202608310023-create-matchmaking-recommendations.js
+- 202608310024-create-matchmaking-requests.js
+- 202608310025-create-notification-deliveries.js
+- 202608310026-create-notification-devices.js
+- 202608310027-create-notifications.js
+- 202608310028-create-notification-templates.js
+- 202608310029-create-notification-preferences.js
+- 202608310030-create-payments.js
+- 202608310031-create-payment-refunds.js
+- 202608310032-create-payment-transactions.js
+- 202608310033-create-players.js
+- 202608310034-create-player-histories.js
+- 202608310035-create-player-injuries.js
+- 202608310036-create-player-ratings.js
+- 202608310037-create-player-statistics.js
+- 202608310038-create-player-suspensions.js
+- 202608310039-create-player-transfers.js
+- 202608310040-create-rankings.js
+- 202608310041-create-tournaments.js
+- 202608310042-create-tournament-awards.js
+- 202608310043-create-tournament-disciplines.js
+- 202608310044-create-fixtures.js
+- 202608310045-create-tournament-histories.js
+- 202608310046-create-tournament-payments.js
+- 202608310047-create-tournament-registrations.js
+- 202608310048-create-tournament-stages.js
+- 202608310049-create-tournament-standings.js
+- 202608310050-create-tournament-statistics.js
+- 202608310051-add-teams-relationships.js
+- 202608310052-add-bookings-relationships.js
+- 202608310054-add-fields-city-relationship.js
+- 202608310055-add-matches-relationships.js
+- 202608310056-add-matchmaking-matches-relationships.js
+- 202608310057-add-matchmaking-recommendations-relationships.js
+- 202608310058-add-matchmaking-requests-relationships.js
+- 202608310059-add-notification-deliveries-relationships.js
+- 202608310060-add-notification-devices-relationships.js
+- 202608310061-add-notification-preferences-relationships.js
+- 202608310062-add-payments-relationships.js
+- 202608310063-add-payment-refunds-relationships.js
+- 202608310064-add-payment-transactions-relationships.js
+- 202608310065-add-players-relationships.js
+- 202608310066-add-player-histories-relationships.js
+- 202608310067-add-player-injuries-relationships.js
+- 202608310068-add-player-ratings-relationships.js
+- 202608310069-add-player-statistics-relationships.js
+- 202608310070-add-player-suspensions-relationships.js
+- 202608310071-fix-player-transfers-player-id-and-relationships.js
+- 202608310072-add-rankings-relationships.js
+- 202608310073-add-tournament-awards-relationships.js
+- 202608310074-add-tournament-disciplines-relationships.js
+- 202608310075-add-fixtures-relationships.js
+- 202608310076-add-tournament-history-entries-relationship.js
+- 202608310077-add-tournament-payments-relationships.js
+- 202608310078-add-tournament-registrations-relationships.js
+- 202608310079-add-tournament-stages-relationships.js
+- 202608310080-add-tournament-standings-relationships.js
+- 202608310081-add-tournament-statistics-relationships.js
+- 20261009000000-create-finance-wallets-ledger.js
+- 20261009000001-create-finance-payments-settlements.js
+- 20261009000002-create-match-payment-participants.js
+- 20261014000000-create-productivity-departments.js
+- 20261014000001-create-productivity-department-members.js
+- 20261014000002-create-productivity-tasks.js
+- 20261014000003-add-productivity-relationships.js
+- 20261014000100-create-store-categories.js
+- 20261014000101-create-store-brands.js
+- 20261014000102-create-store-products.js
+- 20261014000103-create-store-product-variants.js
+- 20261014000104-create-store-inventory.js
+- 20261014000105-create-store-stock-movements.js
+- 20261014000106-add-store-relationships.js
+- 20261015000100-create-store-product-images.js
+- 20261015000101-create-store-carts.js
+- 20261015000102-create-store-cart-items.js
+- 20261015000103-create-store-orders.js
+- 20261015000104-create-store-order-items.js
+- 20261015000105-create-store-order-addresses.js
+- 20261015000106-create-store-order-payments.js
+- 20261015000107-create-store-shipments.js
+- 20261015000108-create-store-stock-reservations.js
+- 20261015000109-store-audit-and-constraints.js
+- 20261016000000-create-chat-tables.js
+- 20261016000001-add-match-acceptance-columns.js
+- 20261022000000-remove-obsolete-system-roles.js
+- 20261023000000-create-sport-modalities.js
+- 20261024000000-seed-priority-sport-modalities.js
+- 20261026000000-add-match-result-review.js
+- 20261026000001-create-matchmaking-search-attempts.js
+- 20261027000000-add-tournament-operations.js
+- 20261027000101-create-store-returns.js
+- 20261028000000-create-support-cases.js
+- 20261029000000-create-field-owner-management.js
+- 20261029000001-create-field-owner-calendar.js
+- 20261029000002-create-field-schedule-rules.js
+- 20261029000003-create-owner-reservation-management.js

@@ -16,9 +16,11 @@ export interface ContractsModuleOptions {
   audit: AuditRecorderPort;
 }
 
-export const createContractsModule = (options: ContractsModuleOptions): { routes: Router } => {
+export const createContractsModule = (
+  options: ContractsModuleOptions,
+): { routes: Router; service: ManageContractsUseCase } => {
   const repository = new SequelizeContractRepository();
   const useCase = new ManageContractsUseCase(repository, options.audit);
   const controller = new ContractsController(useCase);
-  return { routes: createContractsRoutes(controller, options.requirePermission) };
+  return { routes: createContractsRoutes(controller, options.requirePermission), service: useCase };
 };

@@ -1,4 +1,4 @@
-import { RefreshTokenValue as RefreshToken } from "../value-objects/refresh-token-value.vo";
+import { RefreshTokenValue as RefreshToken } from '../value-objects/refresh-token-value.vo';
 
 export interface RefreshTokenProps {
   id: number;
@@ -31,45 +31,30 @@ export class RefreshTokenEntity {
 
   private _revokedAt: Date | null;
 
-  private constructor(
-    props: RefreshTokenProps,
-  ) {
+  private constructor(props: RefreshTokenProps) {
     this._id = props.id;
     this._token = props.token;
-    this._authAccountId =
-      props.authAccountId;
+    this._authAccountId = props.authAccountId;
     this._sessionId = props.sessionId;
     this._expiresAt = props.expiresAt;
     this._createdAt = props.createdAt;
     this._revokedAt = props.revokedAt;
   }
 
-  public static create(
-    props: RefreshTokenProps,
-  ): RefreshTokenEntity {
+  public static create(props: RefreshTokenProps): RefreshTokenEntity {
     if (props.authAccountId <= 0) {
-      throw new Error(
-        "Auth account ID must be greater than zero.",
-      );
+      throw new Error('Auth account ID must be greater than zero.');
     }
 
     if (!props.sessionId?.trim()) {
-      throw new Error(
-        "Session ID is required.",
-      );
+      throw new Error('Session ID is required.');
     }
 
-    if (
-      props.expiresAt <= props.createdAt
-    ) {
-      throw new Error(
-        "Refresh token expiration must be after creation.",
-      );
+    if (props.expiresAt <= props.createdAt) {
+      throw new Error('Refresh token expiration must be after creation.');
     }
 
-    return new RefreshTokenEntity(
-      props,
-    );
+    return new RefreshTokenEntity(props);
   }
 
   public revoke(): void {
@@ -80,19 +65,12 @@ export class RefreshTokenEntity {
     return this._revokedAt !== null;
   }
 
-  public isExpired(
-    now: Date = new Date(),
-  ): boolean {
+  public isExpired(now: Date = new Date()): boolean {
     return this._expiresAt <= now;
   }
 
-  public isValid(
-    now: Date = new Date(),
-  ): boolean {
-    return (
-      !this.isRevoked() &&
-      !this.isExpired(now)
-    );
+  public isValid(now: Date = new Date()): boolean {
+    return !this.isRevoked() && !this.isExpired(now);
   }
 
   public get id(): number {

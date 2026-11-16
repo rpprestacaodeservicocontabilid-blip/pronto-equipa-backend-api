@@ -4,7 +4,7 @@
   "parserOptions": {
     "ecmaVersion": 2020,
     "sourceType": "module",
-    "project": "./tsconfig.json"
+    "project": "./tsconfig.eslint.json"
   },
   "env": {
     "node": true,
@@ -16,19 +16,13 @@
     "plugin:@typescript-eslint/recommended",
     "plugin:@typescript-eslint/recommended-requiring-type-checking"
   ],
-  "plugins": [
-    "@typescript-eslint",
-    "prettier"
-  ],
+  "plugins": ["@typescript-eslint", "prettier"],
   "rules": {
     "prettier/prettier": "error",
     "no-console": [
       "warn",
       {
-        "allow": [
-          "warn",
-          "error"
-        ]
+        "allow": ["warn", "error"]
       }
     ],
     "@typescript-eslint/explicit-module-boundary-types": "off",
@@ -36,26 +30,12 @@
     "@typescript-eslint/no-unused-vars": [
       "error",
       {
-        "argsIgnorePattern": "^_"
+        "argsIgnorePattern": "^_",
+        "ignoreRestSiblings": true
       }
     ],
     "@typescript-eslint/require-await": "warn",
     "@typescript-eslint/no-misused-promises": "warn",
-    "@typescript-eslint/explicit-function-return-types": [
-      "warn",
-      {
-        "allowExpressions": true,
-        "allowTypedFunctionExpressions": true
-      }
-    ],
-    "no-restricted-imports": [
-      "error",
-      {
-        "patterns": [
-          "../*"
-        ]
-      }
-    ],
     "no-underscore-dangle": "off",
     "func-names": "off",
     "object-shorthand": "error",
@@ -72,15 +52,92 @@
           "object": false
         }
       }
+    ],
+    "@typescript-eslint/explicit-function-return-type": [
+      "warn",
+      {
+        "allowExpressions": true,
+        "allowTypedFunctionExpressions": true
+      }
     ]
   },
   "overrides": [
     {
-      "files": [
-        "**/__tests__/**",
-        "**/*.test.ts",
-        "**/*.spec.ts"
-      ],
+      "files": ["src/modules/*/domain/**/*.ts"],
+      "excludedFiles": ["**/*.test.ts", "**/*.spec.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              "sequelize",
+              "typeorm",
+              "express",
+              "bullmq",
+              "ioredis",
+              "amqplib",
+              "jsonwebtoken",
+              "bcrypt",
+              "bcryptjs"
+            ],
+            "patterns": [
+              "**/infrastructure/**",
+              "**/infra/**",
+              "**/config/**",
+              "**/bootstrap/**",
+              "**/application/**",
+              "**/presentation/**",
+              "**/*.module"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/modules/*/application/**/*.ts"],
+      "excludedFiles": ["**/*.test.ts", "**/*.spec.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              "sequelize",
+              "typeorm",
+              "express",
+              "bullmq",
+              "ioredis",
+              "amqplib",
+              "jsonwebtoken",
+              "bcrypt",
+              "bcryptjs"
+            ],
+            "patterns": [
+              "**/infrastructure/**",
+              "**/infra/**",
+              "**/config/**",
+              "**/bootstrap/**",
+              "**/presentation/**",
+              "**/*.module"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/modules/*/presentation/**/*.ts"],
+      "excludedFiles": ["**/*.test.ts", "**/*.spec.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": ["sequelize", "typeorm"],
+            "patterns": ["**/infrastructure/**"]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["**/__tests__/**", "**/*.test.ts", "**/*.spec.ts"],
       "rules": {
         "@typescript-eslint/no-explicit-any": "off",
         "@typescript-eslint/no-unsafe-assignment": "off",

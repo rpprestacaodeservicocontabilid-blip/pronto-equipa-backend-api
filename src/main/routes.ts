@@ -1,3 +1,14 @@
+import { createAuditModule, auditRequestMiddleware } from '../modules/audit/audit.module';
+import { auditRequestContext } from '../shared/infrastructure/context/audit-request-context';
+import { logger } from '../config/logger';
+import { SessionManagerService } from '../modules/auth/infrastructure/service/session-manager.service';
+import { createNotificationsModule } from '../modules/notifications/notifications.module';
+import { createSupportModule } from '../modules/support/support.module';
+import { CompanyMemberModel } from '../modules/tenancy/infrastructure/persistence/models/company-member.model';
+import { createOnboardingModule } from '../modules/onboarding/onboarding.module';
+import { OnboardingTenantProvisioning } from '../modules/tenancy/infrastructure/adapters/onboarding-provisioning';
+import { UserModel } from '../modules/user/infrastructure/persistence/models/user.model';
+import { createPlatformBillingModule } from '../modules/platform-billing/platform-billing.module';
 import { Router } from 'express';
 
 // ============================================================
@@ -8,17 +19,17 @@ import {
   createAuthRoutes,
   createOAuthRoutes,
   createSessionRoutes,
-} from '../modules/auth/infrastructure/bootstrap/auth.bootstrap';
-import { createAuthorizationCheckRoutes } from '../modules/auth/infrastructure/bootstrap/authorization-check.bootstrap';
-import { authenticationMiddleware } from '../modules/auth/infrastructure/http/middleware/authentication.middleware';
+} from '../modules/auth/auth.module';
+import { createAuthorizationCheckRoutes } from '../modules/auth/auth.module';
+import { authenticationMiddleware } from '../modules/auth/presentation/middlewares/authentication.middleware';
 import { JwtTokenService } from '../modules/auth/infrastructure/service/jwt-token.service';
 
 // ============================================================
 // USER (identidade) — legado existente
 // ============================================================
 
-import { UserModule } from '../modules/user/user.module';
-import { createUserRecentRoutes } from '../modules/user/infrastructure/http/routes/user-recent.routes';
+import { UserModule, createRecentUsersModule } from '../modules/user/user.module';
+
 import { AuthGatewayImpl } from '../modules/user/infrastructure/integrations/auth/auth.gateway.impl';
 import { StorageGatewayImpl } from '../modules/user/infrastructure/integrations/storage/storage.gateway.impl';
 import { NotificationGatewayImpl } from '../modules/user/infrastructure/integrations/notifications/notification.gateway.impl';
@@ -27,8 +38,8 @@ import { NotificationGatewayImpl } from '../modules/user/infrastructure/integrat
 // FASE 1 — TENANCY / AUTHORIZATION / AUDIT
 // ============================================================
 
-import { createTenancyModule } from '../modules/tenancy/infrastructure/bootstrap/tenancy.bootstrap';
-import { createAuthorization } from '../modules/authorization/infrastructure/bootstrap/authorization.bootstrap';
+import { createTenancyModule } from '../modules/tenancy/tenancy.module';
+import { createAuthorization } from '../modules/authorization/authorization.module';
 import { SequelizeMembershipReader } from '../modules/tenancy/infrastructure/persistence/readers/sequelize-membership.reader';
 import { createEmployeesModule } from '../modules/employees/employees.module';
 import { createContractsModule } from '../modules/contracts/contracts.module';
@@ -41,7 +52,10 @@ import { createPayrollModule } from '../modules/payroll/payroll.module';
 import { createPaymentsModule } from '../modules/payments/payments.module';
 import { createPayslipsModule } from '../modules/payslips/payslips.module';
 import { createLegalRulesModule } from '../modules/legal-rules/legal-rules.module';
+import { createSimulationsModule } from '../modules/simulations/simulations.module';
 import { createReportsModule } from '../modules/reports/reports.module';
+import { createDocumentsModule } from '../modules/documents/documents.module';
+import { createSubscriptionsModule } from '../modules/subscriptions/subscriptions.module';
 
 import { ENV } from '../config/env';
 
@@ -73,7 +87,7 @@ const router = Router();
 const tokenService = new JwtTokenService(ENV.JWT.SECRET, ENV.JWT.EXPIRES_IN || '15m');
 
 /** Autenticação obrigatória (popula `req.user` a partir do JWT). */
-const authenticate = authenticationMiddleware(tokenService);
+const authenticate = authenticationMiddleware(tokenService, new SessionManagerService());
 
 // ============================================================
 // FASE 1 — MÓDULOS DE FUNDACÇÃO
@@ -86,6 +100,24 @@ const authz = createAuthorization({ membershipReader });
 const tenancy = createTenancyModule({
   requirePermission: authz.requirePermission,
 });
+export const audit = createAuditModule({
+  authorize: (actorId, companyId, permission) =>
+    authz.authorizationService.authorize({
+      principalId: actorId,
+      context: companyId === null ? { type: 'platform' } : { type: 'tenant', tenantId: companyId },
+      permission:
+        companyId === null && permission !== 'audit:records:read-platform'
+          ? 'platform:' + permission
+          : permission,
+    }),
+});
+router.use(
+  auditRequestMiddleware(audit.services.core, auditRequestContext, () =>
+    logger.error('[audit] HTTP audit recording failed'),
+  ),
+);
+router.use('/admin/audit', authenticate, audit.platformRoutes);
+router.use('/audit', authenticate, authz.tenantContext, audit.routes);
 const employees = createEmployeesModule({
   requirePermission: authz.requirePermission,
   audit: tenancy.auditRecorder,
@@ -114,11 +146,38 @@ const salaryStructure = createSalaryStructureModule({
   requirePermission: authz.requirePermission,
   audit: tenancy.auditRecorder,
 });
-const payroll = createPayrollModule({ requirePermission: authz.requirePermission, audit: tenancy.auditRecorder });
-export const payments = createPaymentsModule({ requirePermission: authz.requirePermission, audit: tenancy.auditRecorder });
-export const payslips = createPayslipsModule({ requirePermission: authz.requirePermission, audit: tenancy.auditRecorder });
-const legalRules = createLegalRulesModule({ authorization: authz.authorizationService, audit: tenancy.auditRecorder });
-const reports = createReportsModule({ requirePermission: authz.requirePermission, audit: tenancy.auditRecorder });
+const payroll = createPayrollModule({
+  requirePermission: authz.requirePermission,
+  audit: tenancy.auditRecorder,
+});
+export const payments = createPaymentsModule({
+  requirePermission: authz.requirePermission,
+  audit: tenancy.auditRecorder,
+});
+export const payslips = createPayslipsModule({
+  requirePermission: authz.requirePermission,
+  audit: tenancy.auditRecorder,
+});
+const legalRules = createLegalRulesModule({
+  authorization: authz.authorizationService,
+  audit: tenancy.auditRecorder,
+});
+export const simulations = createSimulationsModule({
+  requirePermission: authz.requirePermission,
+  audit: tenancy.auditRecorder,
+});
+const reports = createReportsModule({
+  requirePermission: authz.requirePermission,
+  audit: tenancy.auditRecorder,
+});
+export const documents = createDocumentsModule({
+  requirePermission: authz.requirePermission,
+  audit: tenancy.auditRecorder,
+});
+export const subscriptions = createSubscriptionsModule({
+  requirePermission: authz.requirePermission,
+  audit: tenancy.auditRecorder,
+});
 
 /**
  * ============================================================
@@ -189,7 +248,7 @@ router.use('/users/roles', userModule.routes.role);
 
 router.use('/users/permissions', userModule.routes.permission);
 
-router.use('/users/recent', createUserRecentRoutes());
+router.use('/users/recent', createRecentUsersModule());
 
 router.use('/users', userModule.routes.user);
 
@@ -242,6 +301,16 @@ router.use('/payroll', authenticate, authz.tenantContext, payroll.routes);
 router.use('/payments', authenticate, authz.tenantContext, payments.routes);
 router.use('/payslips', authenticate, authz.tenantContext, payslips.routes);
 router.use('/reports', authenticate, authz.tenantContext, reports.routes);
+router.use('/simulations', authenticate, authz.tenantContext, simulations.routes);
+router.use('/documents', authenticate, authz.tenantContext, documents.routes);
+router.use(
+  '/subscriptions/admin',
+  authenticate,
+  authz.requirePlatformRole('SUPER_ADMIN'),
+  subscriptions.adminRoutes,
+);
+router.use('/subscriptions/internal', subscriptions.integrationRoutes);
+router.use('/subscriptions', authenticate, authz.tenantContext, subscriptions.routes);
 
 // Internal payroll resolver uses the integration token; platform management uses JWT + PLATFORM RBAC.
 router.use('/legal-rules', legalRules.integrationRoutes);
@@ -266,5 +335,211 @@ router.use(
   tenancy.platformCompanyRoutes,
 );
 
+export const platformBilling = createPlatformBillingModule({
+  requirePermission: authz.requirePermission,
+  readSubscription: (companyId) => subscriptions.service.billingContract(companyId),
+  applySubscriptionEvent: (event) => subscriptions.service.applyBillingEvent(event),
+});
+router.use('/platform-billing/internal', platformBilling.integrationRoutes);
+router.use(
+  '/platform-billing/admin',
+  authenticate,
+  authz.requirePlatformRole('SUPER_ADMIN'),
+  platformBilling.adminRoutes,
+);
+router.use('/platform-billing', authenticate, authz.tenantContext, platformBilling.routes);
+export const notifications = createNotificationsModule({
+  guard: authz.requirePermission,
+  directory: {
+    async resolve(userId, companyId) {
+      if (
+        companyId !== null &&
+        !(await CompanyMemberModel.findOne({ where: { companyId, userId, status: 'ACTIVE' } }))
+      )
+        throw Object.assign(new Error('Destinatário não autorizado.'), { statusCode: 403 });
+      const user = await UserModel.findByPk(userId);
+      if (!user || user.status !== 'ACTIVE')
+        throw Object.assign(new Error('Destinatário indisponível.'), { statusCode: 422 });
+      return { email: user.emailVerifiedAt ? user.email : null, phone: null };
+    },
+  },
+});
+audit.runtime.setNotifications({
+  async alert(scope, id, severity) {
+    const raw: unknown = JSON.parse(process.env.AUDIT_ALERT_RECIPIENTS_JSON || '{}');
+    const mapping =
+      raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+    const configured = mapping[scope.scopeKey];
+    if (!Array.isArray(configured) || !configured.length)
+      throw new Error('Configure audit alert recipients.');
+    const recipients: number[] = [];
+    for (const candidate of configured) {
+      const userId = Number(candidate);
+      if (!Number.isSafeInteger(userId) || userId <= 0)
+        throw new Error('Invalid audit alert recipient.');
+      const permitted = await authz.authorizationService.authorize({
+        principalId: userId,
+        context:
+          scope.companyId === null
+            ? { type: 'platform' }
+            : { type: 'tenant', tenantId: scope.companyId },
+        permission: scope.companyId === null ? 'platform:audit:alerts:read' : 'audit:alerts:read',
+      });
+      if (permitted) recipients.push(userId);
+    }
+    if (!recipients.length) throw new Error('No authorized audit alert recipients.');
+    await notifications.service.send(null, 0, {
+      key: 'audit-alert:' + id,
+      category: 'SECURITY',
+      template: 'AUDIT_ALERT',
+      variables: { alertId: id, severity, scope: scope.scopeKey },
+      recipients,
+      channels: ['IN_APP'],
+    });
+  },
+});
+router.use('/notifications/internal', notifications.integrationRoutes);
+router.use('/notifications/personal', authenticate, notifications.personalRoutes);
+router.use(
+  '/notifications/admin',
+  authenticate,
+  authz.requirePlatformRole('SUPER_ADMIN'),
+  notifications.adminRoutes,
+);
+router.use('/notifications', authenticate, authz.tenantContext, notifications.routes);
+export const support = createSupportModule({
+  requirePermission: authz.requirePermission,
+  audit: tenancy.auditRecorder,
+  notifications: notifications.service,
+  subscriptions: subscriptions.service,
+  documents: documents.service,
+});
+router.use('/support/admin', authenticate, authz.tenantContext, support.admin);
+router.use('/support', authenticate, authz.tenantContext, support.routes);
+const onboardingTenant = new OnboardingTenantProvisioning();
+export const onboarding = createOnboardingModule(
+  {
+    validateLegal: (id) => legalRules.isPublished(id),
+    configurePayroll: async (companyId, actor, config) => {
+      const calendars = await organization.service.list(companyId, 'WORK_CALENDAR', {
+        page: 1,
+        limit: 100,
+      });
+      if (!calendars.data.some((r) => r.code === 'ONB-CALENDAR'))
+        await organization.service.create(companyId, actor, {
+          type: 'WORK_CALENDAR',
+          code: 'ONB-CALENDAR',
+          name: 'Calendário inicial',
+          effectiveFrom: config.effectiveFrom,
+          data: { workingWeekdays: config.workingDays, legalRuleVersionId: config.legalRuleSetId },
+        });
+      for (const component of config.components || []) {
+        const old = await salaryStructure.service.query((repo) =>
+          repo.listComponents(companyId, { page: 1, limit: 1, code: component.code }),
+        );
+        if (!old.data.length)
+          await salaryStructure.service.execute(
+            companyId,
+            actor,
+            'onboarding.salary-component.created',
+            'salary_component',
+            (repo) => repo.createComponent(companyId, actor, component),
+          );
+      }
+    },
+    configureOrganization: async (companyId, actor, configuration) => {
+      for (const [field, type] of [
+        ['departments', 'DEPARTMENT'],
+        ['costCenters', 'COST_CENTER'],
+      ] as const) {
+        const names = configuration[field] || [];
+        const existing = await organization.service.list(companyId, type, { page: 1, limit: 200 });
+        for (let i = 0; i < names.length; i++) {
+          const code = `ONB-${field}-${i + 1}`;
+          if (!existing.data.some((row) => row.code === code))
+            await organization.service.create(companyId, actor, { type, code, name: names[i] });
+        }
+      }
+    },
+    verifiedUser: async (actor) => {
+      const user = await UserModel.findByPk(actor);
+      return Boolean(user?.emailVerifiedAt && user.status === 'ACTIVE');
+    },
+    provision: (input) => onboardingTenant.provision(input),
+    activate: (companyId, applicationId) => onboardingTenant.activate(companyId, applicationId),
+    plans: () => subscriptions.service.listPlans(true),
+    subscribe: (companyId, actor, plan, key) =>
+      subscriptions.service.createSubscription(companyId, actor, { ...plan, idempotencyKey: key }),
+    subscription: (companyId) => subscriptions.service.current(companyId),
+    billingAccount: (companyId, actor, company) =>
+      platformBilling.service.account(companyId, actor, company),
+  },
+  {
+    inviteAddress: async (actor) => {
+      const user = await UserModel.findByPk(actor);
+      if (!user?.emailVerifiedAt) throw new Error('Verifique o e-mail antes de aceitar o convite.');
+      return user.email;
+    },
+    importEmployee: async (companyId, actor, input, kind) => {
+      if (kind === 'CONTRACTS') {
+        const old = await contracts.service.list(companyId, {
+          page: 1,
+          limit: 100,
+          employeeId: input.employeeId,
+        });
+        const match = old.data.find((r) => r.contractNumber === input.contractNumber);
+        return match || contracts.service.create({ ...input, companyId, actorUserId: actor });
+      }
+      if (kind === 'SALARIES') {
+        const old = await salaryStructure.service.query((repo) =>
+          repo.listAssignments(companyId, { page: 1, limit: 100, employeeId: input.employeeId }),
+        );
+        const match = old.data.find(
+          (r: any) =>
+            r.contractId === input.contractId &&
+            new Date(r.effectiveFrom).toISOString().slice(0, 10) === input.effectiveFrom,
+        );
+        return (
+          match ||
+          salaryStructure.service.execute(
+            companyId,
+            actor,
+            'onboarding.salary.imported',
+            'salary_assignment',
+            (repo) => repo.createAssignment(companyId, actor, input),
+          )
+        );
+      }
+      return employees.importInitial(companyId, actor, input);
+    },
+    reserveEmployee: (companyId, key) =>
+      subscriptions.usage.reserve({
+        tenantId: String(companyId),
+        metricCode: 'ACTIVE_EMPLOYEES',
+        quantity: '1',
+        operationKey: key,
+      }),
+    settleEmployee: (companyId, id, commit) =>
+      commit
+        ? subscriptions.usage.commit({ tenantId: String(companyId), reservationId: id })
+        : subscriptions.usage.release({ tenantId: String(companyId), reservationId: id }),
+    notify: async (ownerId, key, status) => {
+      await notifications.service.send(null, 0, {
+        key,
+        category: 'ONBOARDING',
+        template: 'ONBOARDING_STATUS',
+        variables: { status },
+        recipients: [ownerId],
+        channels: ['IN_APP'],
+      });
+    },
+  },
+);
+router.use(
+  '/onboarding/admin',
+  authenticate,
+  authz.requirePlatformRole('SUPER_ADMIN'),
+  onboarding.adminRoutes,
+);
+router.use('/onboarding', authenticate, onboarding.routes);
 export default router;
-

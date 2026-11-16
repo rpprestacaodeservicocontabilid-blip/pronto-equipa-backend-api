@@ -11,16 +11,16 @@
 
 export const SHARED_TOKENS = {
   /** `Clock` — tempo injectável (production `SystemClock`). */
-  CLOCK: "shared.clock",
+  CLOCK: 'shared.clock',
 
   /** `TransactionManager` — transacções com contexto de tenant. */
-  TRANSACTION_MANAGER: "shared.transactionManager",
+  TRANSACTION_MANAGER: 'shared.transactionManager',
 
   /** `IdempotencyStore` — prevenção de duplicados. */
-  IDEMPOTENCY_STORE: "shared.idempotencyStore",
+  IDEMPOTENCY_STORE: 'shared.idempotencyStore',
 
   /** `Telemetry` — métricas (implementação provisória noop). */
-  TELEMETRY: "shared.telemetry",
+  TELEMETRY: 'shared.telemetry',
 } as const;
 
 export type SharedToken = (typeof SHARED_TOKENS)[keyof typeof SHARED_TOKENS];

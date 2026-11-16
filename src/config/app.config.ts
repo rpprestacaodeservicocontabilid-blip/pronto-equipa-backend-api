@@ -1,6 +1,6 @@
-import type { EnvVars } from "./env";
+import type { EnvVars } from './env';
 
-export type AppEnvironment = "development" | "test" | "production";
+export type AppEnvironment = 'development' | 'test' | 'production';
 
 export interface AppConfig {
   env: AppEnvironment;
@@ -22,14 +22,12 @@ export interface AppConfig {
  * é gerido exclusivamente por migrações — a sincronização
  * automática está proibida em produção.
  */
-export function createAppConfig(env: Pick<EnvVars,
-  | "NODE_ENV"
-  | "APP_NAME"
-  | "APP_VERSION"
-  | "APP_URL"
-  | "PORT"
-  | "HOST"
-  | "SHUTDOWN_TIMEOUT_MS">): AppConfig {
+export function createAppConfig(
+  env: Pick<
+    EnvVars,
+    'NODE_ENV' | 'APP_NAME' | 'APP_VERSION' | 'APP_URL' | 'PORT' | 'HOST' | 'SHUTDOWN_TIMEOUT_MS'
+  >,
+): AppConfig {
   return {
     env: env.NODE_ENV,
     name: env.APP_NAME,
@@ -38,8 +36,8 @@ export function createAppConfig(env: Pick<EnvVars,
     port: env.PORT,
     host: env.HOST,
     shutdownTimeoutMs: env.SHUTDOWN_TIMEOUT_MS,
-    isProduction: env.NODE_ENV === "production",
-    isDevelopment: env.NODE_ENV === "development",
-    isTest: env.NODE_ENV === "test",
+    isProduction: env.NODE_ENV === 'production',
+    isDevelopment: env.NODE_ENV === 'development',
+    isTest: env.NODE_ENV === 'test',
   };
 }

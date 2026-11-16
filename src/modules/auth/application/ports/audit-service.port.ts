@@ -11,14 +11,9 @@ export interface AuditEventInput {
 
   userAgent: string | null;
 
-  metadata?: Record<
-    string,
-    unknown
-  >;
+  metadata?: Record<string, unknown>;
 }
 
 export interface AuditServicePort {
-  record(
-    event: AuditEventInput,
-  ): Promise<void>;
+  record(event: AuditEventInput): Promise<void>;
 }

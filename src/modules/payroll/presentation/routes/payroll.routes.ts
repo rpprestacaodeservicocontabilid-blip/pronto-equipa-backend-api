@@ -1,9 +1,14 @@
 import { RequestHandler, Router } from 'express';
 import { z } from 'zod';
-import { UnauthorizedError, ValidationError } from '../../../../shared/errors/app.error';
+import { UnauthorizedError } from '../../../../shared/errors/app.error';
 import { AuditRecorderPort } from '../../../audit/application/ports/audit-recorder.port';
 import { PayrollController } from '../controllers/payroll.controller';
-import { payrollIdSchema as id, payrollPeriodSchema as dates, payrollVersionSchema as version, payrollRunSchema as run } from '../schemas/payroll.schema';
+import {
+  payrollIdSchema as id,
+  payrollPeriodSchema as dates,
+  payrollVersionSchema as version,
+  payrollRunSchema as run,
+} from '../schemas/payroll.schema';
 import { PayrollWorkflowService } from '../../application/use-cases/payroll-workflow.service';
 
 export function createPayrollRoutes(options: {
@@ -101,14 +106,14 @@ export function createPayrollRoutes(options: {
     options.requirePermission('payroll:runs:validate'),
     handler(
       (req, tenant, actor) =>
-          repository.queueValidation(
+        repository.queueValidation(
           tenant,
           actor,
           id.parse(req.params.id),
           version.parse(req.body).expectedVersion,
         ),
-        'payroll.run.validation-requested',
-        202,
+      'payroll.run.validation-requested',
+      202,
     ),
   );
   for (const action of ['process', 'retry-failed'] as const)
@@ -320,4 +325,3 @@ export function createPayrollRoutes(options: {
   );
   return { routes };
 }
-

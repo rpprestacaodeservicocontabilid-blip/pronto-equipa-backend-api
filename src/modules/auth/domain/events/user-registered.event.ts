@@ -1,8 +1,6 @@
-import { DomainEvent } from "./domain-event";
+import { DomainEvent } from './domain-event';
 
-export class UserRegisteredEvent
-  extends DomainEvent
-{
+export class UserRegisteredEvent extends DomainEvent {
   constructor(
     public readonly userId: number,
     public readonly authAccountId: number,
@@ -12,6 +10,6 @@ export class UserRegisteredEvent
   }
 
   public get eventName(): string {
-    return "auth.user.registered";
+    return 'auth.user.registered';
   }
 }

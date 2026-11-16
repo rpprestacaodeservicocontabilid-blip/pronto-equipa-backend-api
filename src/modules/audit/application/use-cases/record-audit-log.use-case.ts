@@ -1,10 +1,7 @@
-import { AuditLog } from "../../domain/entities/audit-log";
-import { AuditLogRepository } from "../../domain/repositories/audit-log.repository";
-import {
-    AuditRecorderPort,
-    AuditRecordInput,
-} from "../ports/audit-recorder.port";
-import { logger } from "../../../../config/logger";
+import { AuditLog } from '../../domain/entities/audit-log';
+import { AuditLogRepository } from '../../domain/repositories/audit-log.repository';
+import { AuditRecorderPort, AuditRecordInput } from '../ports/audit-recorder.port';
+import { AuditErrorReporterPort } from '../ports/audit-error-reporter.port';
 
 /**
  * Grava eventos de auditoria (implementação do `AuditRecorderPort`).
@@ -14,23 +11,21 @@ import { logger } from "../../../../config/logger";
  * originou o evento já está confirmada.
  */
 export class RecordAuditLogUseCase implements AuditRecorderPort {
-    constructor(
-        private readonly repository: AuditLogRepository,
-    ) { }
+  constructor(
+    private readonly repository: AuditLogRepository,
+    private readonly reporter: AuditErrorReporterPort,
+  ) {}
 
-    async record(input: AuditRecordInput): Promise<void> {
-        try {
-            await this.repository.save(AuditLog.create(input));
-        } catch (error) {
-            logger.error(
-                "[Audit] Falha ao gravar registo de auditoria:",
-                {
-                    action: input.action,
-                    entityType: input.entityType,
-                    companyId: input.companyId,
-                    err: error,
-                },
-            );
-        }
+  async record(input: AuditRecordInput): Promise<void> {
+    try {
+      await this.repository.save(AuditLog.create(input));
+    } catch (error) {
+      this.reporter.error('[Audit] Falha ao gravar registo de auditoria:', {
+        action: input.action,
+        entityType: input.entityType,
+        companyId: input.companyId,
+        errorType: error instanceof Error ? error.name : 'Unknown',
+      });
     }
+  }
 }

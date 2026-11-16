@@ -26,7 +26,18 @@ import { RabbitMQManager } from '../infra/rabbitmq';
 import JobsManager from '../jobs';
 import { PayrollRuntime } from '../modules/payroll/infrastructure/jobs/payroll-runtime';
 import { sharedModule } from '../shared/shared.module';
-import { payments, payslips } from '../main/routes';
+import {
+  payments,
+  payslips,
+  simulations,
+  documents,
+  subscriptions,
+  platformBilling,
+  onboarding,
+  notifications,
+  support,
+  audit,
+} from '../main/routes';
 
 import type { ApplicationContext, ModuleDefinition } from './types/application-context';
 
@@ -55,6 +66,16 @@ export function defaultModules(): ModuleDefinition[] {
       async shutdown(context) {
         await DatabaseManager.disconnect();
         context.health.set('database', 'down', true);
+      },
+    },
+    {
+      name: 'audit',
+      critical: true,
+      async init() {
+        await audit.runtime.start();
+      },
+      async shutdown() {
+        await audit.runtime.stop();
       },
     },
     {
@@ -108,9 +129,76 @@ export function defaultModules(): ModuleDefinition[] {
       },
     },
     {
+      name: 'simulations-workers',
+      init() {
+        simulations.runtime.start();
+      },
+      async shutdown() {
+        await simulations.runtime.stop();
+      },
+    },
+    {
       name: 'payslips-workers',
-      init() { payslips.runtime.start(); },
-      async shutdown() { await payslips.runtime.stop(); },
+      init() {
+        payslips.runtime.start();
+      },
+      async shutdown() {
+        await payslips.runtime.stop();
+      },
+    },
+    {
+      name: 'documents-workers',
+      init() {
+        documents.runtime.start();
+      },
+      async shutdown() {
+        await documents.runtime.stop();
+      },
+    },
+    {
+      name: 'notifications-runtime',
+      init() {
+        notifications.runtime.start();
+      },
+      async shutdown() {
+        await notifications.runtime.stop();
+      },
+    },
+    {
+      name: 'support-runtime',
+      init() {
+        support.runtime.start();
+      },
+      async shutdown() {
+        support.runtime.stop();
+      },
+    },
+    {
+      name: 'onboarding-runtime',
+      init() {
+        onboarding.runtime.start();
+      },
+      async shutdown() {
+        await onboarding.runtime.stop();
+      },
+    },
+    {
+      name: 'platform-billing-runtime',
+      init() {
+        platformBilling.runtime.start();
+      },
+      async shutdown() {
+        await platformBilling.runtime.stop();
+      },
+    },
+    {
+      name: 'subscriptions-lifecycle',
+      init() {
+        subscriptions.runtime.start();
+      },
+      async shutdown() {
+        await subscriptions.runtime.stop();
+      },
     },
   ];
 }

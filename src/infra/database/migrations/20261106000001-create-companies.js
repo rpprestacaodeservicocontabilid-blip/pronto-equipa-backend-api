@@ -1,4 +1,4 @@
-"use strict";
+'use strict';
 
 /**
  * Fase 1 — Fundação multiempresa.
@@ -11,7 +11,7 @@
  */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("companies", {
+    await queryInterface.createTable('companies', {
       id: {
         type: Sequelize.INTEGER.UNSIGNED,
         allowNull: false,
@@ -47,19 +47,19 @@ module.exports = {
       status: {
         type: Sequelize.STRING(30),
         allowNull: false,
-        defaultValue: "ACTIVE",
+        defaultValue: 'ACTIVE',
       },
 
       timezone: {
         type: Sequelize.STRING(60),
         allowNull: false,
-        defaultValue: "Africa/Luanda",
+        defaultValue: 'Africa/Luanda',
       },
 
       locale: {
         type: Sequelize.STRING(10),
         allowNull: false,
-        defaultValue: "pt-AO",
+        defaultValue: 'pt-AO',
       },
 
       settings: {
@@ -82,17 +82,17 @@ module.exports = {
     // INDEXES
     // ============================================================
 
-    await queryInterface.addIndex("companies", ["slug"], {
+    await queryInterface.addIndex('companies', ['slug'], {
       unique: true,
-      name: "uq_companies_slug",
+      name: 'uq_companies_slug',
     });
 
-    await queryInterface.addIndex("companies", ["status"], {
-      name: "idx_companies_status",
+    await queryInterface.addIndex('companies', ['status'], {
+      name: 'idx_companies_status',
     });
   },
 
   async down(queryInterface) {
-    await queryInterface.dropTable("companies");
+    await queryInterface.dropTable('companies');
   },
 };

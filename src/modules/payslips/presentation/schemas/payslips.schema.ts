@@ -1,8 +1,17 @@
 import { z } from 'zod';
 
 export const payslipIdSchema = z.string().trim().min(1);
-export const employeeUserLinkSchema = z.object({ userId: z.coerce.number().int().positive() }).strict();
-export const payslipPolicySchema = z.object({ retentionDays: z.number().int().min(1).max(36500).nullable(), allowWorkerDownload: z.boolean(), notifyWorkerOnPublish: z.boolean(), requireManualPublication: z.boolean() }).strict();
+export const employeeUserLinkSchema = z
+  .object({ userId: z.coerce.number().int().positive() })
+  .strict();
+export const payslipPolicySchema = z
+  .object({
+    retentionDays: z.number().int().min(1).max(36500).nullable(),
+    allowWorkerDownload: z.boolean(),
+    notifyWorkerOnPublish: z.boolean(),
+    requireManualPublication: z.boolean(),
+  })
+  .strict();
 
 export const listQuerySchema = z
   .object({
@@ -20,7 +29,17 @@ export const generatePayslipSchema = z
     payrollResultId: z.string().trim().min(1),
     employeeId: z.string().trim().min(1),
     templateVersionId: z.string().trim().min(1),
-    type: z.enum(['REGULAR', 'OFF_CYCLE', 'SUPPLEMENTARY', 'RETROACTIVE', 'CORRECTION', 'TERMINATION', 'DUPLICATE_COPY']).default('REGULAR'),
+    type: z
+      .enum([
+        'REGULAR',
+        'OFF_CYCLE',
+        'SUPPLEMENTARY',
+        'RETROACTIVE',
+        'CORRECTION',
+        'TERMINATION',
+        'DUPLICATE_COPY',
+      ])
+      .default('REGULAR'),
     idempotencyKey: z.string().trim().min(1).optional(),
   })
   .strict();
@@ -29,7 +48,9 @@ export const createPayslipBatchSchema = z
   .object({
     payrollRunId: z.string().trim().min(1),
     templateVersionId: z.string().trim().min(1),
-    type: z.enum(['REGULAR', 'OFF_CYCLE', 'SUPPLEMENTARY', 'RETROACTIVE', 'CORRECTION', 'TERMINATION']).default('REGULAR'),
+    type: z
+      .enum(['REGULAR', 'OFF_CYCLE', 'SUPPLEMENTARY', 'RETROACTIVE', 'CORRECTION', 'TERMINATION'])
+      .default('REGULAR'),
     employeeIds: z.array(z.string().trim().min(1)).min(1),
   })
   .strict();
@@ -83,6 +104,8 @@ export const correctionSchema = z
 export const exportReportSchema = z
   .object({
     format: z.enum(['PDF', 'CSV', 'XLSX']).default('PDF'),
-    reportType: z.enum(['summary', 'emissions', 'pending', 'failed', 'publication']).default('summary'),
+    reportType: z
+      .enum(['summary', 'emissions', 'pending', 'failed', 'publication'])
+      .default('summary'),
   })
   .strict();

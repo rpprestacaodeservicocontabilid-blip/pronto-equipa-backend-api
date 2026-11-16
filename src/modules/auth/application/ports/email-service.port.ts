@@ -5,14 +5,9 @@ export interface SendEmailInput {
 
   template: string;
 
-  variables?: Record<
-    string,
-    unknown
-  >;
+  variables?: Record<string, unknown>;
 }
 
 export interface EmailServicePort {
-  send(
-    input: SendEmailInput,
-  ): Promise<void>;
+  send(input: SendEmailInput): Promise<void>;
 }

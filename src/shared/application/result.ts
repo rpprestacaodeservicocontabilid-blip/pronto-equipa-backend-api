@@ -29,7 +29,7 @@ export class Result<T = void, E = Error> {
 
   public static fail<E>(error: E): Result<never, E> {
     if (error === null || error === undefined) {
-      throw new Error("[result] fail requires an error");
+      throw new Error('[result] fail requires an error');
     }
 
     return new Result<never, E>(false, undefined, error);
@@ -45,9 +45,7 @@ export class Result<T = void, E = Error> {
   }
 
   /** Envolve uma função assíncrona que pode rejeitar. */
-  public static async tryCatchAsync<T>(
-    fn: () => Promise<T>,
-  ): Promise<Result<T, unknown>> {
+  public static async tryCatchAsync<T>(fn: () => Promise<T>): Promise<Result<T, unknown>> {
     try {
       return Result.ok(await fn());
     } catch (error) {
@@ -66,9 +64,7 @@ export class Result<T = void, E = Error> {
   /** Valor do sucesso. Lança se o resultado for falha. */
   public get value(): T {
     if (!this.succeeded) {
-      throw new Error(
-        `[result] no value on failure: ${String(this.internalError)}`,
-      );
+      throw new Error(`[result] no value on failure: ${String(this.internalError)}`);
     }
 
     return this.internalValue as T;
@@ -77,7 +73,7 @@ export class Result<T = void, E = Error> {
   /** Erro da falha. Lança se o resultado for sucesso. */
   public get error(): E {
     if (this.succeeded) {
-      throw new Error("[result] no error on success");
+      throw new Error('[result] no error on success');
     }
 
     return this.internalError as E;

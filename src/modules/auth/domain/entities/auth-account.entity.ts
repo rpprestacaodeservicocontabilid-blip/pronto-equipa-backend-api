@@ -1,14 +1,12 @@
-import { AuthAccountId } from "../value-objects/auth-account-id.vo";
-import { Email } from "../value-objects/email.vo";
-import { Password } from "../value-objects/password.vo";
+import { AuthAccountId } from '../value-objects/auth-account-id.vo';
+import { Email } from '../value-objects/email.vo';
+import { Password } from '../value-objects/password.vo';
 
-import { AuthProvider } from "../enums/auth-provider.enum";
-import { AuthStatus } from "../enums/auth-status.enum";
-import { Role } from "../enums/role.enum";
-
+import { AuthProvider } from '../enums/auth-provider.enum';
+import { AuthStatus } from '../enums/auth-status.enum';
+import { Role } from '../enums/role.enum';
 
 export interface AuthAccountProps {
-
   id: AuthAccountId;
 
   userId: number;
@@ -38,9 +36,7 @@ export interface AuthAccountProps {
   updatedAt: Date;
 }
 
-
 export interface AuthAccountPersistence {
-
   id: number;
 
   userId: number;
@@ -68,9 +64,7 @@ export interface AuthAccountPersistence {
   updatedAt: Date;
 }
 
-
 export class AuthAccount {
-
   private readonly _id: AuthAccountId;
 
   private readonly _userId: number;
@@ -99,11 +93,7 @@ export class AuthAccount {
 
   private _updatedAt: Date;
 
-
-  private constructor(
-    props: AuthAccountProps,
-  ) {
-
+  private constructor(props: AuthAccountProps) {
     this._id = props.id;
 
     this._userId = props.userId;
@@ -114,34 +104,24 @@ export class AuthAccount {
 
     this._provider = props.provider;
 
-    this._providerAccountId =
-      props.providerAccountId;
+    this._providerAccountId = props.providerAccountId;
 
     this._status = props.status;
 
-    this._roles = [
-      ...new Set(props.roles),
-    ];
+    this._roles = [...new Set(props.roles)];
 
-    this._emailVerifiedAt =
-      props.emailVerifiedAt;
+    this._emailVerifiedAt = props.emailVerifiedAt;
 
-    this._failedLoginAttempts =
-      props.failedLoginAttempts;
+    this._failedLoginAttempts = props.failedLoginAttempts;
 
-    this._lockedUntil =
-      props.lockedUntil;
+    this._lockedUntil = props.lockedUntil;
 
-    this._lastLoginAt =
-      props.lastLoginAt;
+    this._lastLoginAt = props.lastLoginAt;
 
-    this._createdAt =
-      props.createdAt;
+    this._createdAt = props.createdAt;
 
-    this._updatedAt =
-      props.updatedAt;
+    this._updatedAt = props.updatedAt;
   }
-
 
   /**
    * Cria uma nova conta de autenticação.
@@ -149,40 +129,21 @@ export class AuthAccount {
    * Usado quando a conta ainda está a ser criada
    * pela aplicação.
    */
-  public static create(
-    props: AuthAccountProps,
-  ): AuthAccount {
-
+  public static create(props: AuthAccountProps): AuthAccount {
     if (props.userId <= 0) {
-
-      throw new Error(
-        "User ID must be greater than zero.",
-      );
+      throw new Error('User ID must be greater than zero.');
     }
 
-    if (
-      props.provider === AuthProvider.LOCAL &&
-      !props.password
-    ) {
-
-      throw new Error(
-        "Local authentication requires a password.",
-      );
+    if (props.provider === AuthProvider.LOCAL && !props.password) {
+      throw new Error('Local authentication requires a password.');
     }
 
-    if (
-      props.provider === AuthProvider.GOOGLE &&
-      !props.providerAccountId
-    ) {
-
-      throw new Error(
-        "Google authentication requires a provider account ID.",
-      );
+    if (props.provider === AuthProvider.GOOGLE && !props.providerAccountId) {
+      throw new Error('Google authentication requires a provider account ID.');
     }
 
     return new AuthAccount(props);
   }
-
 
   /**
    * Reconstitui uma entidade existente
@@ -190,134 +151,86 @@ export class AuthAccount {
    *
    * Usado pelos repositories.
    */
-  public static reconstitute(
-    props: AuthAccountProps,
-  ): AuthAccount {
-
+  public static reconstitute(props: AuthAccountProps): AuthAccount {
     return new AuthAccount(props);
   }
-
 
   /**
    * Converte a entidade para o formato
    * utilizado pela persistência.
    */
   public toPersistence(): AuthAccountPersistence {
-
     return {
+      id: this._id.getValue(),
 
-      id:
-        this._id.getValue(),
+      userId: this._userId,
 
-      userId:
-        this._userId,
+      email: this._email.getValue(),
 
-      email:
-        this._email.getValue(),
+      password: this._password ? this._password.getValue() : null,
 
-      password:
-        this._password
-          ? this._password.getValue()
-          : null,
+      provider: this._provider,
 
-      provider:
-        this._provider,
+      providerAccountId: this._providerAccountId,
 
-      providerAccountId:
-        this._providerAccountId,
+      status: this._status,
 
-      status:
-        this._status,
+      emailVerifiedAt: this._emailVerifiedAt,
 
-      emailVerifiedAt:
-        this._emailVerifiedAt,
+      failedLoginAttempts: this._failedLoginAttempts,
 
-      failedLoginAttempts:
-        this._failedLoginAttempts,
+      lockedUntil: this._lockedUntil,
 
-      lockedUntil:
-        this._lockedUntil,
+      lastLoginAt: this._lastLoginAt,
 
-      lastLoginAt:
-        this._lastLoginAt,
+      createdAt: this._createdAt,
 
-      createdAt:
-        this._createdAt,
-
-      updatedAt:
-        this._updatedAt,
+      updatedAt: this._updatedAt,
     };
   }
 
-
   public verifyEmail(): void {
+    this._emailVerifiedAt = new Date();
 
-    this._emailVerifiedAt =
-      new Date();
-
-    if (
-      this._status ===
-      AuthStatus.PENDING_VERIFICATION
-    ) {
-
-      this._status =
-        AuthStatus.ACTIVE;
+    if (this._status === AuthStatus.PENDING_VERIFICATION) {
+      this._status = AuthStatus.ACTIVE;
     }
 
     this.touch();
   }
 
-
-  public changePassword(
-    password: Password,
-  ): void {
-
-    this._password =
-      password;
+  public changePassword(password: Password): void {
+    this._password = password;
 
     this.touch();
   }
 
-
   public recordSuccessfulLogin(): void {
-
     this._failedLoginAttempts = 0;
 
     this._lockedUntil = null;
 
-    this._lastLoginAt =
-      new Date();
+    this._lastLoginAt = new Date();
 
     this.touch();
   }
 
-
   public recordFailedLogin(): void {
-
     this._failedLoginAttempts++;
 
     this.touch();
   }
 
+  public lock(until: Date | null = null): void {
+    this._status = AuthStatus.LOCKED;
 
-  public lock(
-    until: Date | null = null,
-  ): void {
-
-    this._status =
-      AuthStatus.LOCKED;
-
-    this._lockedUntil =
-      until;
+    this._lockedUntil = until;
 
     this.touch();
   }
 
-
   public unlock(): void {
-
-    this._status =
-      AuthStatus.ACTIVE;
+    this._status = AuthStatus.ACTIVE;
 
     this._failedLoginAttempts = 0;
 
@@ -326,207 +239,123 @@ export class AuthAccount {
     this.touch();
   }
 
-
   public suspend(): void {
-
-    this._status =
-      AuthStatus.SUSPENDED;
+    this._status = AuthStatus.SUSPENDED;
 
     this.touch();
   }
-
 
   public disable(): void {
-
-    this._status =
-      AuthStatus.DISABLED;
+    this._status = AuthStatus.DISABLED;
 
     this.touch();
   }
-
 
   public activate(): void {
-
-    this._status =
-      AuthStatus.ACTIVE;
+    this._status = AuthStatus.ACTIVE;
 
     this.touch();
   }
 
-
-  public assignRole(
-    role: Role,
-  ): void {
-
-    if (
-      !this._roles.includes(role)
-    ) {
-
+  public assignRole(role: Role): void {
+    if (!this._roles.includes(role)) {
       this._roles.push(role);
 
       this.touch();
     }
   }
 
-
-  public removeRole(
-    role: Role,
-  ): void {
-
-    const index =
-      this._roles.indexOf(role);
+  public removeRole(role: Role): void {
+    const index = this._roles.indexOf(role);
 
     if (index >= 0) {
-
-      this._roles.splice(
-        index,
-        1,
-      );
+      this._roles.splice(index, 1);
 
       this.touch();
     }
   }
 
-
-  public isLocked(
-    now: Date = new Date(),
-  ): boolean {
-
-    if (
-      this._status !==
-      AuthStatus.LOCKED
-    ) {
-
+  public isLocked(now: Date = new Date()): boolean {
+    if (this._status !== AuthStatus.LOCKED) {
       return false;
     }
 
-    if (
-      this._lockedUntil &&
-      this._lockedUntil <= now
-    ) {
-
+    if (this._lockedUntil && this._lockedUntil <= now) {
       return false;
     }
 
     return true;
   }
 
-
-  public canAuthenticate(
-    now: Date = new Date(),
-  ): boolean {
-
-    if (
-      this._status ===
-      AuthStatus.DISABLED ||
-
-      this._status ===
-      AuthStatus.SUSPENDED
-    ) {
-
+  public canAuthenticate(now: Date = new Date()): boolean {
+    if (this._status === AuthStatus.DISABLED || this._status === AuthStatus.SUSPENDED) {
       return false;
     }
 
-    if (
-      this.isLocked(now)
-    ) {
-
+    if (this.isLocked(now)) {
       return false;
     }
 
     return true;
   }
-
 
   private touch(): void {
-
-    this._updatedAt =
-      new Date();
+    this._updatedAt = new Date();
   }
 
-
   public get id(): AuthAccountId {
-
     return this._id;
   }
 
-
   public get userId(): number {
-
     return this._userId;
   }
 
-
   public get email(): Email {
-
     return this._email;
   }
 
-
   public get password(): Password | null {
-
     return this._password;
   }
 
-
   public get provider(): AuthProvider {
-
     return this._provider;
   }
 
-
   public get providerAccountId(): string | null {
-
     return this._providerAccountId;
   }
 
-
   public get status(): AuthStatus {
-
     return this._status;
   }
 
-
   public get roles(): readonly Role[] {
-
-    return [
-      ...this._roles,
-    ];
+    return [...this._roles];
   }
 
-
   public get emailVerifiedAt(): Date | null {
-
     return this._emailVerifiedAt;
   }
 
-
   public get failedLoginAttempts(): number {
-
     return this._failedLoginAttempts;
   }
 
-
   public get lockedUntil(): Date | null {
-
     return this._lockedUntil;
   }
 
-
   public get lastLoginAt(): Date | null {
-
     return this._lastLoginAt;
   }
 
-
   public get createdAt(): Date {
-
     return this._createdAt;
   }
 
-
   public get updatedAt(): Date {
-
     return this._updatedAt;
   }
 }

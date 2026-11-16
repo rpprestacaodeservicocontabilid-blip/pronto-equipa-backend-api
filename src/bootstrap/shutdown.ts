@@ -19,14 +19,11 @@
  * são ignoradas em vez de correr duas vezes o encerramento.
  */
 
-import type { Server } from "http";
+import type { Server } from 'http';
 
-import { shutdownModules } from "./register-modules";
+import { shutdownModules } from './register-modules';
 
-import type {
-  ApplicationContext,
-  ModuleDefinition,
-} from "./types/application-context";
+import type { ApplicationContext, ModuleDefinition } from './types/application-context';
 
 export type ShutdownFn = (reason: string) => Promise<void>;
 
@@ -48,7 +45,7 @@ export class ShutdownError extends Error {
 
   constructor(errors: unknown[]) {
     super(`[bootstrap] shutdown failed with ${errors.length} error(s)`);
-    this.name = "ShutdownError";
+    this.name = 'ShutdownError';
     this.errors = errors;
   }
 }
@@ -66,10 +63,7 @@ function closeAll(server: Server): void {
  * limite `timeoutMs`. Ao expirar, força o fecho e REJEITA —
  * o chamador é obrigado a tratar a falha.
  */
-export function closeHttpServer(
-  server: Server,
-  timeoutMs = 10000,
-): Promise<void> {
+export function closeHttpServer(server: Server, timeoutMs = 10000): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!server.listening) {
       resolve();
@@ -92,7 +86,7 @@ export function closeHttpServer(
 
     const timer = setTimeout(() => {
       closeAll(server);
-      finish(new Error("HTTP shutdown timeout"));
+      finish(new Error('HTTP shutdown timeout'));
     }, timeoutMs);
 
     timer.unref?.();
@@ -113,18 +107,14 @@ export function closeHttpServer(
   });
 }
 
-export function createShutdownHandler(
-  options: ShutdownOptions,
-): ShutdownFn {
+export function createShutdownHandler(options: ShutdownOptions): ShutdownFn {
   const { context, httpServer, getModules, timeoutMs = 10000 } = options;
 
   let shuttingDown = false;
 
   return async (reason: string): Promise<void> => {
     if (shuttingDown) {
-      context.logger.warn(
-        `[bootstrap] shutdown already in progress (ignored: ${reason})`,
-      );
+      context.logger.warn(`[bootstrap] shutdown already in progress (ignored: ${reason})`);
       return;
     }
 
@@ -145,9 +135,9 @@ export function createShutdownHandler(
     if (httpServer) {
       try {
         await closeHttpServer(httpServer, timeoutMs);
-        context.logger.info("[bootstrap] http server closed");
+        context.logger.info('[bootstrap] http server closed');
       } catch (error) {
-        context.logger.warn("[bootstrap] http server close failed", error);
+        context.logger.warn('[bootstrap] http server close failed', error);
         errors.push(error);
       }
     }
@@ -159,16 +149,12 @@ export function createShutdownHandler(
 
     if (errors.length > 0) {
       context.lifecycle.markFailed();
-      context.logger.error(
-        `[bootstrap] shutdown finished with ${errors.length} error(s)`,
-      );
+      context.logger.error(`[bootstrap] shutdown finished with ${errors.length} error(s)`);
       throw new ShutdownError(errors);
     }
 
     context.lifecycle.markStopped();
 
-    context.logger.info(
-      `[bootstrap] shutdown completed in ${Date.now() - startedAt}ms`,
-    );
+    context.logger.info(`[bootstrap] shutdown completed in ${Date.now() - startedAt}ms`);
   };
 }

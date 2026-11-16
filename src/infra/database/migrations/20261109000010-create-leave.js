@@ -94,9 +94,13 @@ module.exports = {
       actorUserId: { type: Sequelize.INTEGER.UNSIGNED, allowNull: true },
       createdAt: { type: Sequelize.DATE, allowNull: false },
     });
-    await queryInterface.addIndex('leave_balance_movements', ['companyId', 'accountId', 'createdAt'], {
-      name: 'idx_leave_movement_account',
-    });
+    await queryInterface.addIndex(
+      'leave_balance_movements',
+      ['companyId', 'accountId', 'createdAt'],
+      {
+        name: 'idx_leave_movement_account',
+      },
+    );
     await queryInterface.addIndex('leave_balance_movements', ['companyId', 'movementType'], {
       name: 'idx_leave_movement_type',
     });
@@ -247,15 +251,69 @@ module.exports = {
     // ----------------------------------------------------------
     if (queryInterface.sequelize.getDialect() === 'postgres') {
       const compositeFks = [
-        ['leave_accounts', 'fk_leave_account_tenant_employee', 'employees', ['companyId', 'employeeId'], ['companyId', 'id']],
-        ['leave_entitlements', 'fk_leave_entitlement_tenant_account', 'leave_accounts', ['companyId', 'accountId'], ['companyId', 'id']],
-        ['leave_balance_movements', 'fk_leave_movement_tenant_account', 'leave_accounts', ['companyId', 'accountId'], ['companyId', 'id']],
-        ['leave_balance_movements', 'fk_leave_movement_tenant_entitlement', 'leave_entitlements', ['companyId', 'entitlementId'], ['companyId', 'id']],
-        ['leave_requests', 'fk_leave_request_tenant_account', 'leave_accounts', ['companyId', 'accountId'], ['companyId', 'id']],
-        ['leave_requests', 'fk_leave_request_tenant_employee', 'employees', ['companyId', 'employeeId'], ['companyId', 'id']],
-        ['leave_request_periods', 'fk_leave_period_tenant_request', 'leave_requests', ['companyId', 'requestId'], ['companyId', 'id']],
-        ['leave_approvals', 'fk_leave_approval_tenant_request', 'leave_requests', ['companyId', 'requestId'], ['companyId', 'id']],
-        ['leave_interruptions', 'fk_leave_interruption_tenant_request', 'leave_requests', ['companyId', 'requestId'], ['companyId', 'id']],
+        [
+          'leave_accounts',
+          'fk_leave_account_tenant_employee',
+          'employees',
+          ['companyId', 'employeeId'],
+          ['companyId', 'id'],
+        ],
+        [
+          'leave_entitlements',
+          'fk_leave_entitlement_tenant_account',
+          'leave_accounts',
+          ['companyId', 'accountId'],
+          ['companyId', 'id'],
+        ],
+        [
+          'leave_balance_movements',
+          'fk_leave_movement_tenant_account',
+          'leave_accounts',
+          ['companyId', 'accountId'],
+          ['companyId', 'id'],
+        ],
+        [
+          'leave_balance_movements',
+          'fk_leave_movement_tenant_entitlement',
+          'leave_entitlements',
+          ['companyId', 'entitlementId'],
+          ['companyId', 'id'],
+        ],
+        [
+          'leave_requests',
+          'fk_leave_request_tenant_account',
+          'leave_accounts',
+          ['companyId', 'accountId'],
+          ['companyId', 'id'],
+        ],
+        [
+          'leave_requests',
+          'fk_leave_request_tenant_employee',
+          'employees',
+          ['companyId', 'employeeId'],
+          ['companyId', 'id'],
+        ],
+        [
+          'leave_request_periods',
+          'fk_leave_period_tenant_request',
+          'leave_requests',
+          ['companyId', 'requestId'],
+          ['companyId', 'id'],
+        ],
+        [
+          'leave_approvals',
+          'fk_leave_approval_tenant_request',
+          'leave_requests',
+          ['companyId', 'requestId'],
+          ['companyId', 'id'],
+        ],
+        [
+          'leave_interruptions',
+          'fk_leave_interruption_tenant_request',
+          'leave_requests',
+          ['companyId', 'requestId'],
+          ['companyId', 'id'],
+        ],
       ];
       for (const [table, name, target, columns, targetColumns] of compositeFks) {
         await queryInterface.sequelize.query(
@@ -269,7 +327,11 @@ module.exports = {
 
       const checks = [
         ['leave_accounts', 'ck_leave_account_status', `("status" IN ('ACTIVE','CLOSED'))`],
-        ['leave_entitlements', 'ck_leave_entitlement_days', `("days" > 0 AND "accrualPeriodEnd" >= "accrualPeriodStart")`],
+        [
+          'leave_entitlements',
+          'ck_leave_entitlement_days',
+          `("days" > 0 AND "accrualPeriodEnd" >= "accrualPeriodStart")`,
+        ],
         [
           'leave_balance_movements',
           'ck_leave_movement',
@@ -285,9 +347,21 @@ module.exports = {
           'ck_leave_request_type',
           `("leaveType" IN ('ANNUAL','SICK','SPECIAL','UNPAID','OTHER'))`,
         ],
-        ['leave_requests', 'ck_leave_request_days', `("requestedDays" > 0 AND "endDate" >= "startDate")`],
-        ['leave_request_periods', 'ck_leave_period', `("calculatedDays" > 0 AND "endDate" >= "startDate")`],
-        ['leave_approvals', 'ck_leave_approval_decision', `("decision" IN ('APPROVED','REJECTED','RETURNED'))`],
+        [
+          'leave_requests',
+          'ck_leave_request_days',
+          `("requestedDays" > 0 AND "endDate" >= "startDate")`,
+        ],
+        [
+          'leave_request_periods',
+          'ck_leave_period',
+          `("calculatedDays" > 0 AND "endDate" >= "startDate")`,
+        ],
+        [
+          'leave_approvals',
+          'ck_leave_approval_decision',
+          `("decision" IN ('APPROVED','REJECTED','RETURNED'))`,
+        ],
         ['leave_interruptions', 'ck_leave_interruption_period', `("endDate" >= "startDate")`],
       ];
       for (const [table, name, expression] of checks) {

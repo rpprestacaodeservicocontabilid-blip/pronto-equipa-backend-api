@@ -5,7 +5,5 @@ export interface SendSmsInput {
 }
 
 export interface SmsServicePort {
-  send(
-    input: SendSmsInput,
-  ): Promise<void>;
+  send(input: SendSmsInput): Promise<void>;
 }

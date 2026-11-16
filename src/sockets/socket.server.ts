@@ -5,18 +5,13 @@ import { ENV } from '../config/env';
 import { JwtTokenService } from '../modules/auth/infrastructure/service/jwt-token.service';
 
 /** Teto anti-flood de conexões simultâneas por IP. */
-const MAX_CONNECTIONS_PER_IP = Number(
-  process.env.SOCKET_MAX_CONN_PER_IP || 30,
-);
+const MAX_CONNECTIONS_PER_IP = Number(process.env.SOCKET_MAX_CONN_PER_IP || 30);
 
 let io: Server | null = null;
 const connectionsPerIp = new Map<string, number>();
 
 function tokenService(): JwtTokenService {
-  return new JwtTokenService(
-    ENV.JWT.SECRET,
-    ENV.JWT.EXPIRES_IN || '15m',
-  );
+  return new JwtTokenService(ENV.JWT.SECRET, ENV.JWT.EXPIRES_IN || '15m');
 }
 
 export class NotificationService {
@@ -26,10 +21,7 @@ export class NotificationService {
   static initializeSocket(httpServer: HTTPServer): Server {
     io = new Server(httpServer, {
       cors: {
-        origin:
-          ENV.NODE_ENV === 'production'
-            ? ENV.APP.FRONTEND_URL
-            : true,
+        origin: ENV.NODE_ENV === 'production' ? ENV.APP.FRONTEND_URL : true,
         methods: ['GET', 'POST'],
         credentials: true,
       },
@@ -41,20 +33,14 @@ export class NotificationService {
     // Autenticação: exige access token válido.
     io.use(async (socket, next) => {
       try {
-        const token: string | undefined =
-          socket.handshake.auth?.token;
+        const token: string | undefined = socket.handshake.auth?.token;
 
         if (!token) {
-          logger.warn(
-            '[Socket.io] Conexão recusada: sem token',
-          );
-          return next(
-            new Error('Authentication required'),
-          );
+          logger.warn('[Socket.io] Conexão recusada: sem token');
+          return next(new Error('Authentication required'));
         }
 
-        const payload = await tokenService()
-          .verifyAccessToken(token);
+        const payload = await tokenService().verifyAccessToken(token);
 
         socket.data.user = {
           userId: payload.userId,
@@ -64,44 +50,32 @@ export class NotificationService {
 
         next();
       } catch {
-        logger.warn(
-          '[Socket.io] Conexão recusada: token inválido',
-        );
+        logger.warn('[Socket.io] Conexão recusada: token inválido');
         next(new Error('Invalid or expired token'));
       }
     });
 
     io.on('connection', (socket: Socket) => {
-      const ip =
-        socket.handshake.address || 'unknown';
+      const ip = socket.handshake.address || 'unknown';
       const current = connectionsPerIp.get(ip) ?? 0;
 
       if (current >= MAX_CONNECTIONS_PER_IP) {
-        logger.warn(
-          `[Socket.io] IP ${ip} excedeu o limite de conexões`,
-        );
+        logger.warn(`[Socket.io] IP ${ip} excedeu o limite de conexões`);
         socket.disconnect(true);
         return;
       }
 
       connectionsPerIp.set(ip, current + 1);
 
-      const userId: number | undefined =
-        socket.data.user?.userId;
-      const cityId: unknown =
-        socket.handshake.auth?.cityId;
+      const userId: number | undefined = socket.data.user?.userId;
+      const cityId: unknown = socket.handshake.auth?.cityId;
 
-      logger.info(
-        `[Socket.io] Novo cliente conectado: ${socket.id} (User: ${userId})`,
-      );
+      logger.info(`[Socket.io] Novo cliente conectado: ${socket.id} (User: ${userId})`);
 
       if (userId) {
         socket.join(`user:${userId}`);
       }
-      if (
-        typeof cityId === 'number' ||
-        typeof cityId === 'string'
-      ) {
+      if (typeof cityId === 'number' || typeof cityId === 'string') {
         socket.join(`city:${cityId}`);
       }
 
@@ -117,16 +91,11 @@ export class NotificationService {
 
       socket.on('disconnect', () => {
         release();
-        logger.info(
-          `[Socket.io] Cliente desconectado: ${socket.id}`,
-        );
+        logger.info(`[Socket.io] Cliente desconectado: ${socket.id}`);
       });
 
       socket.on('error', (error) => {
-        logger.error(
-          `[Socket.io] Erro do cliente ${socket.id}:`,
-          error,
-        );
+        logger.error(`[Socket.io] Erro do cliente ${socket.id}:`, error);
       });
     });
 
@@ -161,9 +130,7 @@ export class NotificationService {
       io.to(`user:${userId}`).emit(event, data);
     }
 
-    logger.debug(
-      `[Socket.io] Notificação enviada para ${userIds.length} user(s) - ${event}`,
-    );
+    logger.debug(`[Socket.io] Notificação enviada para ${userIds.length} user(s) - ${event}`);
   }
 
   /**

@@ -1,7 +1,5 @@
 export interface RiskAnalysisService {
-  analyze(
-    context: RiskAnalysisContext,
-  ): Promise<RiskAnalysisResult>;
+  analyze(context: RiskAnalysisContext): Promise<RiskAnalysisResult>;
 }
 
 export interface RiskAnalysisContext {
@@ -21,11 +19,7 @@ export interface RiskAnalysisContext {
 export interface RiskAnalysisResult {
   score: number;
 
-  level:
-    | "LOW"
-    | "MEDIUM"
-    | "HIGH"
-    | "CRITICAL";
+  level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
   requiresTwoFactor: boolean;
 

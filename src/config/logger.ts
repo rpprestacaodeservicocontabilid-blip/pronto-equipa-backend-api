@@ -11,9 +11,7 @@ if (!fs.existsSync(LOG_DIR)) {
 }
 
 // Fonte única de campos sensíveis (`config/logger.config.ts`).
-const SENSITIVE_KEYS = new Set(
-  SENSITIVE_FIELDS.map((field) => field.toLowerCase()),
-);
+const SENSITIVE_KEYS = new Set(SENSITIVE_FIELDS.map((field) => field.toLowerCase()));
 
 function redact(value: unknown, seen = new WeakSet()): unknown {
   if (Array.isArray(value)) {
@@ -21,32 +19,22 @@ function redact(value: unknown, seen = new WeakSet()): unknown {
   }
 
   if (value !== null && typeof value === 'object') {
-    if (seen.has(value as object)) {
+    if (seen.has(value)) {
       return '[Circular]';
     }
-    seen.add(value as object);
+    seen.add(value);
 
     const out: Record<string, unknown> = {};
 
-    for (const [key, val] of Object.entries(
-      value as Record<string, unknown>,
-    )) {
-      out[key] = SENSITIVE_KEYS.has(key.toLowerCase())
-        ? '[REDACTED]'
-        : redact(val, seen);
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = SENSITIVE_KEYS.has(key.toLowerCase()) ? '[REDACTED]' : redact(val, seen);
     }
 
     return out;
   }
 
-  if (
-    typeof value === 'string' &&
-    /bearer\s+[A-Za-z0-9\-._~+/]+=*/i.test(value)
-  ) {
-    return value.replace(
-      /bearer\s+[A-Za-z0-9\-._~+/]+=*/i,
-      'Bearer [REDACTED]',
-    );
+  if (typeof value === 'string' && /bearer\s+[A-Za-z0-9\-._~+/]+=*/i.test(value)) {
+    return value.replace(/bearer\s+[A-Za-z0-9\-._~+/]+=*/i, 'Bearer [REDACTED]');
   }
 
   return value;
@@ -80,9 +68,7 @@ const consoleFormat = winston.format.combine(
 export const logger = winston.createLogger({
   // 'http' inclui error/warn/info/http (morgan escreve em http).
   // Produção: 'info' por omissão para reduzir ruído.
-  level:
-    process.env.LOG_LEVEL ||
-    (ENV.NODE_ENV === 'production' ? 'info' : 'http'),
+  level: process.env.LOG_LEVEL || (ENV.NODE_ENV === 'production' ? 'info' : 'http'),
   format: jsonFormat,
   transports: [
     new winston.transports.Console({

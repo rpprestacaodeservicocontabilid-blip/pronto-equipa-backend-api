@@ -1,10 +1,10 @@
-"use strict";
+'use strict';
 
 /** @type {import('sequelize-cli').Migration} */
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("cities", {
+    await queryInterface.createTable('cities', {
       // ============================================================
       // PRIMARY KEY
       // ============================================================
@@ -52,13 +52,13 @@ module.exports = {
       createdAt: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
       },
 
       updatedAt: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
+        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
       },
     });
 
@@ -66,24 +66,24 @@ module.exports = {
     // INDEXES
     // ============================================================
 
-    await queryInterface.addIndex("cities", ["name"], {
-      name: "idx_cities_name",
+    await queryInterface.addIndex('cities', ['name'], {
+      name: 'idx_cities_name',
     });
 
-    await queryInterface.addIndex("cities", ["state"], {
-      name: "idx_cities_state",
+    await queryInterface.addIndex('cities', ['state'], {
+      name: 'idx_cities_state',
     });
 
-    await queryInterface.addIndex("cities", ["country"], {
-      name: "idx_cities_country",
+    await queryInterface.addIndex('cities', ['country'], {
+      name: 'idx_cities_country',
     });
 
-    await queryInterface.addIndex("cities", ["isActive"], {
-      name: "idx_cities_is_active",
+    await queryInterface.addIndex('cities', ['isActive'], {
+      name: 'idx_cities_is_active',
     });
   },
 
   async down(queryInterface) {
-    await queryInterface.dropTable("cities");
+    await queryInterface.dropTable('cities');
   },
 };

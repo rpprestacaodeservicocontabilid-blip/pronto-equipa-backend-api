@@ -15,15 +15,9 @@ export interface OAuthProfile {
 }
 
 export interface OAuthProviderPort {
-  getAuthorizationUrl(
-    state?: string,
-  ): string;
+  getAuthorizationUrl(state?: string): string;
 
-  authenticate(
-    code: string,
-  ): Promise<OAuthProfile>;
+  authenticate(code: string): Promise<OAuthProfile>;
 
-  revoke(
-    providerId: string,
-  ): Promise<void>;
+  revoke(providerId: string): Promise<void>;
 }

@@ -1,35 +1,31 @@
-import { SecurityEventLogger } from "../../security/security-event.logger";
+import { SecurityEventLogger } from '../../security/security-event.logger';
 
 export interface AccountLockedEvent {
-    eventName: string;
+  eventName: string;
 
-    accountId: number;
+  accountId: number;
 
-    userId: number;
+  userId: number;
 
-    reason: string;
+  reason: string;
 
-    occurredAt: Date;
+  occurredAt: Date;
 }
 
 export class AccountLockedHandler {
-    constructor(
-        private readonly securityLogger: SecurityEventLogger,
-    ) { }
+  constructor(private readonly securityLogger: SecurityEventLogger) {}
 
-    public async handle(
-        event: AccountLockedEvent,
-    ): Promise<void> {
-        this.securityLogger.critical({
-            event: "ACCOUNT_LOCKED",
+  public async handle(event: AccountLockedEvent): Promise<void> {
+    this.securityLogger.critical({
+      event: 'ACCOUNT_LOCKED',
 
-            accountId: event.accountId,
+      accountId: event.accountId,
 
-            userId: event.userId,
+      userId: event.userId,
 
-            metadata: {
-                reason: event.reason,
-            },
-        });
-    }
+      metadata: {
+        reason: event.reason,
+      },
+    });
+  }
 }

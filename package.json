@@ -18,7 +18,9 @@
     "test:unit": "jest --testPathPattern=unit",
     "test:integration": "jest --testPathPattern=integration",
     "db:migrate": "sequelize db:migrate",
-    "db:seed": "sequelize db:seed:all"
+    "db:seed": "sequelize db:seed:all",
+    "architecture:check": "node scripts/audit-module-architecture.cjs --strict",
+    "architecture:report": "node scripts/audit-module-architecture.cjs --write"
   },
   "keywords": [
     "peladeiro"

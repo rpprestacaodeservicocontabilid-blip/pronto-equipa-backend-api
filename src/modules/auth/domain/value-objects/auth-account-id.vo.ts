@@ -1,23 +1,13 @@
 export class AuthAccountId {
-
-  private constructor(
-    private readonly value: number,
-    ) {
-      if (
-        !Number.isInteger(value) ||
-        value < 0
-      ) {
-        throw new Error(
-          "Auth account ID must be a non-negative integer.",
-        );
-      }
+  private constructor(private readonly value: number) {
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error('Auth account ID must be a non-negative integer.');
     }
+  }
 
-  public static create(
-    value: number,
-  ): AuthAccountId {
-      return new AuthAccountId(value);
-    }
+  public static create(value: number): AuthAccountId {
+    return new AuthAccountId(value);
+  }
 
   /**
    * ID temporário utilizado antes
@@ -39,9 +29,7 @@ export class AuthAccountId {
     return this.value;
   }
 
-  public equals(
-    other: AuthAccountId,
-  ): boolean {
+  public equals(other: AuthAccountId): boolean {
     return this.value === other.value;
   }
 

@@ -1,9 +1,7 @@
-import { DomainEvent } from "./domain-event";
-import { Permission } from "../enums/permission.enum";
+import { DomainEvent } from './domain-event';
+import { Permission } from '../enums/permission.enum';
 
-export class PermissionChangedEvent
-  extends DomainEvent
-{
+export class PermissionChangedEvent extends DomainEvent {
   constructor(
     public readonly authAccountId: number,
     public readonly permission: Permission,
@@ -13,6 +11,6 @@ export class PermissionChangedEvent
   }
 
   public get eventName(): string {
-    return "auth.permission.changed";
+    return 'auth.permission.changed';
   }
 }

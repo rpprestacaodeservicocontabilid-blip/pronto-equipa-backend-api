@@ -1,14 +1,14 @@
 import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { app } from '../../main/app';
-import { OrganizationHistoryModel } from '../../modules/organization/infrastructure/persistence/model/organization-history.model';
-import { OrganizationOutboxModel } from '../../modules/organization/infrastructure/persistence/model/organization-outbox.model';
-import { OrganizationRecordModel } from '../../modules/organization/infrastructure/persistence/model/organization-record.model';
-import { CompanyMemberModel } from '../../modules/tenancy/infrastructure/persistence/model/company-member.model';
-import { EmployeeModel } from '../../modules/employees/infrastructure/persistence/model/employee.model';
+import { OrganizationHistoryModel } from '../../modules/organization/infrastructure/persistence/models/organization-history.model';
+import { OrganizationOutboxModel } from '../../modules/organization/infrastructure/persistence/models/organization-outbox.model';
+import { OrganizationRecordModel } from '../../modules/organization/infrastructure/persistence/models/organization-record.model';
+import { CompanyMemberModel } from '../../modules/tenancy/infrastructure/persistence/models/company-member.model';
+import { EmployeeModel } from '../../modules/employees/infrastructure/persistence/models/employee.model';
 import { PermissionModel } from '../../modules/user/infrastructure/persistence/models/permission.model';
 import { RoleModel } from '../../modules/user/infrastructure/persistence/models/role.model';
-import { RolePermissionModel } from '../../modules/auth/infrastructure/persistence/model/role-permission.model';
+import { RolePermissionModel } from '../../modules/auth/infrastructure/persistence/models/role-permission.model';
 import { createActor, TestActor } from '../support/auth';
 import { resetTestDatabase } from '../support/database';
 

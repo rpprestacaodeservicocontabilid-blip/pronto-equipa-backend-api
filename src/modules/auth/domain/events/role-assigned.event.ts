@@ -1,9 +1,7 @@
-import { DomainEvent } from "./domain-event";
-import { Role } from "../enums/role.enum";
+import { DomainEvent } from './domain-event';
+import { Role } from '../enums/role.enum';
 
-export class RoleAssignedEvent
-  extends DomainEvent
-{
+export class RoleAssignedEvent extends DomainEvent {
   constructor(
     public readonly userId: number,
     public readonly authAccountId: number,
@@ -13,6 +11,6 @@ export class RoleAssignedEvent
   }
 
   public get eventName(): string {
-    return "auth.role.assigned";
+    return 'auth.role.assigned';
   }
 }

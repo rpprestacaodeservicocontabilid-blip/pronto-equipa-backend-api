@@ -9,12 +9,7 @@
  * contabilização (RN-010 / RN-014).
  */
 
-export type LeaveMovementType =
-  | 'ACCRUAL'
-  | 'ADJUSTMENT'
-  | 'RESERVATION'
-  | 'RELEASE'
-  | 'USAGE';
+export type LeaveMovementType = 'ACCRUAL' | 'ADJUSTMENT' | 'RESERVATION' | 'RELEASE' | 'USAGE';
 
 export const LEAVE_MOVEMENT_TYPES: readonly LeaveMovementType[] = [
   'ACCRUAL',

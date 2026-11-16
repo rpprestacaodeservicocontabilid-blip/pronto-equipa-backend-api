@@ -1,7 +1,8 @@
 import { DataTypes, Model, Optional } from 'sequelize';
 import { sequelize } from '../../../../infra/database';
 
-export type LegalRuleSetStatus = 'DRAFT' | 'IN_REVIEW' | 'APPROVED' | 'PUBLISHED' | 'RETIRED';
+import { LegalRuleSetStatus } from '../../domain/legal-rule-set-status';
+export type { LegalRuleSetStatus } from '../../domain/legal-rule-set-status';
 
 interface LegalRuleSetAttributes {
   id: string;
@@ -30,9 +31,30 @@ interface LegalRuleSetAttributes {
   updatedAt: Date;
 }
 
-export class LegalRuleSetModel extends Model<LegalRuleSetAttributes, Optional<LegalRuleSetAttributes,
-  'id' | 'scopeKey' | 'effectiveTo' | 'integrityHash' | 'status' | 'submittedBy' | 'submittedAt' | 'approvedBy' | 'approvedAt' | 'publishedBy' | 'publishedAt' | 'retiredBy' | 'retiredAt' | 'createdAt' | 'updatedAt'>>
-  implements LegalRuleSetAttributes {
+export class LegalRuleSetModel
+  extends Model<
+    LegalRuleSetAttributes,
+    Optional<
+      LegalRuleSetAttributes,
+      | 'id'
+      | 'scopeKey'
+      | 'effectiveTo'
+      | 'integrityHash'
+      | 'status'
+      | 'submittedBy'
+      | 'submittedAt'
+      | 'approvedBy'
+      | 'approvedAt'
+      | 'publishedBy'
+      | 'publishedAt'
+      | 'retiredBy'
+      | 'retiredAt'
+      | 'createdAt'
+      | 'updatedAt'
+    >
+  >
+  implements LegalRuleSetAttributes
+{
   declare id: string;
   declare companyId: number | null;
   declare scopeKey: string;
@@ -59,38 +81,53 @@ export class LegalRuleSetModel extends Model<LegalRuleSetAttributes, Optional<Le
   declare updatedAt: Date;
 }
 
-LegalRuleSetModel.init({
-  id: { type: DataTypes.UUID, primaryKey: true },
-  companyId: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'companies', key: 'id' }, onDelete: 'RESTRICT' },
-  scopeKey: { type: DataTypes.STRING(40), allowNull: false },
-  ruleSetId: { type: DataTypes.STRING(100), allowNull: false },
-  version: { type: DataTypes.STRING(50), allowNull: false },
-  jurisdiction: { type: DataTypes.STRING(3), allowNull: false, defaultValue: 'AO' },
-  effectiveFrom: { type: DataTypes.DATEONLY, allowNull: false },
-  effectiveTo: { type: DataTypes.DATEONLY, allowNull: true },
-  sourceReference: { type: DataTypes.STRING(500), allowNull: false },
-  evidenceReference: { type: DataTypes.STRING(1000), allowNull: false },
-  rules: { type: DataTypes.JSON, allowNull: false },
-  integrityHash: { type: DataTypes.STRING(64), allowNull: true },
-  status: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'DRAFT' },
-  createdBy: { type: DataTypes.INTEGER, allowNull: false },
-  submittedBy: { type: DataTypes.INTEGER, allowNull: true },
-  submittedAt: { type: DataTypes.DATE, allowNull: true },
-  approvedBy: { type: DataTypes.INTEGER, allowNull: true },
-  approvedAt: { type: DataTypes.DATE, allowNull: true },
-  publishedBy: { type: DataTypes.INTEGER, allowNull: true },
-  publishedAt: { type: DataTypes.DATE, allowNull: true },
-  retiredBy: { type: DataTypes.INTEGER, allowNull: true },
-  retiredAt: { type: DataTypes.DATE, allowNull: true },
-  createdAt: { type: DataTypes.DATE, allowNull: false },
-  updatedAt: { type: DataTypes.DATE, allowNull: false },
-}, {
-  sequelize,
-  tableName: 'legal_rule_sets',
-  timestamps: false,
-  indexes: [
-    { unique: true, fields: ['scopeKey', 'ruleSetId', 'version'], name: 'uq_legal_rule_scope_version' },
-    { fields: ['jurisdiction', 'status', 'effectiveFrom', 'effectiveTo'], name: 'ix_legal_rule_resolution' },
-    { fields: ['companyId', 'status'], name: 'ix_legal_rule_company_status' },
-  ],
-});
+LegalRuleSetModel.init(
+  {
+    id: { type: DataTypes.UUID, primaryKey: true },
+    companyId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: { model: 'companies', key: 'id' },
+      onDelete: 'RESTRICT',
+    },
+    scopeKey: { type: DataTypes.STRING(40), allowNull: false },
+    ruleSetId: { type: DataTypes.STRING(100), allowNull: false },
+    version: { type: DataTypes.STRING(50), allowNull: false },
+    jurisdiction: { type: DataTypes.STRING(3), allowNull: false, defaultValue: 'AO' },
+    effectiveFrom: { type: DataTypes.DATEONLY, allowNull: false },
+    effectiveTo: { type: DataTypes.DATEONLY, allowNull: true },
+    sourceReference: { type: DataTypes.STRING(500), allowNull: false },
+    evidenceReference: { type: DataTypes.STRING(1000), allowNull: false },
+    rules: { type: DataTypes.JSON, allowNull: false },
+    integrityHash: { type: DataTypes.STRING(64), allowNull: true },
+    status: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'DRAFT' },
+    createdBy: { type: DataTypes.INTEGER, allowNull: false },
+    submittedBy: { type: DataTypes.INTEGER, allowNull: true },
+    submittedAt: { type: DataTypes.DATE, allowNull: true },
+    approvedBy: { type: DataTypes.INTEGER, allowNull: true },
+    approvedAt: { type: DataTypes.DATE, allowNull: true },
+    publishedBy: { type: DataTypes.INTEGER, allowNull: true },
+    publishedAt: { type: DataTypes.DATE, allowNull: true },
+    retiredBy: { type: DataTypes.INTEGER, allowNull: true },
+    retiredAt: { type: DataTypes.DATE, allowNull: true },
+    createdAt: { type: DataTypes.DATE, allowNull: false },
+    updatedAt: { type: DataTypes.DATE, allowNull: false },
+  },
+  {
+    sequelize,
+    tableName: 'legal_rule_sets',
+    timestamps: false,
+    indexes: [
+      {
+        unique: true,
+        fields: ['scopeKey', 'ruleSetId', 'version'],
+        name: 'uq_legal_rule_scope_version',
+      },
+      {
+        fields: ['jurisdiction', 'status', 'effectiveFrom', 'effectiveTo'],
+        name: 'ix_legal_rule_resolution',
+      },
+      { fields: ['companyId', 'status'], name: 'ix_legal_rule_company_status' },
+    ],
+  },
+);

@@ -8,18 +8,17 @@ import {
   NotFoundError,
   ValidationError,
 } from '../../../../../shared/errors/app.error';
-import { EmployeeModel } from '../../../../employees/infrastructure/persistence/model/employee.model';
-import { CompanyModel } from '../../../../tenancy/infrastructure/persistence/model/company.model';
-import { OrganizationRecordModel } from '../../../../organization/infrastructure/persistence/model/organization-record.model';
+import { EmployeeModel } from '../../../../employees/infrastructure/persistence/models/employee.model';
+import { CompanyModel } from '../../../../tenancy/infrastructure/persistence/models/company.model';
+import { OrganizationRecordModel } from '../../../../organization/infrastructure/persistence/models/organization-record.model';
 import {
   AttendanceCalculator,
-  AttendanceCalculation,
   ExpectedShift,
   PunchInput,
 } from '../../../domain/services/attendance-calculator.service';
-import { AttendanceEntityModel, AttendanceEntityType } from '../model/attendance-entity.model';
-import { AttendanceOutboxModel } from '../model/attendance-outbox.model';
-import { AttendanceRecordModel } from '../model/attendance-record.model';
+import { AttendanceEntityModel, AttendanceEntityType } from '../models/attendance-entity.model';
+import { AttendanceOutboxModel } from '../models/attendance-outbox.model';
+import { AttendanceRecordModel } from '../models/attendance-record.model';
 
 type Entity = AttendanceEntityModel;
 type PunchInputDto = {
@@ -126,7 +125,7 @@ export class SequelizeAttendanceRepository {
         transaction,
       });
       if (!company) throw new NotFoundError('Company');
-      const timezone = company.timezone;
+      const { timezone } = company;
       const workDate = input.workDate ?? localDate(occurredAt, timezone);
       assertDate(workDate);
       if (input.idempotencyKey) {
@@ -1209,7 +1208,7 @@ export class SequelizeAttendanceRepository {
               transaction: rowTransaction,
             });
             if (!company) throw new NotFoundError('Company');
-            const timezone = company.timezone;
+            const { timezone } = company;
             const workDate = input.workDate ?? localDate(occurredAt, timezone);
             assertDate(workDate);
             await this.assertOpenDay(companyId, input.employeeId, workDate, rowTransaction);
@@ -1240,7 +1239,7 @@ export class SequelizeAttendanceRepository {
                 companyId,
                 type: 'IMPORT_ITEM',
                 employeeId: input.employeeId,
-                parentId: batch!.id,
+                parentId: batch.id,
                 workDate,
                 periodStart: null,
                 periodEnd: null,

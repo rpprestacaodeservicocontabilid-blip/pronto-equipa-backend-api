@@ -1,5 +1,5 @@
 import { Op } from 'sequelize';
-import { EmploymentContractModel } from '../../../contracts/infrastructure/persistence/model/employment-contract.model';
+import { EmploymentContractModel } from '../../../contracts/infrastructure/persistence/models/employment-contract.model';
 import {
   ActiveContractSummary,
   ContractReader,

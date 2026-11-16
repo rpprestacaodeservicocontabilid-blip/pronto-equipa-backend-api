@@ -42,9 +42,16 @@ module.exports = {
       createdAt: { type: Sequelize.DATE, allowNull: false },
       updatedAt: { type: Sequelize.DATE, allowNull: false },
     });
-    await queryInterface.addIndex('loan_applications', ['companyId', 'id'], { unique: true, name: 'uq_loan_application_company_id' });
-    await queryInterface.addIndex('loan_applications', ['companyId', 'employeeId', 'status'], { name: 'idx_loan_application_employee' });
-    await queryInterface.addIndex('loan_applications', ['companyId', 'status', 'createdAt'], { name: 'idx_loan_application_status' });
+    await queryInterface.addIndex('loan_applications', ['companyId', 'id'], {
+      unique: true,
+      name: 'uq_loan_application_company_id',
+    });
+    await queryInterface.addIndex('loan_applications', ['companyId', 'employeeId', 'status'], {
+      name: 'idx_loan_application_employee',
+    });
+    await queryInterface.addIndex('loan_applications', ['companyId', 'status', 'createdAt'], {
+      name: 'idx_loan_application_status',
+    });
 
     await queryInterface.createTable('loan_approvals', {
       id: { type: Sequelize.UUID, allowNull: false, primaryKey: true },
@@ -55,7 +62,9 @@ module.exports = {
       comments: { type: Sequelize.STRING(2000), allowNull: true },
       decidedAt: { type: Sequelize.DATE, allowNull: false },
     });
-    await queryInterface.addIndex('loan_approvals', ['companyId', 'applicationId', 'decidedAt'], { name: 'idx_loan_approval_application' });
+    await queryInterface.addIndex('loan_approvals', ['companyId', 'applicationId', 'decidedAt'], {
+      name: 'idx_loan_approval_application',
+    });
 
     await queryInterface.createTable('employee_loans', {
       id: { type: Sequelize.UUID, allowNull: false, primaryKey: true },
@@ -71,10 +80,21 @@ module.exports = {
       createdAt: { type: Sequelize.DATE, allowNull: false },
       updatedAt: { type: Sequelize.DATE, allowNull: false },
     });
-    await queryInterface.addIndex('employee_loans', ['companyId', 'id'], { unique: true, name: 'uq_loan_company_id' });
-    await queryInterface.addIndex('employee_loans', ['companyId', 'loanNumber'], { unique: true, name: 'uq_loan_company_number' });
-    await queryInterface.addIndex('employee_loans', ['companyId', 'applicationId'], { unique: true, name: 'uq_loan_application' });
-    await queryInterface.addIndex('employee_loans', ['companyId', 'employeeId', 'status'], { name: 'idx_loan_employee_status' });
+    await queryInterface.addIndex('employee_loans', ['companyId', 'id'], {
+      unique: true,
+      name: 'uq_loan_company_id',
+    });
+    await queryInterface.addIndex('employee_loans', ['companyId', 'loanNumber'], {
+      unique: true,
+      name: 'uq_loan_company_number',
+    });
+    await queryInterface.addIndex('employee_loans', ['companyId', 'applicationId'], {
+      unique: true,
+      name: 'uq_loan_application',
+    });
+    await queryInterface.addIndex('employee_loans', ['companyId', 'employeeId', 'status'], {
+      name: 'idx_loan_employee_status',
+    });
 
     await queryInterface.createTable('loan_policies', {
       id: { type: Sequelize.UUID, allowNull: false, primaryKey: true },
@@ -90,12 +110,23 @@ module.exports = {
       allowedTypes: { type: Sequelize.JSON, allowNull: false },
       interestAllowed: { type: Sequelize.BOOLEAN, allowNull: false, defaultValue: false },
       maxAnnualInterestBps: { type: Sequelize.INTEGER.UNSIGNED, allowNull: false, defaultValue: 0 },
-      deductionAuthorizationRequired: { type: Sequelize.BOOLEAN, allowNull: false, defaultValue: true },
+      deductionAuthorizationRequired: {
+        type: Sequelize.BOOLEAN,
+        allowNull: false,
+        defaultValue: true,
+      },
       createdBy: { type: Sequelize.INTEGER.UNSIGNED, allowNull: false },
       createdAt: { type: Sequelize.DATE, allowNull: false },
     });
-    await queryInterface.addIndex('loan_policies', ['companyId', 'code', 'version'], { unique: true, name: 'uq_loan_policy_version' });
-    await queryInterface.addIndex('loan_policies', ['companyId', 'code', 'active', 'effectiveFrom'], { name: 'idx_loan_policy_effective' });
+    await queryInterface.addIndex('loan_policies', ['companyId', 'code', 'version'], {
+      unique: true,
+      name: 'uq_loan_policy_version',
+    });
+    await queryInterface.addIndex(
+      'loan_policies',
+      ['companyId', 'code', 'active', 'effectiveFrom'],
+      { name: 'idx_loan_policy_effective' },
+    );
 
     await queryInterface.createTable('loan_repayment_plans', {
       id: { type: Sequelize.UUID, allowNull: false, primaryKey: true },
@@ -108,9 +139,17 @@ module.exports = {
       status: { type: Sequelize.STRING(20), allowNull: false },
       createdAt: { type: Sequelize.DATE, allowNull: false },
     });
-    await queryInterface.addIndex('loan_repayment_plans', ['companyId', 'loanId', 'version'], { unique: true, name: 'uq_loan_plan_version' });
-    await queryInterface.addIndex('loan_repayment_plans', ['companyId', 'id'], { unique: true, name: 'uq_loan_plan_company_id' });
-    await queryInterface.addIndex('loan_repayment_plans', ['companyId', 'loanId', 'status'], { name: 'idx_loan_plan_active' });
+    await queryInterface.addIndex('loan_repayment_plans', ['companyId', 'loanId', 'version'], {
+      unique: true,
+      name: 'uq_loan_plan_version',
+    });
+    await queryInterface.addIndex('loan_repayment_plans', ['companyId', 'id'], {
+      unique: true,
+      name: 'uq_loan_plan_company_id',
+    });
+    await queryInterface.addIndex('loan_repayment_plans', ['companyId', 'loanId', 'status'], {
+      name: 'idx_loan_plan_active',
+    });
 
     await queryInterface.createTable('loan_installments', {
       id: { type: Sequelize.UUID, allowNull: false, primaryKey: true },
@@ -123,9 +162,20 @@ module.exports = {
       interestDue: { type: Sequelize.DECIMAL(15, 2), allowNull: false },
       status: { type: Sequelize.STRING(20), allowNull: false, defaultValue: 'PENDING' },
     });
-    await queryInterface.addIndex('loan_installments', ['companyId', 'planId', 'installmentNumber'], { unique: true, name: 'uq_loan_installment_number' });
-    await queryInterface.addIndex('loan_installments', ['companyId', 'id'], { unique: true, name: 'uq_loan_installment_company_id' });
-    await queryInterface.addIndex('loan_installments', ['companyId', 'loanId', 'dueDate', 'status'], { name: 'idx_loan_installment_due' });
+    await queryInterface.addIndex(
+      'loan_installments',
+      ['companyId', 'planId', 'installmentNumber'],
+      { unique: true, name: 'uq_loan_installment_number' },
+    );
+    await queryInterface.addIndex('loan_installments', ['companyId', 'id'], {
+      unique: true,
+      name: 'uq_loan_installment_company_id',
+    });
+    await queryInterface.addIndex(
+      'loan_installments',
+      ['companyId', 'loanId', 'dueDate', 'status'],
+      { name: 'idx_loan_installment_due' },
+    );
 
     await queryInterface.createTable('loan_disbursements', {
       id: { type: Sequelize.UUID, allowNull: false, primaryKey: true },
@@ -139,9 +189,17 @@ module.exports = {
       createdBy: { type: Sequelize.INTEGER.UNSIGNED, allowNull: false },
       createdAt: { type: Sequelize.DATE, allowNull: false },
     });
-    await queryInterface.addIndex('loan_disbursements', ['companyId', 'idempotencyKey'], { unique: true, name: 'uq_loan_disbursement_idempotency' });
-    await queryInterface.addIndex('loan_disbursements', ['companyId', 'paymentReference'], { unique: true, name: 'uq_loan_disbursement_payment_reference' });
-    await queryInterface.addIndex('loan_disbursements', ['companyId', 'loanId', 'status'], { name: 'idx_loan_disbursement_status' });
+    await queryInterface.addIndex('loan_disbursements', ['companyId', 'idempotencyKey'], {
+      unique: true,
+      name: 'uq_loan_disbursement_idempotency',
+    });
+    await queryInterface.addIndex('loan_disbursements', ['companyId', 'paymentReference'], {
+      unique: true,
+      name: 'uq_loan_disbursement_payment_reference',
+    });
+    await queryInterface.addIndex('loan_disbursements', ['companyId', 'loanId', 'status'], {
+      name: 'idx_loan_disbursement_status',
+    });
 
     await queryInterface.createTable('loan_repayments', {
       id: { type: Sequelize.UUID, allowNull: false, primaryKey: true },
@@ -156,9 +214,17 @@ module.exports = {
       createdBy: { type: Sequelize.INTEGER.UNSIGNED, allowNull: true },
       createdAt: { type: Sequelize.DATE, allowNull: false },
     });
-    await queryInterface.addIndex('loan_repayments', ['companyId', 'source', 'idempotencyKey'], { unique: true, name: 'uq_loan_repayment_idempotency' });
-    await queryInterface.addIndex('loan_repayments', ['companyId', 'source', 'externalReference'], { unique: true, name: 'uq_loan_repayment_external_reference' });
-    await queryInterface.addIndex('loan_repayments', ['companyId', 'loanId', 'createdAt'], { name: 'idx_loan_repayment_history' });
+    await queryInterface.addIndex('loan_repayments', ['companyId', 'source', 'idempotencyKey'], {
+      unique: true,
+      name: 'uq_loan_repayment_idempotency',
+    });
+    await queryInterface.addIndex('loan_repayments', ['companyId', 'source', 'externalReference'], {
+      unique: true,
+      name: 'uq_loan_repayment_external_reference',
+    });
+    await queryInterface.addIndex('loan_repayments', ['companyId', 'loanId', 'createdAt'], {
+      name: 'idx_loan_repayment_history',
+    });
 
     await queryInterface.createTable('loan_ledger_entries', {
       id: { type: Sequelize.UUID, allowNull: false, primaryKey: true },
@@ -175,9 +241,17 @@ module.exports = {
       occurredAt: { type: Sequelize.DATE, allowNull: false },
       createdBy: { type: Sequelize.INTEGER.UNSIGNED, allowNull: true },
     });
-    await queryInterface.addIndex('loan_ledger_entries', ['companyId', 'source', 'idempotencyKey'], { unique: true, name: 'uq_loan_ledger_idempotency' });
-    await queryInterface.addIndex('loan_ledger_entries', ['companyId', 'loanId', 'occurredAt'], { name: 'idx_loan_ledger_history' });
-    await queryInterface.addIndex('loan_ledger_entries', ['companyId', 'loanId', 'installmentId'], { name: 'idx_loan_ledger_installment' });
+    await queryInterface.addIndex(
+      'loan_ledger_entries',
+      ['companyId', 'source', 'idempotencyKey'],
+      { unique: true, name: 'uq_loan_ledger_idempotency' },
+    );
+    await queryInterface.addIndex('loan_ledger_entries', ['companyId', 'loanId', 'occurredAt'], {
+      name: 'idx_loan_ledger_history',
+    });
+    await queryInterface.addIndex('loan_ledger_entries', ['companyId', 'loanId', 'installmentId'], {
+      name: 'idx_loan_ledger_installment',
+    });
 
     await queryInterface.createTable('loan_payroll_deductions', {
       id: { type: Sequelize.UUID, allowNull: false, primaryKey: true },
@@ -193,9 +267,18 @@ module.exports = {
       createdAt: { type: Sequelize.DATE, allowNull: false },
       updatedAt: { type: Sequelize.DATE, allowNull: false },
     });
-    await queryInterface.addIndex('loan_payroll_deductions', ['companyId', 'idempotencyKey'], { unique: true, name: 'uq_loan_deduction_idempotency' });
-    await queryInterface.addIndex('loan_payroll_deductions', ['companyId', 'payrollRunId', 'installmentId'], { unique: true, name: 'uq_loan_deduction_payroll' });
-    await queryInterface.addIndex('loan_payroll_deductions', ['companyId', 'loanId', 'status'], { name: 'idx_loan_deduction_status' });
+    await queryInterface.addIndex('loan_payroll_deductions', ['companyId', 'idempotencyKey'], {
+      unique: true,
+      name: 'uq_loan_deduction_idempotency',
+    });
+    await queryInterface.addIndex(
+      'loan_payroll_deductions',
+      ['companyId', 'payrollRunId', 'installmentId'],
+      { unique: true, name: 'uq_loan_deduction_payroll' },
+    );
+    await queryInterface.addIndex('loan_payroll_deductions', ['companyId', 'loanId', 'status'], {
+      name: 'idx_loan_deduction_status',
+    });
 
     await queryInterface.createTable('loan_renegotiations', {
       id: { type: Sequelize.UUID, allowNull: false, primaryKey: true },
@@ -213,7 +296,9 @@ module.exports = {
       decidedAt: { type: Sequelize.DATE, allowNull: true },
       createdAt: { type: Sequelize.DATE, allowNull: false },
     });
-    await queryInterface.addIndex('loan_renegotiations', ['companyId', 'loanId', 'status'], { name: 'idx_loan_renegotiation_status' });
+    await queryInterface.addIndex('loan_renegotiations', ['companyId', 'loanId', 'status'], {
+      name: 'idx_loan_renegotiation_status',
+    });
 
     await queryInterface.createTable('loan_outbox', {
       id: { type: Sequelize.INTEGER.UNSIGNED, autoIncrement: true, primaryKey: true },
@@ -224,7 +309,9 @@ module.exports = {
       occurredAt: { type: Sequelize.DATE, allowNull: false },
       publishedAt: { type: Sequelize.DATE, allowNull: true },
     });
-    await queryInterface.addIndex('loan_outbox', ['publishedAt', 'occurredAt'], { name: 'idx_loan_outbox_pending' });
+    await queryInterface.addIndex('loan_outbox', ['publishedAt', 'occurredAt'], {
+      name: 'idx_loan_outbox_pending',
+    });
 
     if (queryInterface.sequelize.getDialect() === 'postgres') {
       const compositeForeignKeys = [
@@ -277,10 +364,16 @@ module.exports = {
 
   async down(queryInterface) {
     if (queryInterface.sequelize.getDialect() === 'postgres') {
-      await queryInterface.sequelize.query('DROP TRIGGER IF EXISTS loan_ledger_immutable ON "loan_ledger_entries"');
-      await queryInterface.sequelize.query('DROP FUNCTION IF EXISTS prevent_loan_ledger_mutation()');
+      await queryInterface.sequelize.query(
+        'DROP TRIGGER IF EXISTS loan_ledger_immutable ON "loan_ledger_entries"',
+      );
+      await queryInterface.sequelize.query(
+        'DROP FUNCTION IF EXISTS prevent_loan_ledger_mutation()',
+      );
       for (const table of tables) {
-        await queryInterface.sequelize.query(`DROP POLICY IF EXISTS "${table}_tenant_isolation" ON "${table}"`);
+        await queryInterface.sequelize.query(
+          `DROP POLICY IF EXISTS "${table}_tenant_isolation" ON "${table}"`,
+        );
         await queryInterface.sequelize.query(`ALTER TABLE "${table}" NO FORCE ROW LEVEL SECURITY`);
         await queryInterface.sequelize.query(`ALTER TABLE "${table}" DISABLE ROW LEVEL SECURITY`);
       }

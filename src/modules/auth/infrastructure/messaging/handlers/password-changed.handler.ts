@@ -1,29 +1,25 @@
-import { SecurityEventLogger } from "../../security/security-event.logger";
+import { SecurityEventLogger } from '../../security/security-event.logger';
 
 export interface PasswordChangedEvent {
-    eventName: string;
+  eventName: string;
 
-    accountId: number;
+  accountId: number;
 
-    userId: number;
+  userId: number;
 
-    occurredAt: Date;
+  occurredAt: Date;
 }
 
 export class PasswordChangedHandler {
-    constructor(
-        private readonly securityLogger: SecurityEventLogger,
-    ) { }
+  constructor(private readonly securityLogger: SecurityEventLogger) {}
 
-    public async handle(
-        event: PasswordChangedEvent,
-    ): Promise<void> {
-        this.securityLogger.warning({
-            event: "PASSWORD_CHANGED",
+  public async handle(event: PasswordChangedEvent): Promise<void> {
+    this.securityLogger.warning({
+      event: 'PASSWORD_CHANGED',
 
-            accountId: event.accountId,
+      accountId: event.accountId,
 
-            userId: event.userId,
-        });
-    }
+      userId: event.userId,
+    });
+  }
 }

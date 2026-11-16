@@ -1,8 +1,6 @@
-import { DomainEvent } from "./domain-event";
+import { DomainEvent } from './domain-event';
 
-export class GoogleAccountUnlinkedEvent
-  extends DomainEvent
-{
+export class GoogleAccountUnlinkedEvent extends DomainEvent {
   constructor(
     public readonly userId: number,
     public readonly authAccountId: number,
@@ -11,6 +9,6 @@ export class GoogleAccountUnlinkedEvent
   }
 
   public get eventName(): string {
-    return "auth.google.account-unlinked";
+    return 'auth.google.account-unlinked';
   }
 }

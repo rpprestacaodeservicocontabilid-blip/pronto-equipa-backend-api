@@ -1,8 +1,6 @@
-import { DomainEvent } from "./domain-event";
+import { DomainEvent } from './domain-event';
 
-export class AccountLockedEvent
-  extends DomainEvent
-{
+export class AccountLockedEvent extends DomainEvent {
   constructor(
     public readonly userId: number,
     public readonly authAccountId: number,
@@ -12,6 +10,6 @@ export class AccountLockedEvent
   }
 
   public get eventName(): string {
-    return "auth.account.locked";
+    return 'auth.account.locked';
   }
 }

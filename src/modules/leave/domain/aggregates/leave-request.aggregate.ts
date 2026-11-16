@@ -14,11 +14,7 @@ import { SelfApprovalForbiddenError } from '../errors/leave.error';
 import { LeaveEvent } from '../events/leave.event';
 import { LeaveDays } from '../value-objects/leave-days.vo';
 import { LeavePeriod } from '../value-objects/leave-period.vo';
-import {
-  LeaveStatus,
-  canTransitionLeave,
-  isLeaveStatus,
-} from '../value-objects/leave-status.vo';
+import { LeaveStatus, canTransitionLeave, isLeaveStatus } from '../value-objects/leave-status.vo';
 import { InvalidLeaveTransitionError } from '../errors/leave.error';
 
 export const LEAVE_TYPES = ['ANNUAL', 'SICK', 'SPECIAL', 'UNPAID', 'OTHER'] as const;
@@ -111,27 +107,16 @@ export class LeaveRequest extends AggregateRoot<LeaveRequestProps> {
     // Sobreposição ENTRE os próprios segmentos do pedido (RN-017).
     for (let i = 0; i < periods.length; i += 1) {
       for (let j = i + 1; j < periods.length; j += 1) {
-        const left = LeavePeriod.create(
-          periods[i].props.startDate,
-          periods[i].props.endDate,
-        );
-        const right = LeavePeriod.create(
-          periods[j].props.startDate,
-          periods[j].props.endDate,
-        );
+        const left = LeavePeriod.create(periods[i].props.startDate, periods[i].props.endDate);
+        const right = LeavePeriod.create(periods[j].props.startDate, periods[j].props.endDate);
         if (left.overlaps(right)) {
           throw new ValidationError('Leave periods inside one request cannot overlap.');
         }
       }
     }
 
-    const ordered = [...periods].sort((a, b) =>
-      a.props.startDate < b.props.startDate ? -1 : 1,
-    );
-    const requestedDays = periods.reduce(
-      (total, period) => total + period.props.calculatedDays,
-      0,
-    );
+    const ordered = [...periods].sort((a, b) => (a.props.startDate < b.props.startDate ? -1 : 1));
+    const requestedDays = periods.reduce((total, period) => total + period.props.calculatedDays, 0);
     LeaveDays.create(requestedDays);
 
     const request = new LeaveRequest({
@@ -230,7 +215,11 @@ export class LeaveRequest extends AggregateRoot<LeaveRequestProps> {
   }
 
   get propsSnapshot(): LeaveRequestProps {
-    return { ...this.props, periods: [...this.props.periods], approvals: [...this.props.approvals] };
+    return {
+      ...this.props,
+      periods: [...this.props.periods],
+      approvals: [...this.props.approvals],
+    };
   }
 
   /** Verifica a versão esperada antes de qualquer escrita (optimistic lock). */
@@ -419,13 +408,8 @@ export class LeaveRequest extends AggregateRoot<LeaveRequestProps> {
       }
     }
 
-    const ordered = [...periods].sort((a, b) =>
-      a.props.startDate < b.props.startDate ? -1 : 1,
-    );
-    const requestedDays = periods.reduce(
-      (total, period) => total + period.props.calculatedDays,
-      0,
-    );
+    const ordered = [...periods].sort((a, b) => (a.props.startDate < b.props.startDate ? -1 : 1));
+    const requestedDays = periods.reduce((total, period) => total + period.props.calculatedDays, 0);
     LeaveDays.create(requestedDays);
 
     this.props.periods = ordered.map((period) => ({ ...period.props }));

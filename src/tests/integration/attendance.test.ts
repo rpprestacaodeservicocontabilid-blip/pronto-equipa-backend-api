@@ -2,12 +2,12 @@ import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { app } from '../../main/app';
 import { sequelize } from '../../infra/database';
-import { AttendanceRecordModel } from '../../modules/attendance/infrastructure/persistence/model/attendance-record.model';
-import { CompanyMemberModel } from '../../modules/tenancy/infrastructure/persistence/model/company-member.model';
-import { EmployeeModel } from '../../modules/employees/infrastructure/persistence/model/employee.model';
+import { AttendanceRecordModel } from '../../modules/attendance/infrastructure/persistence/models/attendance-record.model';
+import { CompanyMemberModel } from '../../modules/tenancy/infrastructure/persistence/models/company-member.model';
+import { EmployeeModel } from '../../modules/employees/infrastructure/persistence/models/employee.model';
 import { PermissionModel } from '../../modules/user/infrastructure/persistence/models/permission.model';
 import { RoleModel } from '../../modules/user/infrastructure/persistence/models/role.model';
-import { RolePermissionModel } from '../../modules/auth/infrastructure/persistence/model/role-permission.model';
+import { RolePermissionModel } from '../../modules/auth/infrastructure/persistence/models/role-permission.model';
 import { createActor, TestActor } from '../support/auth';
 import { resetTestDatabase } from '../support/database';
 

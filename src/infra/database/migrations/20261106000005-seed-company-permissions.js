@@ -1,4 +1,4 @@
-"use strict";
+'use strict';
 
 /**
  * Fase 1 — Fundação multiempresa.
@@ -19,40 +19,40 @@ module.exports = {
 
     const permissions = [
       {
-        name: "company.read",
-        description: "Consultar dados da empresa.",
-        resource: "company",
-        action: "read",
+        name: 'company.read',
+        description: 'Consultar dados da empresa.',
+        resource: 'company',
+        action: 'read',
       },
       {
-        name: "company.update",
-        description: "Alterar dados da empresa.",
-        resource: "company",
-        action: "update",
+        name: 'company.update',
+        description: 'Alterar dados da empresa.',
+        resource: 'company',
+        action: 'update',
       },
       {
-        name: "company.members.read",
-        description: "Consultar membros e papéis da empresa.",
-        resource: "company_members",
-        action: "read",
+        name: 'company.members.read',
+        description: 'Consultar membros e papéis da empresa.',
+        resource: 'company_members',
+        action: 'read',
       },
       {
-        name: "company.members.manage",
-        description: "Adicionar, alterar e remover membros da empresa.",
-        resource: "company_members",
-        action: "manage",
+        name: 'company.members.manage',
+        description: 'Adicionar, alterar e remover membros da empresa.',
+        resource: 'company_members',
+        action: 'manage',
       },
       {
-        name: "company.roles.manage",
-        description: "Criar e gerir papéis e permissões da empresa.",
-        resource: "company_roles",
-        action: "manage",
+        name: 'company.roles.manage',
+        description: 'Criar e gerir papéis e permissões da empresa.',
+        resource: 'company_roles',
+        action: 'manage',
       },
       {
-        name: "audit.read",
-        description: "Consultar o trilho de auditoria da empresa.",
-        resource: "audit_log",
-        action: "read",
+        name: 'audit.read',
+        description: 'Consultar o trilho de auditoria da empresa.',
+        resource: 'audit_log',
+        action: 'read',
       },
     ];
 
@@ -64,7 +64,7 @@ module.exports = {
 
     const [existingRows] = await queryInterface.sequelize.query(
       `SELECT name FROM permissions
-        WHERE name IN (${names.map((name) => `'${name}'`).join(", ")})`,
+        WHERE name IN (${names.map((name) => `'${name}'`).join(', ')})`,
     );
 
     const existingNames = new Set(existingRows.map((row) => row.name));
@@ -73,14 +73,14 @@ module.exports = {
       .filter((permission) => !existingNames.has(permission.name))
       .map((permission) => ({
         ...permission,
-        scope: "TENANT",
+        scope: 'TENANT',
         isSystem: true,
         createdAt: now,
         updatedAt: now,
       }));
 
     if (toInsert.length > 0) {
-      await queryInterface.bulkInsert("permissions", toInsert);
+      await queryInterface.bulkInsert('permissions', toInsert);
     }
 
     // ============================================================
@@ -93,7 +93,7 @@ module.exports = {
 
     const [permissionRows] = await queryInterface.sequelize.query(
       `SELECT id FROM permissions
-        WHERE name IN (${names.map((name) => `'${name}'`).join(", ")})`,
+        WHERE name IN (${names.map((name) => `'${name}'`).join(', ')})`,
     );
 
     const [existingLinks] = await queryInterface.sequelize.query(
@@ -123,21 +123,21 @@ module.exports = {
     }
 
     if (links.length > 0) {
-      await queryInterface.bulkInsert("role_permissions", links);
+      await queryInterface.bulkInsert('role_permissions', links);
     }
   },
 
   async down(queryInterface) {
     const names = [
-      "company.read",
-      "company.update",
-      "company.members.read",
-      "company.members.manage",
-      "company.roles.manage",
-      "audit.read",
+      'company.read',
+      'company.update',
+      'company.members.read',
+      'company.members.manage',
+      'company.roles.manage',
+      'audit.read',
     ];
 
-    const list = names.map((name) => `'${name}'`).join(", ");
+    const list = names.map((name) => `'${name}'`).join(', ');
 
     await queryInterface.sequelize.query(
       `DELETE FROM role_permissions
@@ -146,8 +146,6 @@ module.exports = {
         )`,
     );
 
-    await queryInterface.sequelize.query(
-      `DELETE FROM permissions WHERE name IN (${list})`,
-    );
+    await queryInterface.sequelize.query(`DELETE FROM permissions WHERE name IN (${list})`);
   },
 };

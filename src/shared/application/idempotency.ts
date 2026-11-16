@@ -18,7 +18,7 @@
  * para dev/teste; em produção será persistido transaccionalmente.
  */
 
-export type IdempotencyStatus = "in-progress" | "completed";
+export type IdempotencyStatus = 'in-progress' | 'completed';
 
 export interface IdempotencyEntry<T = unknown> {
   key: string;

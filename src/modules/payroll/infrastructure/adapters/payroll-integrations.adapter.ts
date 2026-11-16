@@ -11,16 +11,16 @@ import {
   PayrollSourceReaderPort,
 } from '../../application/ports/payroll-integrations.port';
 import { validateCalculation } from '../../domain/payroll-result';
-import { EmployeeModel } from '../../../employees/infrastructure/persistence/model/employee.model';
-import { EmploymentContractModel } from '../../../contracts/infrastructure/persistence/model/employment-contract.model';
+import { EmployeeModel } from '../../../employees/infrastructure/persistence/models/employee.model';
+import { EmploymentContractModel } from '../../../contracts/infrastructure/persistence/models/employment-contract.model';
 import { SequelizeSalaryStructureRepository } from '../../../salary-structure/infrastructure/persistence/repositories/sequelize-salary-structure.repository';
-import { EmployeeSalaryAssignmentModel } from '../../../salary-structure/infrastructure/persistence/model/salary-structure.models';
-import { AttendanceEntityModel } from '../../../attendance/infrastructure/persistence/model/attendance-entity.model';
-import { LeaveRequestModel } from '../../../leave/infrastructure/persistence/model/leave-request.model';
-import { EmployeeLoanModel } from '../../../loans/infrastructure/persistence/model/employee-loan.model';
-import { LoanInstallmentModel } from '../../../loans/infrastructure/persistence/model/loan-installment.model';
-import { LoanLedgerEntryModel } from '../../../loans/infrastructure/persistence/model/loan-ledger-entry.model';
-import { LoanDeductionModel } from '../../../loans/infrastructure/persistence/model/loan-deduction.model';
+import { EmployeeSalaryAssignmentModel } from '../../../salary-structure/infrastructure/persistence/models/salary-structure.models';
+import { AttendanceEntityModel } from '../../../attendance/infrastructure/persistence/models/attendance-entity.model';
+import { LeaveRequestModel } from '../../../leave/infrastructure/persistence/models/leave-request.model';
+import { EmployeeLoanModel } from '../../../loans/infrastructure/persistence/models/employee-loan.model';
+import { LoanInstallmentModel } from '../../../loans/infrastructure/persistence/models/loan-installment.model';
+import { LoanLedgerEntryModel } from '../../../loans/infrastructure/persistence/models/loan-ledger-entry.model';
+import { LoanDeductionModel } from '../../../loans/infrastructure/persistence/models/loan-deduction.model';
 
 // URLs and credentials are operator configuration; no URL comes from a tenant request.
 async function request(url: string | undefined, path: string, body: unknown): Promise<unknown> {
@@ -62,8 +62,22 @@ export class HttpPayrollCalculator implements PayrollCalculatorPort {
 export class HttpPayrollLegalRules implements PayrollLegalRulesPort {
   async resolve(companyId: number, startDate: string, endDate: string) {
     return z
-      .object({ version: z.string().min(1), ruleSetId: z.string().min(1).optional(), sourceReference: z.string().min(1).optional(), integrityHash: z.string().min(1).optional(), status: z.literal('PUBLISHED'), effectiveFrom: z.string(), effectiveTo: z.string().nullable(), rules: z.record(z.string(), z.unknown()) })
-      .refine(value => value.effectiveFrom <= startDate && (value.effectiveTo === null || value.effectiveTo >= endDate), 'Published rules must cover the calculation period.')
+      .object({
+        version: z.string().min(1),
+        ruleSetId: z.string().min(1).optional(),
+        sourceReference: z.string().min(1).optional(),
+        integrityHash: z.string().min(1).optional(),
+        status: z.literal('PUBLISHED'),
+        effectiveFrom: z.string(),
+        effectiveTo: z.string().nullable(),
+        rules: z.record(z.string(), z.unknown()),
+      })
+      .refine(
+        (value) =>
+          value.effectiveFrom <= startDate &&
+          (value.effectiveTo === null || value.effectiveTo >= endDate),
+        'Published rules must cover the calculation period.',
+      )
       .parse(
         await request(process.env.PAYROLL_LEGAL_RULES_URL, '/resolve', {
           companyId,
@@ -232,9 +246,24 @@ export class SequelizePayrollSourceReader implements PayrollSourceReaderPort {
               String(day.workDate) <= endDate,
           )
         : [];
-      const loanIds = loans.map(loan => loan.id);
-      const ledger = loanIds.length ? await LoanLedgerEntryModel.findAll({ where: { companyId, loanId: { [Op.in]: loanIds } }, transaction }) : [];
-      const deductions = loanIds.length ? await LoanDeductionModel.findAll({ where: { companyId, loanId: { [Op.in]: loanIds }, status: 'REQUESTED', [Op.or]: [{ payrollRunId: null }, { payrollRunId }] }, transaction }) : [];
+      const loanIds = loans.map((loan) => loan.id);
+      const ledger = loanIds.length
+        ? await LoanLedgerEntryModel.findAll({
+            where: { companyId, loanId: { [Op.in]: loanIds } },
+            transaction,
+          })
+        : [];
+      const deductions = loanIds.length
+        ? await LoanDeductionModel.findAll({
+            where: {
+              companyId,
+              loanId: { [Op.in]: loanIds },
+              status: 'REQUESTED',
+              [Op.or]: [{ payrollRunId: null }, { payrollRunId }],
+            },
+            transaction,
+          })
+        : [];
       return {
         employee: employee.toJSON(),
         segments,
@@ -242,8 +271,8 @@ export class SequelizePayrollSourceReader implements PayrollSourceReaderPort {
         leave: leave.map((row) => row.toJSON()),
         loans: loans.map((row) => row.toJSON()),
         installments: installments.map((row) => row.toJSON()),
-        loanLedger: ledger.map(row => row.toJSON()),
-        loanDeductions: deductions.map(row => row.toJSON()),
+        loanLedger: ledger.map((row) => row.toJSON()),
+        loanDeductions: deductions.map((row) => row.toJSON()),
         legalRules: {
           ...legal.rules,
           ruleSetId: legal.ruleSetId ?? String(legal.rules.ruleSetId ?? legal.version),

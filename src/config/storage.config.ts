@@ -1,6 +1,6 @@
-import type { EnvVars } from "./env";
+import type { EnvVars } from './env';
 
-export type StorageDriver = "local" | "s3";
+export type StorageDriver = 'local' | 's3';
 
 export interface StorageConfig {
   driver: StorageDriver;
@@ -19,14 +19,18 @@ export interface StorageConfig {
  * máquina/contentor), `s3` quando configurado. Sem ligações —
  * o adaptador de infraestrutura consome estas opções.
  */
-export function createStorageConfig(env: Pick<EnvVars,
-  | "STORAGE_DRIVER"
-  | "STORAGE_DIR"
-  | "STORAGE_BUCKET"
-  | "STORAGE_REGION"
-  | "STORAGE_ACCESS_KEY"
-  | "STORAGE_SECRET_KEY"
-  | "STORAGE_MAX_FILE_MB">): StorageConfig {
+export function createStorageConfig(
+  env: Pick<
+    EnvVars,
+    | 'STORAGE_DRIVER'
+    | 'STORAGE_DIR'
+    | 'STORAGE_BUCKET'
+    | 'STORAGE_REGION'
+    | 'STORAGE_ACCESS_KEY'
+    | 'STORAGE_SECRET_KEY'
+    | 'STORAGE_MAX_FILE_MB'
+  >,
+): StorageConfig {
   return {
     driver: env.STORAGE_DRIVER,
     dir: env.STORAGE_DIR,

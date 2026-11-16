@@ -12,8 +12,8 @@
  *   - `clearDomainEvents()` descarta sem publicar (rollback).
  */
 
-import { DomainEvent } from "./domain-event";
-import { Entity } from "./entity";
+import { DomainEvent } from './domain-event';
+import { Entity } from './entity';
 
 export abstract class AggregateRoot<TProps> extends Entity<TProps> {
   private readonly pendingEvents: DomainEvent[] = [];

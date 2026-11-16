@@ -1,5 +1,5 @@
-import { SessionId } from "../value-objects/session-id.vo";
-import { SessionStatus } from "../enums/session-status.enum";
+import { SessionId } from '../value-objects/session-id.vo';
+import { SessionStatus } from '../enums/session-status.enum';
 
 export interface SessionProps {
   id: SessionId;
@@ -44,12 +44,9 @@ export class Session {
 
   private _revokedAt: Date | null;
 
-  private constructor(
-    props: SessionProps,
-  ) {
+  private constructor(props: SessionProps) {
     this._id = props.id;
-    this._authAccountId =
-      props.authAccountId;
+    this._authAccountId = props.authAccountId;
     this._userId = props.userId;
     this._status = props.status;
     this._ipAddress = props.ipAddress;
@@ -60,58 +57,38 @@ export class Session {
     this._revokedAt = props.revokedAt;
   }
 
-  public static create(
-    props: SessionProps,
-  ): Session {
+  public static create(props: SessionProps): Session {
     if (props.authAccountId <= 0) {
-      throw new Error(
-        "Auth account ID must be greater than zero.",
-      );
+      throw new Error('Auth account ID must be greater than zero.');
     }
 
     if (props.userId <= 0) {
-      throw new Error(
-        "User ID must be greater than zero.",
-      );
+      throw new Error('User ID must be greater than zero.');
     }
 
-    if (
-      props.expiresAt <= props.createdAt
-    ) {
-      throw new Error(
-        "Session expiration must be after creation.",
-      );
+    if (props.expiresAt <= props.createdAt) {
+      throw new Error('Session expiration must be after creation.');
     }
 
     return new Session(props);
   }
 
   public revoke(): void {
-    if (
-      this._status ===
-      SessionStatus.REVOKED
-    ) {
+    if (this._status === SessionStatus.REVOKED) {
       return;
     }
 
-    this._status =
-      SessionStatus.REVOKED;
+    this._status = SessionStatus.REVOKED;
 
     this._revokedAt = new Date();
   }
 
   public expire(): void {
-    this._status =
-      SessionStatus.EXPIRED;
+    this._status = SessionStatus.EXPIRED;
   }
 
-  public isActive(
-    now: Date = new Date(),
-  ): boolean {
-    if (
-      this._status !==
-      SessionStatus.ACTIVE
-    ) {
+  public isActive(now: Date = new Date()): boolean {
+    if (this._status !== SessionStatus.ACTIVE) {
       return false;
     }
 

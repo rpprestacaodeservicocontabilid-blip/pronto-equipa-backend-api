@@ -5,16 +5,14 @@
  * `StorageGatewayImpl`.
  */
 export interface StorageGateway {
-    uploadAvatar(
-        userId: number,
-        file: Buffer,
-        contentType: string,
-    ): Promise<{
-        url: string;
-        key: string;
-    }>;
+  uploadAvatar(
+    userId: number,
+    file: Buffer,
+    contentType: string,
+  ): Promise<{
+    url: string;
+    key: string;
+  }>;
 
-    delete(
-        key: string,
-    ): Promise<void>;
+  delete(key: string): Promise<void>;
 }

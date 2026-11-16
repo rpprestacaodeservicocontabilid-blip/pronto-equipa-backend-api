@@ -21,7 +21,12 @@ export interface PayrollCalculationResult {
   engineVersion: string;
   legalRuleSetVersion: string;
   calculationTraceId: string;
-  issues?: Array<{ severity: 'WARNING' | 'BLOCKING'; code: string; message: string; sourceReference?: string }>;
+  issues?: Array<{
+    severity: 'WARNING' | 'BLOCKING';
+    code: string;
+    message: string;
+    sourceReference?: string;
+  }>;
   calculationTrace?: Record<string, unknown>;
   lines: Array<{
     code: string;

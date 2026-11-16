@@ -1,18 +1,16 @@
-require("ts-node/register");
+require('ts-node/register');
 
-const { ENV } = require("./env");
+const { ENV } = require('./env');
 
 const baseConfig = {
+  seederStorage: 'sequelize',
 
-  seederStorage: "sequelize",
+  seederStorageTableName: 'sequelize_meta',
 
-  seederStorageTableName: "sequelize_meta",
-
-  migrationStorageTableName: "sequelize_migrations",
+  migrationStorageTableName: 'sequelize_migrations',
 };
 
 const configs = {
-
   development: {
     ...baseConfig,
 

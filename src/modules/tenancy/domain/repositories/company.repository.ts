@@ -1,14 +1,14 @@
-import { Company } from "../entities/company";
+import { Company } from '../entities/company';
 
 export interface Paginated<T> {
-    rows: T[];
-    total: number;
+  rows: T[];
+  total: number;
 }
 
 export interface ListCompaniesParams {
-    page: number;
-    limit: number;
-    search?: string;
+  page: number;
+  limit: number;
+  search?: string;
 }
 
 /**
@@ -19,17 +19,17 @@ export interface ListCompaniesParams {
  * filtragem implícita aqui).
  */
 export interface CompanyRepository {
-    save(company: Company): Promise<Company>;
+  save(company: Company): Promise<Company>;
 
-    findById(id: number): Promise<Company | null>;
+  findById(id: number): Promise<Company | null>;
 
-    findBySlug(slug: string): Promise<Company | null>;
+  findBySlug(slug: string): Promise<Company | null>;
 
-    existsBySlug(slug: string): Promise<boolean>;
+  existsBySlug(slug: string): Promise<boolean>;
 
-    /** Lista paginada para a administração de plataforma. */
-    findAll(params: ListCompaniesParams): Promise<Paginated<Company>>;
+  /** Lista paginada para a administração de plataforma. */
+  findAll(params: ListCompaniesParams): Promise<Paginated<Company>>;
 
-    /** Empresas onde o utilizador é membro activo. */
-    findCompaniesByUserId(userId: number): Promise<Company[]>;
+  /** Empresas onde o utilizador é membro activo. */
+  findCompaniesByUserId(userId: number): Promise<Company[]>;
 }

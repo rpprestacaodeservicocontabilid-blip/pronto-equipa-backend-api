@@ -157,7 +157,12 @@ module.exports = {
          ADD CONSTRAINT "ck_contract_status"
          CHECK ("status" IN ('DRAFT','PENDING_APPROVAL','APPROVED','ACTIVE','SUSPENDED','EXPIRED','TERMINATED','REJECTED','CANCELLED'))`,
       );
-      for (const table of ['employment_contracts', 'contract_records', 'contract_outbox', 'contract_alerts']) {
+      for (const table of [
+        'employment_contracts',
+        'contract_records',
+        'contract_outbox',
+        'contract_alerts',
+      ]) {
         const policy = `${table}_tenant_isolation`;
         await queryInterface.sequelize.query(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY`);
         await queryInterface.sequelize.query(`ALTER TABLE "${table}" FORCE ROW LEVEL SECURITY`);
@@ -180,7 +185,13 @@ module.exports = {
 
   async down(queryInterface) {
     if (queryInterface.sequelize.getDialect() === 'postgres') {
-      for (const table of ['employment_contracts', 'contract_records', 'contract_outbox', 'contract_alerts', 'contract_types']) {
+      for (const table of [
+        'employment_contracts',
+        'contract_records',
+        'contract_outbox',
+        'contract_alerts',
+        'contract_types',
+      ]) {
         await queryInterface.sequelize.query(`ALTER TABLE "${table}" DISABLE ROW LEVEL SECURITY`);
       }
     }

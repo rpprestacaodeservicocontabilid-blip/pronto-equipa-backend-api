@@ -1,17 +1,17 @@
 import { AuditRecorderPort } from '../../../audit/application/ports/audit-recorder.port';
-import { AttendanceEntityType } from '../../infrastructure/persistence/model/attendance-entity.model';
-import { SequelizeAttendanceRepository } from '../../infrastructure/persistence/repositories/sequelize-attendance.repository';
+import { AttendanceEntityType } from '../../domain/attendance-entity-type';
+import { AttendanceRepositoryPort } from '../ports/attendance.repository.port';
 
 export class ManageAttendanceUseCase {
   constructor(
-    private readonly repository: SequelizeAttendanceRepository,
+    private readonly repository: AttendanceRepositoryPort,
     private readonly audit: AuditRecorderPort,
   ) {}
 
   async recordPunch(
     companyId: number,
     actorUserId: number,
-    input: Parameters<SequelizeAttendanceRepository['createPunch']>[2],
+    input: Parameters<AttendanceRepositoryPort['createPunch']>[2],
   ) {
     const result = await this.repository.createPunch(companyId, actorUserId, input);
     await this.audit.record({
@@ -29,10 +29,7 @@ export class ManageAttendanceUseCase {
     return result;
   }
 
-  listPunches(
-    companyId: number,
-    query: Parameters<SequelizeAttendanceRepository['listPunches']>[1],
-  ) {
+  listPunches(companyId: number, query: Parameters<AttendanceRepositoryPort['listPunches']>[1]) {
     return this.repository.listPunches(companyId, query);
   }
 
@@ -63,7 +60,7 @@ export class ManageAttendanceUseCase {
     return result;
   }
 
-  listDays(companyId: number, query: Parameters<SequelizeAttendanceRepository['listDays']>[1]) {
+  listDays(companyId: number, query: Parameters<AttendanceRepositoryPort['listDays']>[1]) {
     return this.repository.listDays(companyId, query);
   }
 
@@ -255,7 +252,7 @@ export class ManageAttendanceUseCase {
   listEntities(
     companyId: number,
     type: AttendanceEntityType | AttendanceEntityType[],
-    query: Parameters<SequelizeAttendanceRepository['listEntities']>[2],
+    query: Parameters<AttendanceRepositoryPort['listEntities']>[2],
   ) {
     return this.repository.listEntities(companyId, type, query);
   }
@@ -284,7 +281,7 @@ export class ManageAttendanceUseCase {
   async importPunches(
     companyId: number,
     actorUserId: number,
-    rows: Parameters<SequelizeAttendanceRepository['importPunches']>[2],
+    rows: Parameters<AttendanceRepositoryPort['importPunches']>[2],
     batchKey: string,
   ) {
     const result = await this.repository.importPunches(companyId, actorUserId, rows, batchKey);

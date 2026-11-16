@@ -1,0 +1,233 @@
+import { Op, Transaction, WhereOptions, QueryTypes } from 'sequelize';
+import { sequelize } from '../../../../../infra/database';
+import {
+  recordTransactionTenant,
+  resolveRecordTransaction,
+  withRecordTransaction,
+} from '../../../../../shared/infrastructure/persistence/sequelize-record-store';
+import { RecordStoreContext } from '../../../../../shared/application/ports/record-store.port';
+import { AuditRepositoryPort } from '../../../application/ports/audit-engine.ports';
+import {
+  AuditAccess,
+  AuditHead,
+  AuditObject,
+  AuditObjectKind,
+  AuditQuery,
+  AuditRecordView,
+  AuditScope,
+  auditFailure,
+  auditScope,
+} from '../../../domain/audit-contracts';
+import {
+  AuditRecordModel,
+  AuditHeadModel,
+  AuditScopeCatalogModel,
+  auditObjectModels,
+} from '../models/audit-engine.models';
+let sqliteTail = Promise.resolve();
+async function sqliteSerial<T>(operation: () => Promise<T>): Promise<T> {
+  let release = () => {};
+  const before = sqliteTail;
+  sqliteTail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await before;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+function recordView(model: AuditRecordModel): AuditRecordView {
+  const row = model.get({ plain: true });
+  return {
+    ...row,
+    sequence: Number(row.sequence),
+    occurredAt: new Date(row.occurredAt).toISOString(),
+    receivedAt: new Date(row.receivedAt).toISOString(),
+  };
+}
+function objectView(model: InstanceType<(typeof auditObjectModels)['POLICY']>): AuditObject {
+  const row = model.get({ plain: true });
+  return {
+    ...row,
+    createdAt: new Date(row.createdAt).toISOString(),
+    updatedAt: new Date(row.updatedAt).toISOString(),
+  };
+}
+export class SequelizeAuditEngineRepository implements AuditRepositoryPort {
+  async transaction<T>(
+    scope: AuditScope,
+    operation: (context: RecordStoreContext) => Promise<T>,
+    context?: RecordStoreContext,
+  ): Promise<T> {
+    if (context) {
+      if (recordTransactionTenant(context) !== scope.companyId)
+        throw auditFailure('Audit transaction tenant mismatch.', 403);
+      await this.lock(scope, resolveRecordTransaction(context)!);
+      return operation(context);
+    }
+    const run = () =>
+      sequelize.transaction(async (transaction) => {
+        await this.lock(scope, transaction);
+        return withRecordTransaction(transaction, scope.companyId, operation);
+      });
+    return sequelize.getDialect() === 'sqlite' ? sqliteSerial(run) : run();
+  }
+  private async lock(scope: AuditScope, transaction: Transaction) {
+    if (sequelize.getDialect() === 'postgres') {
+      await sequelize.query("SELECT set_config('app.current_tenant',:tenant,true)", {
+        replacements: { tenant: scope.companyId === null ? '' : String(scope.companyId) },
+        type: QueryTypes.SELECT,
+        transaction,
+      });
+      await sequelize.query("SELECT pg_advisory_xact_lock(hashtext('audit'),:tenant)", {
+        replacements: { tenant: scope.companyId || 0 },
+        transaction,
+      });
+    }
+  }
+  async head(scope: AuditScope, context: RecordStoreContext): Promise<AuditHead> {
+    const transaction = resolveRecordTransaction(context);
+    await AuditScopeCatalogModel.findOrCreate({
+      where: { scopeKey: scope.scopeKey },
+      defaults: scope,
+      transaction,
+    });
+    await AuditHeadModel.findOrCreate({
+      where: { scopeKey: scope.scopeKey },
+      defaults: { ...scope, sequence: 0, recordHash: '0'.repeat(64) },
+      transaction,
+    });
+    const row = await AuditHeadModel.findOne({
+      where: { ...scope },
+      transaction,
+      lock: transaction?.LOCK.UPDATE,
+    });
+    if (!row) throw new Error('Audit head unavailable.');
+    const data = row.get({ plain: true });
+    return { ...data, sequence: Number(data.sequence) };
+  }
+  async byEvent(scope: AuditScope, sourceId: string, eventId: string, context: RecordStoreContext) {
+    const row = await AuditRecordModel.findOne({
+      where: { ...scope, sourceId, eventId },
+      transaction: resolveRecordTransaction(context),
+    });
+    return row ? recordView(row) : null;
+  }
+  async insert(record: AuditRecordView, context: RecordStoreContext) {
+    await AuditRecordModel.create(record, { transaction: resolveRecordTransaction(context) });
+  }
+  async advance(head: AuditHead, context: RecordStoreContext) {
+    const [changed] = await AuditHeadModel.update(
+      { sequence: head.sequence, recordHash: head.recordHash },
+      {
+        where: { scopeKey: head.scopeKey, companyId: head.companyId, sequence: head.sequence - 1 },
+        transaction: resolveRecordTransaction(context),
+      },
+    );
+    if (changed !== 1) throw auditFailure('Audit head changed concurrently.', 409);
+  }
+  async records(
+    scope: AuditScope,
+    query: AuditQuery,
+    context: RecordStoreContext,
+    access?: Pick<AuditAccess, 'actorId' | 'sensitive' | 'ownOnly'>,
+  ) {
+    const where: Record<string | symbol, unknown> = { ...scope };
+    for (const field of [
+      'eventType',
+      'category',
+      'severity',
+      'outcome',
+      'actorId',
+      'resourceType',
+      'resourceId',
+      'correlationId',
+    ] as const)
+      if (query[field]) where[field] = query[field];
+    if (query.cursor !== undefined) where.sequence = { [Op.gt]: query.cursor };
+    if (query.from || query.to)
+      where.occurredAt = {
+        ...(query.from ? { [Op.gte]: new Date(query.from) } : {}),
+        ...(query.to ? { [Op.lte]: new Date(query.to) } : {}),
+      };
+    if (access?.ownOnly) {
+      where.actorId = String(access.actorId);
+      where[Op.and] = [
+        {
+          [Op.or]: [
+            { resourceType: { [Op.in]: ['USER', 'user'] }, resourceId: String(access.actorId) },
+            { resourceType: { [Op.in]: ['AUTH_SESSION', 'session'] } },
+          ],
+        },
+      ];
+    }
+    if (access && !access.sensitive) where.sensitivity = 'STANDARD';
+    return (
+      await AuditRecordModel.findAll({
+        where: where as WhereOptions,
+        order: [['sequence', 'ASC']],
+        limit: Math.min(query.limit || 100, 1000),
+        transaction: resolveRecordTransaction(context),
+      })
+    ).map(recordView);
+  }
+  async record(scope: AuditScope, id: string, context: RecordStoreContext) {
+    const row = await AuditRecordModel.findOne({
+      where: { ...scope, id },
+      transaction: resolveRecordTransaction(context),
+    });
+    return row ? recordView(row) : null;
+  }
+  async createObject(object: AuditObject, context: RecordStoreContext) {
+    return objectView(
+      await auditObjectModels[object.kind].create(object, {
+        transaction: resolveRecordTransaction(context),
+      }),
+    );
+  }
+  async object(scope: AuditScope, kind: AuditObjectKind, id: string, context: RecordStoreContext) {
+    const transaction = resolveRecordTransaction(context),
+      row = await auditObjectModels[kind].findOne({
+        where: { ...scope, id, kind },
+        transaction,
+        lock: transaction?.LOCK.UPDATE,
+      });
+    return row ? objectView(row) : null;
+  }
+  async objects(scope: AuditScope, kind: AuditObjectKind, context: RecordStoreContext) {
+    return (
+      await auditObjectModels[kind].findAll({
+        where: { ...scope, kind },
+        order: [
+          ['createdAt', 'ASC'],
+          ['id', 'ASC'],
+        ],
+        transaction: resolveRecordTransaction(context),
+      })
+    ).map(objectView);
+  }
+  async updateObject(
+    object: AuditObject,
+    changes: { status?: string; data?: Record<string, unknown> },
+    context: RecordStoreContext,
+  ) {
+    const row = await auditObjectModels[object.kind].findOne({
+      where: { id: object.id, scopeKey: object.scopeKey, companyId: object.companyId },
+      transaction: resolveRecordTransaction(context),
+    });
+    if (!row) throw auditFailure('Audit workflow not found.', 404);
+    return objectView(
+      await row.update(
+        { ...changes, updatedAt: new Date().toISOString() },
+        { transaction: resolveRecordTransaction(context) },
+      ),
+    );
+  }
+  async scopes() {
+    return (await AuditScopeCatalogModel.findAll({ attributes: ['companyId'] })).map((row) =>
+      auditScope(row.getDataValue('companyId')),
+    );
+  }
+}

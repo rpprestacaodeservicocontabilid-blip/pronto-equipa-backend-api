@@ -53,12 +53,7 @@ export const createLeaveModule = (options: LeaveModuleOptions): { routes: Router
   const calendars = new SequelizeWorkCalendarReader();
   const idempotency = options.idempotency ?? new InMemoryIdempotencyStore();
 
-  const accounts = new ManageLeaveAccountsUseCase(
-    repository,
-    workUnit,
-    employees,
-    options.audit,
-  );
+  const accounts = new ManageLeaveAccountsUseCase(repository, workUnit, employees, options.audit);
   const requests = new ManageLeaveRequestsUseCase(
     repository,
     workUnit,

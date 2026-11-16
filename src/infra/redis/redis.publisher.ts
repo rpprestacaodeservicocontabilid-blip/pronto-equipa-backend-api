@@ -8,10 +8,7 @@ export class RedisPublisher {
       return false;
     }
 
-    await RedisManager.client.publish(
-      channel,
-      JSON.stringify(payload),
-    );
+    await RedisManager.client.publish(channel, JSON.stringify(payload));
     return true;
   }
 }

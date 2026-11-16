@@ -12,7 +12,7 @@
  * compatíveis estruturalmente (`eventName` + `occurredAt`).
  */
 
-import { randomUUID } from "crypto";
+import { randomUUID } from 'crypto';
 
 export interface DomainEventProps {
   /** Identidade do agregado que originou o evento. */

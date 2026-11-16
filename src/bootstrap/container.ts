@@ -16,7 +16,7 @@
  * token — os casos de uso não mudam.
  */
 
-import type { ApplicationContext } from "./types/application-context";
+import type { ApplicationContext } from './types/application-context';
 
 type Factory = (context: ApplicationContext) => unknown;
 
@@ -33,7 +33,7 @@ export class Container {
   /** Liga o contexto ao contentor. Idempotente para o mesmo contexto. */
   bind(context: ApplicationContext): void {
     if (this.context && this.context !== context) {
-      throw new Error("[bootstrap] container context already bound");
+      throw new Error('[bootstrap] container context already bound');
     }
     this.context = context;
   }
@@ -42,14 +42,9 @@ export class Container {
     return this.context !== null;
   }
 
-  register<T>(
-    token: string,
-    factory: (context: ApplicationContext) => T,
-  ): this {
+  register<T>(token: string, factory: (context: ApplicationContext) => T): this {
     if (this.factories.has(token)) {
-      throw new Error(
-        `[bootstrap] duplicate registration for token "${token}"`,
-      );
+      throw new Error(`[bootstrap] duplicate registration for token "${token}"`);
     }
 
     this.factories.set(token, factory as Factory);
@@ -59,7 +54,7 @@ export class Container {
 
   resolve<T>(token: string): T {
     if (!this.context) {
-      throw new Error("[bootstrap] container has no application context");
+      throw new Error('[bootstrap] container has no application context');
     }
 
     if (this.instances.has(token)) {

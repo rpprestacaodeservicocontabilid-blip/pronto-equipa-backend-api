@@ -12,9 +12,9 @@
  * falhar cedo em vez de devolver páginas inesperadas.
  */
 
-import { DomainError } from "../domain/domain-error";
-import { ValueObject } from "../domain/value-object";
-import type { PaginatedResult } from "../types";
+import { DomainError } from '../domain/domain-error';
+import { ValueObject } from '../domain/value-object';
+import type { PaginatedResult } from '../types';
 
 export const DEFAULT_PAGE = 1;
 export const DEFAULT_LIMIT = 10;
@@ -38,20 +38,20 @@ function parseInteger(
   fallback: number,
   options: { min: number; max: number },
 ): number {
-  if (value === null || value === undefined || value === "") {
+  if (value === null || value === undefined || value === '') {
     return fallback;
   }
 
   let parsed: number;
 
-  if (typeof value === "number") {
+  if (typeof value === 'number') {
     parsed = value;
   } else if (/^\d+$/.test(value.trim())) {
     parsed = Number.parseInt(value.trim(), 10);
   } else {
     throw new DomainError(
       `Invalid pagination "${field}": ${JSON.stringify(value)}`,
-      "INVALID_PAGINATION",
+      'INVALID_PAGINATION',
       { field, value },
     );
   }
@@ -59,7 +59,7 @@ function parseInteger(
   if (!Number.isInteger(parsed) || parsed < options.min || parsed > options.max) {
     throw new DomainError(
       `Invalid pagination "${field}": ${JSON.stringify(value)}`,
-      "INVALID_PAGINATION",
+      'INVALID_PAGINATION',
       { field, value, min: options.min, max: options.max },
     );
   }
@@ -84,17 +84,15 @@ export class Pagination extends ValueObject<PaginationProps> {
     input: PaginationInput = {},
     defaults: { page?: number; limit?: number } = {},
   ): Pagination {
-    const page = parseInteger(input.page, "page", defaults.page ?? DEFAULT_PAGE, {
+    const page = parseInteger(input.page, 'page', defaults.page ?? DEFAULT_PAGE, {
       min: 1,
       max: Number.MAX_SAFE_INTEGER,
     });
 
-    const limit = parseInteger(
-      input.limit,
-      "limit",
-      defaults.limit ?? DEFAULT_LIMIT,
-      { min: 1, max: MAX_LIMIT },
-    );
+    const limit = parseInteger(input.limit, 'limit', defaults.limit ?? DEFAULT_LIMIT, {
+      min: 1,
+      max: MAX_LIMIT,
+    });
 
     return new Pagination(page, limit);
   }
@@ -119,7 +117,7 @@ export class Pagination extends ValueObject<PaginationProps> {
   /** Número total de páginas para um total de registos. */
   public total(total: number): number {
     if (!Number.isInteger(total) || total < 0) {
-      throw new DomainError(`Invalid total: ${total}`, "INVALID_PAGINATION", {
+      throw new DomainError(`Invalid total: ${total}`, 'INVALID_PAGINATION', {
         total,
       });
     }

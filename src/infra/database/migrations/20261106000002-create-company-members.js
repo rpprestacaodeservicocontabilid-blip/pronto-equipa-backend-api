@@ -1,4 +1,4 @@
-"use strict";
+'use strict';
 
 /**
  * Fase 1 — Fundação multiempresa.
@@ -15,7 +15,7 @@
  */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("company_members", {
+    await queryInterface.createTable('company_members', {
       id: {
         type: Sequelize.INTEGER.UNSIGNED,
         allowNull: false,
@@ -27,50 +27,50 @@ module.exports = {
         type: Sequelize.INTEGER.UNSIGNED,
         allowNull: false,
         references: {
-          model: "companies",
-          key: "id",
+          model: 'companies',
+          key: 'id',
         },
-        onDelete: "CASCADE",
-        onUpdate: "CASCADE",
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
       },
 
       userId: {
         type: Sequelize.INTEGER.UNSIGNED,
         allowNull: false,
         references: {
-          model: "users",
-          key: "id",
+          model: 'users',
+          key: 'id',
         },
-        onDelete: "CASCADE",
-        onUpdate: "CASCADE",
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
       },
 
       roleId: {
         type: Sequelize.INTEGER.UNSIGNED,
         allowNull: false,
         references: {
-          model: "roles",
-          key: "id",
+          model: 'roles',
+          key: 'id',
         },
-        onDelete: "RESTRICT",
-        onUpdate: "CASCADE",
+        onDelete: 'RESTRICT',
+        onUpdate: 'CASCADE',
       },
 
       status: {
         type: Sequelize.STRING(30),
         allowNull: false,
-        defaultValue: "ACTIVE",
+        defaultValue: 'ACTIVE',
       },
 
       invitedBy: {
         type: Sequelize.INTEGER.UNSIGNED,
         allowNull: true,
         references: {
-          model: "users",
-          key: "id",
+          model: 'users',
+          key: 'id',
         },
-        onDelete: "SET NULL",
-        onUpdate: "CASCADE",
+        onDelete: 'SET NULL',
+        onUpdate: 'CASCADE',
       },
 
       joinedAt: {
@@ -93,33 +93,21 @@ module.exports = {
     // INDEXES
     // ============================================================
 
-    await queryInterface.addIndex(
-      "company_members",
-      ["companyId", "userId"],
-      {
-        unique: true,
-        name: "uq_company_members_company_user",
-      },
-    );
+    await queryInterface.addIndex('company_members', ['companyId', 'userId'], {
+      unique: true,
+      name: 'uq_company_members_company_user',
+    });
 
-    await queryInterface.addIndex(
-      "company_members",
-      ["companyId", "status"],
-      {
-        name: "idx_company_members_company_status",
-      },
-    );
+    await queryInterface.addIndex('company_members', ['companyId', 'status'], {
+      name: 'idx_company_members_company_status',
+    });
 
-    await queryInterface.addIndex(
-      "company_members",
-      ["userId"],
-      {
-        name: "idx_company_members_user",
-      },
-    );
+    await queryInterface.addIndex('company_members', ['userId'], {
+      name: 'idx_company_members_user',
+    });
   },
 
   async down(queryInterface) {
-    await queryInterface.dropTable("company_members");
+    await queryInterface.dropTable('company_members');
   },
 };

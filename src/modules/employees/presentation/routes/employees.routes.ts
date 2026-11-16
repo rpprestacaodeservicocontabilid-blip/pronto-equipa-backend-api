@@ -144,7 +144,7 @@ export const createEmployeesRoutes = (
     validateId,
     validateBody(terminateEmployeeSchema),
     (req, res) => {
-      req.body = { ...req.body, status: 'TERMINATED' };
+      req.body = { ...terminateEmployeeSchema.parse(req.body), status: 'TERMINATED' };
       return controller.changeEmployeeStatus(req, res);
     },
   );
@@ -154,7 +154,7 @@ export const createEmployeesRoutes = (
     validateId,
     validateBody(rehireEmployeeSchema),
     (req, res) => {
-      req.body = { ...req.body, status: 'ACTIVE' };
+      req.body = { ...rehireEmployeeSchema.parse(req.body), status: 'ACTIVE' };
       return controller.changeEmployeeStatus(req, res);
     },
   );

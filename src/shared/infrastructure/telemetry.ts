@@ -13,10 +13,7 @@
  * de implementação quando a exportação chegar.
  */
 
-export type TelemetryLabels = Record<
-  string,
-  string | number | boolean | undefined
->;
+export type TelemetryLabels = Record<string, string | number | boolean | undefined>;
 
 export interface Telemetry {
   /** Incrementa um contador (ex.: `auth.login.failed`). */
@@ -29,28 +26,16 @@ export interface Telemetry {
   recordError(error: unknown, labels?: TelemetryLabels): void;
 
   /** Executa `fn` medida como span (propaga erro e resultado). */
-  withSpan<T>(
-    name: string,
-    fn: () => Promise<T> | T,
-    labels?: TelemetryLabels,
-  ): Promise<T>;
+  withSpan<T>(name: string, fn: () => Promise<T> | T, labels?: TelemetryLabels): Promise<T>;
 }
 
 /** Implementação provisória: não faz nada. */
 export class NoopTelemetry implements Telemetry {
-  public increment(
-    _counter: string,
-    _value?: number,
-    _labels?: TelemetryLabels,
-  ): void {
+  public increment(_counter: string, _value?: number, _labels?: TelemetryLabels): void {
     // no-op
   }
 
-  public observe(
-    _name: string,
-    _value: number,
-    _labels?: TelemetryLabels,
-  ): void {
+  public observe(_name: string, _value: number, _labels?: TelemetryLabels): void {
     // no-op
   }
 

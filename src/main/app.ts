@@ -7,7 +7,7 @@
  * acontece apenas em `src/bootstrap/server.ts`.
  */
 
-import { createApp } from "../bootstrap/app";
+import { createApp } from '../bootstrap/app';
 
 export const app = createApp();
 

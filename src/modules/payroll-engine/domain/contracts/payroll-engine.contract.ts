@@ -25,9 +25,28 @@ export interface PayrollEngineInput {
     }>;
   }>;
   attendance?: {
-    absences?: Array<{ code: string; amount: string; sourceReference: string; authorized?: boolean }>;
-      overtime?: Array<{ code: string; hours: string; hourlyRate: string; sourceReference: string; authorized: boolean; category: string; workDate?: string }>;
-    nightWork?: Array<{ code: string; hours: string; hourlyRate: string; sourceReference: string; workDate?: string }>;
+    absences?: Array<{
+      code: string;
+      amount: string;
+      sourceReference: string;
+      authorized?: boolean;
+    }>;
+    overtime?: Array<{
+      code: string;
+      hours: string;
+      hourlyRate: string;
+      sourceReference: string;
+      authorized: boolean;
+      category: string;
+      workDate?: string;
+    }>;
+    nightWork?: Array<{
+      code: string;
+      hours: string;
+      hourlyRate: string;
+      sourceReference: string;
+      workDate?: string;
+    }>;
   };
   deductions?: Array<{
     code: string;
@@ -37,7 +56,13 @@ export interface PayrollEngineInput {
     authorized: boolean;
     category: string;
   }>;
-  leave?: Array<{ code: string; startDate: string; endDate: string; paid: boolean; sourceReference: string }>;
+  leave?: Array<{
+    code: string;
+    startDate: string;
+    endDate: string;
+    paid: boolean;
+    sourceReference: string;
+  }>;
   originalResult?: PayrollEngineResult;
   expectedLegalRuleSetVersion?: string;
 }

@@ -7,10 +7,7 @@ import {
   LeavePeriodOverlapError,
   SelfApprovalForbiddenError,
 } from '../../domain/errors/leave.error';
-import {
-  LeaveRepository,
-  LeaveRequestListQuery,
-} from '../../domain/repositories/leave.repository';
+import { LeaveRepository, LeaveRequestListQuery } from '../../domain/repositories/leave.repository';
 import { LeaveWorkUnit } from '../../domain/repositories/leave-work-unit';
 import { LeaveDaysCalculator } from '../../domain/services/leave-days-calculator.service';
 import { BLOCKING_LEAVE_STATUSES } from '../../domain/value-objects/leave-status.vo';
@@ -80,7 +77,7 @@ export class ManageLeaveRequestsUseCase {
     );
 
     // Contrato activo cobrindo o intervalo inteiro (RN-006).
-    const startDate = input.segments[0].startDate;
+    const { startDate } = input.segments[0];
     const last = input.segments[input.segments.length - 1];
     const contract = await this.contracts.findActiveCovering(
       input.companyId,
@@ -89,16 +86,11 @@ export class ManageLeaveRequestsUseCase {
       last.endDate,
     );
     if (!contract) {
-      throw new ValidationError(
-        'No active contract covers the requested leave period.',
-      );
+      throw new ValidationError('No active contract covers the requested leave period.');
     }
 
     // Conta por trabalhador — criada sob demanda (RF-001).
-    let account = await this.repository.findAccountByEmployee(
-      input.companyId,
-      input.employeeId,
-    );
+    let account = await this.repository.findAccountByEmployee(input.companyId, input.employeeId);
     if (!account) {
       account = await this.workUnit.createAccount({
         companyId: input.companyId,
@@ -156,11 +148,7 @@ export class ManageLeaveRequestsUseCase {
 
     let segments: Array<{ startDate: string; endDate: string; calculatedDays: number }> | undefined;
     if (input.segments?.length) {
-      segments = await this.calculateSegments(
-        input.companyId,
-        existing.employeeId,
-        input.segments,
-      );
+      segments = await this.calculateSegments(input.companyId, existing.employeeId, input.segments);
     }
 
     const updated = await this.workUnit.updateDraftRequest({
@@ -232,12 +220,12 @@ export class ManageLeaveRequestsUseCase {
     }>,
   ) {
     return this.withIdempotency(input.idempotencyKey, async () => {
-      const existing = await this.requireRequest(input.companyId, input.id!);
+      const existing = await this.requireRequest(input.companyId, input.id);
       this.assertNotSelfApproval(existing.createdByUserId, input.actorUserId);
 
       const updated = await this.workUnit.approveRequest({
         companyId: input.companyId,
-        requestId: input.id!,
+        requestId: input.id,
         expectedVersion: input.expectedVersion,
         comments: input.comments,
         actorUserId: input.actorUserId,
@@ -249,7 +237,7 @@ export class ManageLeaveRequestsUseCase {
         actorUserId: input.actorUserId,
         action: 'leave.request_approved',
         entityType: 'leave_request',
-        entityId: input.id!,
+        entityId: input.id,
         after: { status: updated.status, requestedDays: updated.requestedDays },
       });
       return updated;
@@ -257,9 +245,7 @@ export class ManageLeaveRequestsUseCase {
   }
 
   /** RF-026 / RN-019: rejeita com justificação — não consome saldo. */
-  async reject(
-    input: ActorInput & { id: string; expectedVersion: number; comments: string },
-  ) {
+  async reject(input: ActorInput & { id: string; expectedVersion: number; comments: string }) {
     const existing = await this.requireRequest(input.companyId, input.id);
     this.assertNotSelfApproval(existing.createdByUserId, input.actorUserId);
     if (!input.comments?.trim()) {
@@ -318,15 +304,13 @@ export class ManageLeaveRequestsUseCase {
   // ----------------------------------------------------------
 
   /** RF-021 / RN-020: cancela e liberta a reserva. Aceita `Idempotency-Key`. */
-  async cancel(
-    input: IdempotentAction<{ id: string; expectedVersion: number }>,
-  ) {
+  async cancel(input: IdempotentAction<{ id: string; expectedVersion: number }>) {
     return this.withIdempotency(input.idempotencyKey, async () => {
-      await this.requireRequest(input.companyId, input.id!);
+      await this.requireRequest(input.companyId, input.id);
 
       const updated = await this.workUnit.cancelRequest({
         companyId: input.companyId,
-        requestId: input.id!,
+        requestId: input.id,
         expectedVersion: input.expectedVersion,
         actorUserId: input.actorUserId,
       });
@@ -336,7 +320,7 @@ export class ManageLeaveRequestsUseCase {
         actorUserId: input.actorUserId,
         action: 'leave.request_cancelled',
         entityType: 'leave_request',
-        entityId: input.id!,
+        entityId: input.id,
         after: { status: updated.status },
       });
       return updated;
@@ -358,7 +342,7 @@ export class ManageLeaveRequestsUseCase {
       input.segments,
     );
 
-    const startDate = input.segments[0].startDate;
+    const { startDate } = input.segments[0];
     const last = input.segments[input.segments.length - 1];
     const contract = await this.contracts.findActiveCovering(
       input.companyId,
@@ -367,17 +351,10 @@ export class ManageLeaveRequestsUseCase {
       last.endDate,
     );
     if (!contract) {
-      throw new ValidationError(
-        'No active contract covers the rescheduled leave period.',
-      );
+      throw new ValidationError('No active contract covers the rescheduled leave period.');
     }
 
-    await this.assertNoOverlap(
-      input.companyId,
-      existing.employeeId,
-      input.segments,
-      input.id,
-    );
+    await this.assertNoOverlap(input.companyId, existing.employeeId, input.segments, input.id);
 
     const updated = await this.workUnit.rescheduleRequest({
       companyId: input.companyId,
@@ -465,10 +442,10 @@ export class ManageLeaveRequestsUseCase {
     input: IdempotentAction<{ id: string; expectedVersion: number; usedDays?: number }>,
   ) {
     return this.withIdempotency(input.idempotencyKey, async () => {
-      await this.requireRequest(input.companyId, input.id!);
+      await this.requireRequest(input.companyId, input.id);
       const updated = await this.workUnit.completeRequest({
         companyId: input.companyId,
-        requestId: input.id!,
+        requestId: input.id,
         expectedVersion: input.expectedVersion,
         usedDays: input.usedDays,
         actorUserId: input.actorUserId,
@@ -478,7 +455,7 @@ export class ManageLeaveRequestsUseCase {
         actorUserId: input.actorUserId,
         action: 'leave.request_completed',
         entityType: 'leave_request',
-        entityId: input.id!,
+        entityId: input.id,
         after: { status: updated.status, requestedDays: updated.requestedDays },
       });
       return updated;
@@ -571,10 +548,7 @@ export class ManageLeaveRequestsUseCase {
    * Envolvente de idempotência (fluxo find → claim → execute →
    * complete/release) para approve/complete/cancel.
    */
-  private async withIdempotency<T>(
-    key: string | undefined,
-    run: () => Promise<T>,
-  ): Promise<T> {
+  private async withIdempotency<T>(key: string | undefined, run: () => Promise<T>): Promise<T> {
     if (!key) return run();
 
     const existing = await this.idempotency.find<T>(key);
@@ -584,9 +558,7 @@ export class ManageLeaveRequestsUseCase {
 
     const claimed = await this.idempotency.claim(key);
     if (!claimed) {
-      throw new ConflictError(
-        'An operation with this Idempotency-Key is already in progress.',
-      );
+      throw new ConflictError('An operation with this Idempotency-Key is already in progress.');
     }
 
     try {

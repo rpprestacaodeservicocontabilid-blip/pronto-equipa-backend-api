@@ -1,29 +1,25 @@
-import { SecurityEventLogger } from "../../security/security-event.logger";
+import { SecurityEventLogger } from '../../security/security-event.logger';
 
 export interface UserCreatedEvent {
-    eventName: string;
+  eventName: string;
 
-    userId: number;
+  userId: number;
 
-    email: string;
+  email: string;
 
-    occurredAt: Date;
+  occurredAt: Date;
 }
 
 export class UserCreatedHandler {
-    constructor(
-        private readonly securityLogger: SecurityEventLogger,
-    ) { }
+  constructor(private readonly securityLogger: SecurityEventLogger) {}
 
-    public async handle(
-        event: UserCreatedEvent,
-    ): Promise<void> {
-        this.securityLogger.info({
-            event: "USER_CREATED",
-            userId: event.userId,
-            metadata: {
-                email: event.email,
-            },
-        });
-    }
+  public async handle(event: UserCreatedEvent): Promise<void> {
+    this.securityLogger.info({
+      event: 'USER_CREATED',
+      userId: event.userId,
+      metadata: {
+        email: event.email,
+      },
+    });
+  }
 }

@@ -1,4 +1,4 @@
-"use strict";
+'use strict';
 
 /**
  * Fase 1 — Fundação multiempresa.
@@ -13,7 +13,7 @@
  */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("audit_logs", {
+    await queryInterface.createTable('audit_logs', {
       id: {
         type: Sequelize.INTEGER.UNSIGNED,
         allowNull: false,
@@ -25,22 +25,22 @@ module.exports = {
         type: Sequelize.INTEGER.UNSIGNED,
         allowNull: true,
         references: {
-          model: "companies",
-          key: "id",
+          model: 'companies',
+          key: 'id',
         },
-        onDelete: "SET NULL",
-        onUpdate: "CASCADE",
+        onDelete: 'SET NULL',
+        onUpdate: 'CASCADE',
       },
 
       actorUserId: {
         type: Sequelize.INTEGER.UNSIGNED,
         allowNull: true,
         references: {
-          model: "users",
-          key: "id",
+          model: 'users',
+          key: 'id',
         },
-        onDelete: "SET NULL",
-        onUpdate: "CASCADE",
+        onDelete: 'SET NULL',
+        onUpdate: 'CASCADE',
       },
 
       action: {
@@ -88,40 +88,24 @@ module.exports = {
     // INDEXES
     // ============================================================
 
-    await queryInterface.addIndex(
-      "audit_logs",
-      ["companyId", "createdAt"],
-      {
-        name: "idx_audit_logs_company_created",
-      },
-    );
+    await queryInterface.addIndex('audit_logs', ['companyId', 'createdAt'], {
+      name: 'idx_audit_logs_company_created',
+    });
 
-    await queryInterface.addIndex(
-      "audit_logs",
-      ["entityType", "entityId"],
-      {
-        name: "idx_audit_logs_entity",
-      },
-    );
+    await queryInterface.addIndex('audit_logs', ['entityType', 'entityId'], {
+      name: 'idx_audit_logs_entity',
+    });
 
-    await queryInterface.addIndex(
-      "audit_logs",
-      ["actorUserId"],
-      {
-        name: "idx_audit_logs_actor",
-      },
-    );
+    await queryInterface.addIndex('audit_logs', ['actorUserId'], {
+      name: 'idx_audit_logs_actor',
+    });
 
-    await queryInterface.addIndex(
-      "audit_logs",
-      ["action"],
-      {
-        name: "idx_audit_logs_action",
-      },
-    );
+    await queryInterface.addIndex('audit_logs', ['action'], {
+      name: 'idx_audit_logs_action',
+    });
   },
 
   async down(queryInterface) {
-    await queryInterface.dropTable("audit_logs");
+    await queryInterface.dropTable('audit_logs');
   },
 };

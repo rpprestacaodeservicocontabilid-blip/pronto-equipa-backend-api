@@ -1,44 +1,26 @@
-import {
-    UserRoleService,
-} from "../../domain/services/user-role.service";
+import { UserRoleService } from '../../domain/services/user-role.service';
 
-import { User } from "../../domain/entities/user.entity";
-import { Role } from "../../domain/entities/role.entity";
+import { User } from '../../domain/entities/user.entity';
+import { Role } from '../../domain/entities/role.entity';
 
-export class UserRoleServiceImpl
-    implements UserRoleService {
-    async assignRole(
-        user: User,
-        role: Role,
-        assignedBy?: number | null,
-    ): Promise<void> {
-        if (!user.isActive()) {
-            throw new Error(
-                "Cannot assign role to inactive user.",
-            );
-        }
-
-        user.assignRole(role);
+export class UserRoleServiceImpl implements UserRoleService {
+  async assignRole(user: User, role: Role, assignedBy?: number | null): Promise<void> {
+    if (!user.isActive()) {
+      throw new Error('Cannot assign role to inactive user.');
     }
 
-    async removeRole(
-        user: User,
-        roleId: number,
-    ): Promise<void> {
-        user.removeRole(roleId);
-    }
+    user.assignRole(role);
+  }
 
-    async hasRole(
-        user: User,
-        roleName: string,
-    ): Promise<boolean> {
-        return user.hasRole(roleName);
-    }
+  async removeRole(user: User, roleId: number): Promise<void> {
+    user.removeRole(roleId);
+  }
 
-    hasAnyRole(
-        user: User,
-        roleNames: string[],
-    ): boolean {
-        return roleNames.some((roleName) => user.hasRole(roleName));
-    }
+  async hasRole(user: User, roleName: string): Promise<boolean> {
+    return user.hasRole(roleName);
+  }
+
+  hasAnyRole(user: User, roleNames: string[]): boolean {
+    return roleNames.some((roleName) => user.hasRole(roleName));
+  }
 }

@@ -1,22 +1,15 @@
-import { SessionManagerPort } from "../ports/session-manager.port";
+import { SessionManagerPort } from '../ports/session-manager.port';
 
 export interface RevokeAllSessionsInput {
-    userId: number;
+  userId: number;
 
-    exceptSessionId?: number;
+  exceptSessionId?: number;
 }
 
 export class RevokeAllSessionsUseCase {
-    constructor(
-        private readonly sessionManager: SessionManagerPort,
-    ) { }
+  constructor(private readonly sessionManager: SessionManagerPort) {}
 
-    async execute(
-        input: RevokeAllSessionsInput,
-    ): Promise<void> {
-        await this.sessionManager.revokeAllSessions(
-            input.userId,
-            input.exceptSessionId,
-        );
-    }
+  async execute(input: RevokeAllSessionsInput): Promise<void> {
+    await this.sessionManager.revokeAllSessions(input.userId, input.exceptSessionId);
+  }
 }

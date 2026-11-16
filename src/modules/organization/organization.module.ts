@@ -18,9 +18,12 @@ export interface OrganizationModuleOptions {
 
 export const createOrganizationModule = (
   options: OrganizationModuleOptions,
-): { routes: Router } => {
+): { routes: Router; service: ManageOrganizationUseCase } => {
   const repository = new SequelizeOrganizationRepository();
   const useCase = new ManageOrganizationUseCase(repository, options.audit);
   const controller = new OrganizationController(useCase);
-  return { routes: createOrganizationRoutes(controller, options.requirePermission) };
+  return {
+    routes: createOrganizationRoutes(controller, options.requirePermission),
+    service: useCase,
+  };
 };

@@ -6,6 +6,7 @@ const xml = (value: unknown) =>
       /[<>&"']/g,
       (char) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[char]!,
     )
+    // eslint-disable-next-line no-control-regex -- XML 1.0 forbids these control characters; TAB, CR and LF are preserved.
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
 const crc32 = (buffer: Buffer) => {
   let crc = 0xffffffff;
@@ -94,8 +95,8 @@ export function payrollPdf(rows: string[][]): Buffer {
   }
   objects[0] = '<< /Type /Catalog /Pages 2 0 R >>';
   objects[1] = `<< /Type /Pages /Kids [${pages.map((page) => `${page} 0 R`).join(' ')}] /Count ${pages.length} >>`;
-  let output = '%PDF-1.4\n',
-    offsets = [0];
+  let output = '%PDF-1.4\n';
+  const offsets = [0];
   objects.forEach((object, index) => {
     offsets.push(Buffer.byteLength(output, 'latin1'));
     output += `${index + 1} 0 obj\n${object}\nendobj\n`;

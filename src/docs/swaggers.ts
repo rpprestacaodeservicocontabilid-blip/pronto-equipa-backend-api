@@ -1,37 +1,37 @@
-import swaggerJsdoc from "swagger-jsdoc";
-import swaggerUi from "swagger-ui-express";
-import { Express } from "express";
+import swaggerJsdoc from 'swagger-jsdoc';
+import swaggerUi from 'swagger-ui-express';
+import { Express } from 'express';
 
 const options: swaggerJsdoc.Options = {
   definition: {
-    openapi: "3.0.0",
+    openapi: '3.0.0',
 
     info: {
-      title: "🏟️ ProntoEquipas API",
-      version: "1.0.0",
+      title: '🏟️ ProntoEquipas API',
+      version: '1.0.0',
 
       description:
-        "API completa para gestão de RH e folha salarial multiempresa em Angola: empresas, membros, papéis e permissões, auditoria, autenticação e pagamentos.",
+        'API completa para gestão de RH e folha salarial multiempresa em Angola: empresas, membros, papéis e permissões, auditoria, autenticação e pagamentos.',
 
       contact: {
-        name: "ProntoEquipas Team",
-        email: "support@prontoequipas.com",
+        name: 'ProntoEquipas Team',
+        email: 'support@prontoequipas.com',
       },
 
       license: {
-        name: "ISC",
+        name: 'ISC',
       },
     },
 
     servers: [
       {
-        url: "http://localhost:3333/api/v1",
-        description: "Desenvolvimento",
+        url: 'http://localhost:3333/api/v1',
+        description: 'Desenvolvimento',
       },
 
       {
-        url: "https://api.prontoequipas.com/api/v1",
-        description: "Produção",
+        url: 'https://api.prontoequipas.com/api/v1',
+        description: 'Produção',
       },
     ],
 
@@ -41,21 +41,19 @@ const options: swaggerJsdoc.Options = {
      * ==========================================
      */
     components: {
-
       /**
        * ----------------------------------------
        * SECURITY SCHEMES
        * ----------------------------------------
        */
       securitySchemes: {
-
         bearerAuth: {
-          type: "http",
-          scheme: "bearer",
-          bearerFormat: "JWT",
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
 
           description:
-            "Autenticação via JWT. Utilize o token retornado pelo endpoint de login no formato: Bearer {token}.",
+            'Autenticação via JWT. Utilize o token retornado pelo endpoint de login no formato: Bearer {token}.',
         },
       },
 
@@ -65,26 +63,25 @@ const options: swaggerJsdoc.Options = {
        * ----------------------------------------
        */
       schemas: {
-
         /**
          * Generic API response
          */
         ApiResponse: {
-          type: "object",
+          type: 'object',
 
           properties: {
             success: {
-              type: "boolean",
+              type: 'boolean',
               example: true,
             },
 
             message: {
-              type: "string",
-              example: "Operação realizada com sucesso.",
+              type: 'string',
+              example: 'Operação realizada com sucesso.',
             },
 
             data: {
-              type: "object",
+              type: 'object',
               nullable: true,
             },
           },
@@ -94,22 +91,22 @@ const options: swaggerJsdoc.Options = {
          * Generic error response
          */
         ErrorResponse: {
-          type: "object",
+          type: 'object',
 
           properties: {
             success: {
-              type: "boolean",
+              type: 'boolean',
               example: false,
             },
 
             error: {
-              type: "string",
-              example: "Ocorreu um erro.",
+              type: 'string',
+              example: 'Ocorreu um erro.',
             },
 
             code: {
-              type: "string",
-              example: "VALIDATION_ERROR",
+              type: 'string',
+              example: 'VALIDATION_ERROR',
             },
           },
         },
@@ -118,40 +115,39 @@ const options: swaggerJsdoc.Options = {
          * Validation error response
          */
         ValidationErrorResponse: {
-          type: "object",
+          type: 'object',
 
           properties: {
             success: {
-              type: "boolean",
+              type: 'boolean',
               example: false,
             },
 
             error: {
-              type: "string",
-              example: "Erro de validação de dados.",
+              type: 'string',
+              example: 'Erro de validação de dados.',
             },
 
             code: {
-              type: "string",
-              example: "VALIDATION_ERROR",
+              type: 'string',
+              example: 'VALIDATION_ERROR',
             },
 
             errors: {
-              type: "array",
+              type: 'array',
 
               items: {
-                type: "object",
+                type: 'object',
 
                 properties: {
                   field: {
-                    type: "string",
-                    example: "email",
+                    type: 'string',
+                    example: 'email',
                   },
 
                   message: {
-                    type: "string",
-                    example:
-                      "Email inválido.",
+                    type: 'string',
+                    example: 'Email inválido.',
                   },
                 },
               },
@@ -166,16 +162,13 @@ const options: swaggerJsdoc.Options = {
        * ----------------------------------------
        */
       responses: {
-
         UnauthorizedError: {
-          description:
-            "Acesso negado - token ausente, inválido ou expirado.",
+          description: 'Acesso negado - token ausente, inválido ou expirado.',
 
           content: {
-            "application/json": {
+            'application/json': {
               schema: {
-                $ref:
-                  "#/components/schemas/ErrorResponse",
+                $ref: '#/components/schemas/ErrorResponse',
               },
             },
           },
@@ -183,83 +176,72 @@ const options: swaggerJsdoc.Options = {
 
         ForbiddenError: {
           description:
-            "Acesso negado - o utilizador não possui permissão para executar esta operação.",
+            'Acesso negado - o utilizador não possui permissão para executar esta operação.',
 
           content: {
-            "application/json": {
+            'application/json': {
               schema: {
-                $ref:
-                  "#/components/schemas/ErrorResponse",
+                $ref: '#/components/schemas/ErrorResponse',
               },
             },
           },
         },
 
         ValidationError: {
-          description:
-            "Erro de validação dos dados enviados.",
+          description: 'Erro de validação dos dados enviados.',
 
           content: {
-            "application/json": {
+            'application/json': {
               schema: {
-                $ref:
-                  "#/components/schemas/ValidationErrorResponse",
+                $ref: '#/components/schemas/ValidationErrorResponse',
               },
             },
           },
         },
 
         NotFoundError: {
-          description:
-            "Recurso não encontrado.",
+          description: 'Recurso não encontrado.',
 
           content: {
-            "application/json": {
+            'application/json': {
               schema: {
-                $ref:
-                  "#/components/schemas/ErrorResponse",
+                $ref: '#/components/schemas/ErrorResponse',
               },
             },
           },
         },
 
         ConflictError: {
-          description:
-            "Conflito com o estado atual do recurso.",
+          description: 'Conflito com o estado atual do recurso.',
 
           content: {
-            "application/json": {
+            'application/json': {
               schema: {
-                $ref:
-                  "#/components/schemas/ErrorResponse",
+                $ref: '#/components/schemas/ErrorResponse',
               },
             },
           },
         },
 
         TooManyRequestsError: {
-          description:
-            "Limite de requisições excedido. Tente novamente mais tarde.",
+          description: 'Limite de requisições excedido. Tente novamente mais tarde.',
 
           content: {
-            "application/json": {
+            'application/json': {
               schema: {
-                $ref:
-                  "#/components/schemas/ErrorResponse",
+                $ref: '#/components/schemas/ErrorResponse',
               },
             },
           },
         },
 
         InternalServerError: {
-          description:
-            "Erro interno do servidor.",
+          description: 'Erro interno do servidor.',
 
           content: {
-            "application/json": {
+            'application/json': {
               schema: {
-                $ref:
-                  "#/components/schemas/ErrorResponse",
+                $ref: '#/components/schemas/ErrorResponse',
               },
             },
           },
@@ -299,227 +281,206 @@ const options: swaggerJsdoc.Options = {
      * ==========================================
      */
     tags: [
-
       {
-        name: "Auth",
+        name: 'Auth',
         description:
-          "Autenticação, registro, sessões, verificação de email e recuperação de acesso.",
+          'Autenticação, registro, sessões, verificação de email e recuperação de acesso.',
       },
       {
-        name: "Authorization",
-        description:
-          "Gerenciamento de roles, permissões e autorização de utilizadores.",
+        name: 'Authorization',
+        description: 'Gerenciamento de roles, permissões e autorização de utilizadores.',
       },
 
       {
-        name: "OAuth",
-        description:
-          "Autenticação e associação de contas através de provedores OAuth.",
+        name: 'OAuth',
+        description: 'Autenticação e associação de contas através de provedores OAuth.',
       },
 
       {
-        name: "Sessions",
-        description:
-          "Gerenciamento de sessões autenticadas dos utilizadores.",
+        name: 'Sessions',
+        description: 'Gerenciamento de sessões autenticadas dos utilizadores.',
       },
 
       {
-        name: "Cities",
-        description: "Gerenciamento de cidades, estados e países.",
+        name: 'Cities',
+        description: 'Gerenciamento de cidades, estados e países.',
       },
 
       {
-        name: "Notifications",
+        name: 'Notifications',
         description:
-          "Criação, envio, agendamento, leitura e gerenciamento de notificações dos utilizadores.",
+          'Criação, envio, agendamento, leitura e gerenciamento de notificações dos utilizadores.',
       },
 
       {
-        name: "Notification Templates",
-        description:
-          "Gerenciamento de templates utilizados para criação e envio de notificações.",
+        name: 'Notification Templates',
+        description: 'Gerenciamento de templates utilizados para criação e envio de notificações.',
       },
 
       {
-        name: "Notification Preferences",
-        description:
-          "Gerenciamento das preferências e canais de notificações dos utilizadores.",
+        name: 'Notification Preferences',
+        description: 'Gerenciamento das preferências e canais de notificações dos utilizadores.',
       },
 
       {
-        name: "Users",
-        description:
-          "Gerenciamento de usuários.",
+        name: 'Users',
+        description: 'Gerenciamento de usuários.',
       },
 
       {
-        name: "Teams",
-        description:
-          "Gerenciamento de times.",
+        name: 'Teams',
+        description: 'Gerenciamento de times.',
       },
 
       {
-        name: "Productivity",
-        description:
-          "Departamentos da empresa, membros de equipa e gestão de tarefas estilo Jira.",
+        name: 'Productivity',
+        description: 'Departamentos da empresa, membros de equipa e gestão de tarefas estilo Jira.',
       },
 
       {
-        name: "Store",
+        name: 'Store',
         description:
-          "Catálogo da loja (categorias, marcas, produtos e variantes), stock por variante e métricas comerciais.",
+          'Catálogo da loja (categorias, marcas, produtos e variantes), stock por variante e métricas comerciais.',
       },
 
       {
-        name: "Players",
+        name: 'Players',
         description:
-          "Gerenciamento de jogadores, estatísticas, capitães e associação a equipas e cidades.",
+          'Gerenciamento de jogadores, estatísticas, capitães e associação a equipas e cidades.',
       },
 
       {
-        name: "Player History",
+        name: 'Player History',
         description:
-          "Registo e gerenciamento do histórico, acontecimentos e verificações dos jogadores.",
+          'Registo e gerenciamento do histórico, acontecimentos e verificações dos jogadores.',
       },
 
       {
-        name: "Player Injuries",
+        name: 'Player Injuries',
         description:
-          "Gerenciamento de lesões, recuperação, gravidade e histórico médico-desportivo dos jogadores.",
+          'Gerenciamento de lesões, recuperação, gravidade e histórico médico-desportivo dos jogadores.',
       },
 
       {
-        name: "Player Ratings",
+        name: 'Player Ratings',
         description:
-          "Avaliações de jogadores, atributos, médias, verificações e histórico de avaliações.",
+          'Avaliações de jogadores, atributos, médias, verificações e histórico de avaliações.',
       },
       {
-        name: "Player Statistics",
-        description:
-          "Gerenciamento de estatísticas, métricas, totais e médias dos jogadores.",
-      },
-
-      {
-        name: "Player Suspensions",
-        description:
-          "Gerenciamento de suspensões disciplinares, cumprimento, levantamento e histórico dos jogadores.",
-      },
-      {
-        name: "Player Transfers",
-        description:
-          "Solicitação, aprovação, rejeição, cancelamento e consulta de transferências de jogadores.",
-      },
-      {
-        name: "Matches",
-        description:
-          "Gerenciamento de partidas, agendamento, resultados, placares e estatísticas.",
+        name: 'Player Statistics',
+        description: 'Gerenciamento de estatísticas, métricas, totais e médias dos jogadores.',
       },
 
       {
-        name: "Chat",
+        name: 'Player Suspensions',
         description:
-          "Chat entre donos de equipas com mensagens de texto e voz; abre após as duas equipas aceitarem o jogo e fecha segundo o ciclo de vida da partida.",
+          'Gerenciamento de suspensões disciplinares, cumprimento, levantamento e histórico dos jogadores.',
+      },
+      {
+        name: 'Player Transfers',
+        description:
+          'Solicitação, aprovação, rejeição, cancelamento e consulta de transferências de jogadores.',
+      },
+      {
+        name: 'Matches',
+        description: 'Gerenciamento de partidas, agendamento, resultados, placares e estatísticas.',
       },
 
       {
-        name: "Matchmaking",
+        name: 'Chat',
         description:
-          "Busca automática de adversários, recomendações e gestão de solicitações de partidas.",
+          'Chat entre donos de equipas com mensagens de texto e voz; abre após as duas equipas aceitarem o jogo e fecha segundo o ciclo de vida da partida.',
       },
 
       {
-        name: "Fields",
+        name: 'Matchmaking',
         description:
-          "Gerenciamento de campos de futebol.",
+          'Busca automática de adversários, recomendações e gestão de solicitações de partidas.',
       },
 
       {
-        name: "Bookings",
-        description:
-          "Reserva e gerenciamento de campos.",
+        name: 'Fields',
+        description: 'Gerenciamento de campos de futebol.',
       },
 
       {
-        name: "Tournaments",
-        description:
-          "Gerenciamento de torneios.",
+        name: 'Bookings',
+        description: 'Reserva e gerenciamento de campos.',
       },
 
       {
-        name: "Rankings",
-        description:
-          "Rankings, classificações e estatísticas.",
+        name: 'Tournaments',
+        description: 'Gerenciamento de torneios.',
       },
 
       {
-        name: "Payments",
-        description:
-          "Processamento de pagamentos, reembolsos, transações e integração com gateways.",
+        name: 'Rankings',
+        description: 'Rankings, classificações e estatísticas.',
       },
 
       {
-        name: "Finance",
+        name: 'Payments',
         description:
-          "Carteira, transações, pagamentos, reembolsos e operações financeiras.",
+          'Processamento de pagamentos, reembolsos, transações e integração com gateways.',
       },
 
       {
-        name: "Tournament Awards",
-        description:
-          "Gerenciamento de premiações, cálculo e atribuição de prêmios de torneios.",
+        name: 'Finance',
+        description: 'Carteira, transações, pagamentos, reembolsos e operações financeiras.',
       },
 
       {
-        name: "Tournament Discipline",
-        description:
-          "Gerenciamento de cartões, suspensões, penalidades e relatórios disciplinares de torneios.",
+        name: 'Tournament Awards',
+        description: 'Gerenciamento de premiações, cálculo e atribuição de prêmios de torneios.',
       },
 
       {
-        name: "Tournament Fixtures",
+        name: 'Tournament Discipline',
         description:
-          "Geração, agendamento, reagendamento e consulta de jogos/partidas de torneios.",
+          'Gerenciamento de cartões, suspensões, penalidades e relatórios disciplinares de torneios.',
       },
 
       {
-        name: "Tournament History",
+        name: 'Tournament Fixtures',
         description:
-          "Registro e consulta de históricos de torneios, campeões e estatísticas históricas.",
+          'Geração, agendamento, reagendamento e consulta de jogos/partidas de torneios.',
       },
 
       {
-        name: "Tournament Payments",
+        name: 'Tournament History',
         description:
-          "Gerenciamento de pagamentos de inscrição, taxas e reembolsos de torneios.",
+          'Registro e consulta de históricos de torneios, campeões e estatísticas históricas.',
       },
 
       {
-        name: "Tournament Registrations",
-        description:
-          "Gerenciamento de inscrições de equipes em torneios, aprovação e rejeição.",
+        name: 'Tournament Payments',
+        description: 'Gerenciamento de pagamentos de inscrição, taxas e reembolsos de torneios.',
       },
 
       {
-        name: "Tournament Stages",
-        description:
-          "Gerenciamento de fases e etapas de torneios, avanço e conclusão de stages.",
+        name: 'Tournament Registrations',
+        description: 'Gerenciamento de inscrições de equipes em torneios, aprovação e rejeição.',
       },
 
       {
-        name: "Tournament Standings",
-        description:
-          "Classificações, cálculo de standings e posições de equipes em torneios.",
+        name: 'Tournament Stages',
+        description: 'Gerenciamento de fases e etapas de torneios, avanço e conclusão de stages.',
       },
 
       {
-        name: "Tournament Statistics",
+        name: 'Tournament Standings',
+        description: 'Classificações, cálculo de standings e posições de equipes em torneios.',
+      },
+
+      {
+        name: 'Tournament Statistics',
         description:
-          "Estatísticas de torneios, artilheiros, assistências e métricas de equipes e jogadores.",
+          'Estatísticas de torneios, artilheiros, assistências e métricas de equipes e jogadores.',
       },
       {
-        name: "Support Cases",
+        name: 'Support Cases',
         description:
-          "Pedidos de suporte, denúncias, disputas, incidentes operacionais e respetivo histórico de resolução.",
+          'Pedidos de suporte, denúncias, disputas, incidentes operacionais e respetivo histórico de resolução.',
       },
     ],
   },
@@ -530,9 +491,9 @@ const options: swaggerJsdoc.Options = {
    * ==========================================
    */
   apis: [
-    "./src/modules/**/routes/*.ts",
-    "./src/modules/auth/infrastructure/bootstrap/authorization-check.bootstrap.ts",
-    "./src/docs/schemas/*.ts",
+    './src/modules/**/routes/*.ts',
+    './src/modules/auth/infrastructure/bootstrap/authorization-check.bootstrap.ts',
+    './src/docs/schemas/*.ts',
   ],
 };
 
@@ -543,63 +504,54 @@ const swaggerSpec = swaggerJsdoc(options);
  * SWAGGER DOCUMENTATION
  * ==========================================
  */
-export function swaggerDocs(
-  app: Express,
-): void {
-
+export function swaggerDocs(app: Express): void {
   /**
    * Swagger UI
    */
   app.use(
-    "/api-docs",
+    '/api-docs',
 
     swaggerUi.serve,
 
-    swaggerUi.setup(
-      swaggerSpec,
-      {
-        customCss:
-          ".swagger-ui .topbar { display: none }",
+    swaggerUi.setup(swaggerSpec, {
+      customCss: '.swagger-ui .topbar { display: none }',
 
-        customSiteTitle:
-          "ProntoEquipas API Docs",
+      customSiteTitle: 'ProntoEquipas API Docs',
 
-        swaggerOptions: {
+      swaggerOptions: {
+        /**
+         * Mantém o JWT autorizado
+         * mesmo ao atualizar/interagir
+         * com a documentação.
+         */
+        persistAuthorization: true,
 
-          /**
-           * Mantém o JWT autorizado
-           * mesmo ao atualizar/interagir
-           * com a documentação.
-           */
-          persistAuthorization: true,
+        /**
+         * Mostra duração das requisições.
+         */
+        displayRequestDuration: true,
 
-          /**
-           * Mostra duração das requisições.
-           */
-          displayRequestDuration: true,
+        /**
+         * Permite filtrar endpoints.
+         */
+        filter: true,
 
-          /**
-           * Permite filtrar endpoints.
-           */
-          filter: true,
+        /**
+         * Expande as operações por padrão.
+         */
+        docExpansion: 'none',
 
-          /**
-           * Expande as operações por padrão.
-           */
-          docExpansion: "none",
+        /**
+         * Ordena endpoints por método.
+         */
+        operationsSorter: 'method',
 
-          /**
-           * Ordena endpoints por método.
-           */
-          operationsSorter: "method",
-
-          /**
-           * Ordena as tags alfabeticamente.
-           */
-          tagsSorter: "alpha",
-        },
+        /**
+         * Ordena as tags alfabeticamente.
+         */
+        tagsSorter: 'alpha',
       },
-    ),
+    }),
   );
 
   /**
@@ -616,16 +568,9 @@ export function swaggerDocs(
    * - geração automática de clientes
    * - ferramentas de testes
    */
-  app.get(
-    "/api-spec.json",
-    (_req, res) => {
+  app.get('/api-spec.json', (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
 
-      res.setHeader(
-        "Content-Type",
-        "application/json",
-      );
-
-      res.send(swaggerSpec);
-    },
-  );
+    res.send(swaggerSpec);
+  });
 }

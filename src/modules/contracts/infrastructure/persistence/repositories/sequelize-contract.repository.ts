@@ -5,7 +5,7 @@ import {
   NotFoundError,
   ValidationError,
 } from '../../../../../shared/errors/app.error';
-import { EmployeeModel } from '../../../../employees/infrastructure/persistence/model/employee.model';
+import { EmployeeModel } from '../../../../employees/infrastructure/persistence/models/employee.model';
 import {
   EmploymentContract,
   EmploymentContractProps,
@@ -17,11 +17,11 @@ import {
   ContractType,
 } from '../../../domain/repositories/contract.repository';
 import { ContractPeriod } from '../../../domain/value-objects/contract-period.vo';
-import { ContractOutboxModel } from '../model/contract-outbox.model';
-import { ContractAlertModel } from '../model/contract-alert.model';
-import { ContractRecordModel } from '../model/contract-record.model';
-import { ContractTypeModel } from '../model/contract-type.model';
-import { EmploymentContractModel } from '../model/employment-contract.model';
+import { ContractOutboxModel } from '../models/contract-outbox.model';
+import { ContractAlertModel } from '../models/contract-alert.model';
+import { ContractRecordModel } from '../models/contract-record.model';
+import { ContractTypeModel } from '../models/contract-type.model';
+import { EmploymentContractModel } from '../models/employment-contract.model';
 
 const mapContract = (row: EmploymentContractModel): EmploymentContractProps => ({
   id: row.id,

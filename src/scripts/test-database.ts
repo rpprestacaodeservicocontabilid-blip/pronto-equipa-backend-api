@@ -30,10 +30,8 @@ async function testDatabase() {
       logger.info(`   Database: ${ENV.DB.NAME}`);
       logger.info(`   User: ${ENV.DB.USER}`);
     } else if ('url' in ENV.DB) {
-      const url = ENV.DB.url;
-      logger.info(
-        `   URL: ${typeof url === 'string' ? url.substring(0, 50) : 'n/a'}...`,
-      );
+      const { url } = ENV.DB;
+      logger.info(`   URL: ${typeof url === 'string' ? url.substring(0, 50) : 'n/a'}...`);
     }
     logger.info('');
 

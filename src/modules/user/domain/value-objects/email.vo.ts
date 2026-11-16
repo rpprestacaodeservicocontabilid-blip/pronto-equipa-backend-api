@@ -1,36 +1,31 @@
 export class Email {
-    private constructor(
-        private readonly value: string,
-    ) { }
+  private constructor(private readonly value: string) {}
 
-    public static create(value: string): Email {
-        const normalized = value
-            ?.trim()
-            .toLowerCase();
+  public static create(value: string): Email {
+    const normalized = value?.trim().toLowerCase();
 
-        if (!normalized) {
-            throw new Error("Email is required.");
-        }
-
-        const emailRegex =
-            /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-        if (!emailRegex.test(normalized)) {
-            throw new Error("Invalid email address.");
-        }
-
-        return new Email(normalized);
+    if (!normalized) {
+      throw new Error('Email is required.');
     }
 
-    public getValue(): string {
-        return this.value;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(normalized)) {
+      throw new Error('Invalid email address.');
     }
 
-    public equals(other: Email): boolean {
-        return this.value === other.value;
-    }
+    return new Email(normalized);
+  }
 
-    public toString(): string {
-        return this.value;
-    }
+  public getValue(): string {
+    return this.value;
+  }
+
+  public equals(other: Email): boolean {
+    return this.value === other.value;
+  }
+
+  public toString(): string {
+    return this.value;
+  }
 }

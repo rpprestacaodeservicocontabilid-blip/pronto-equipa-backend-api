@@ -33,7 +33,12 @@ async function resolveUser(token: string): Promise<JWTPayload> {
   const tokenService = new JwtTokenService(secret);
   const payload = await tokenService.verifyAccessToken(token);
   const session = await new SessionManagerService().getSession(payload.sessionId);
-  if (!session || session.status !== 'ACTIVE' || session.userId !== payload.userId || session.expiresAt <= new Date()) {
+  if (
+    !session ||
+    session.status !== 'ACTIVE' ||
+    session.userId !== payload.userId ||
+    session.expiresAt <= new Date()
+  ) {
     throw new Error('Session is no longer active');
   }
 
@@ -127,13 +132,18 @@ export function authorize(roles: string[]) {
  * Middleware de autenticação opcional
  * Tenta autenticar mas não falha se token não existir
  */
-export async function authenticateOptional(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const authorization = req.headers.authorization;
+export async function authenticateOptional(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const { authorization } = req.headers;
 
   if (authorization) {
     try {
       const [scheme, token, ...extra] = authorization.trim().split(/\s+/);
-      if (scheme !== 'Bearer' || !token || extra.length > 0) throw new Error('Invalid authorization header');
+      if (scheme !== 'Bearer' || !token || extra.length > 0)
+        throw new Error('Invalid authorization header');
       (req as any).user = await resolveUser(token);
     } catch (error) {
       logger.debug(`[Auth] Optional auth failed: skipping`);

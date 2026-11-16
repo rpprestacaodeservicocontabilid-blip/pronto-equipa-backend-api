@@ -2,7 +2,7 @@ import { Op, QueryTypes, Transaction, UniqueConstraintError } from 'sequelize';
 import { sequelize } from '../../../../../infra/database';
 import { ConflictError, ValidationError } from '../../../../../shared/errors/app.error';
 import { DomainEvent } from '../../../../../shared/domain/domain-event';
-import { EmployeeModel } from '../../../../employees/infrastructure/persistence/model/employee.model';
+import { EmployeeModel } from '../../../../employees/infrastructure/persistence/models/employee.model';
 import {
   LeaveAccount,
   LeaveAccountProps,
@@ -31,14 +31,14 @@ import {
   BLOCKING_LEAVE_STATUSES,
   RESERVED_LEAVE_STATUSES,
 } from '../../../domain/value-objects/leave-status.vo';
-import { LeaveAccountModel } from '../model/leave-account.model';
-import { LeaveApprovalModel } from '../model/leave-approval.model';
-import { LeaveBalanceMovementModel } from '../model/leave-balance-movement.model';
-import { LeaveEntitlementModel } from '../model/leave-entitlement.model';
-import { LeaveInterruptionModel } from '../model/leave-interruption.model';
-import { LeaveOutboxModel } from '../model/leave-outbox.model';
-import { LeaveRequestModel } from '../model/leave-request.model';
-import { LeaveRequestPeriodModel } from '../model/leave-request-period.model';
+import { LeaveAccountModel } from '../models/leave-account.model';
+import { LeaveApprovalModel } from '../models/leave-approval.model';
+import { LeaveBalanceMovementModel } from '../models/leave-balance-movement.model';
+import { LeaveEntitlementModel } from '../models/leave-entitlement.model';
+import { LeaveInterruptionModel } from '../models/leave-interruption.model';
+import { LeaveOutboxModel } from '../models/leave-outbox.model';
+import { LeaveRequestModel } from '../models/leave-request.model';
+import { LeaveRequestPeriodModel } from '../models/leave-request-period.model';
 
 // ============================================================
 // Helpers de persistência
@@ -421,11 +421,7 @@ export class SequelizeLeaveWorkUnit implements LeaveWorkUnit {
     actorUserId: number;
   }): Promise<LeaveRequestProps> {
     return withTenant(input.companyId, async (transaction) => {
-      const request = await this.loadAggregate(
-        input.companyId,
-        input.requestId,
-        transaction,
-      );
+      const request = await this.loadAggregate(input.companyId, input.requestId, transaction);
       request.assertVersion(input.expectedVersion);
 
       const props = request.updateDraft(
@@ -456,11 +452,7 @@ export class SequelizeLeaveWorkUnit implements LeaveWorkUnit {
     actorUserId: number;
   }): Promise<LeaveRequestProps> {
     return withTenant(input.companyId, async (transaction) => {
-      const request = await this.loadAggregate(
-        input.companyId,
-        input.requestId,
-        transaction,
-      );
+      const request = await this.loadAggregate(input.companyId, input.requestId, transaction);
       request.assertVersion(input.expectedVersion);
 
       // RN-017 revalidado DENTRO da transacção (fonte autoritativa).
@@ -492,11 +484,7 @@ export class SequelizeLeaveWorkUnit implements LeaveWorkUnit {
     allowSelfApproval?: boolean;
   }): Promise<LeaveRequestProps> {
     return withTenant(input.companyId, async (transaction) => {
-      const request = await this.loadAggregate(
-        input.companyId,
-        input.requestId,
-        transaction,
-      );
+      const request = await this.loadAggregate(input.companyId, input.requestId, transaction);
       request.assertVersion(input.expectedVersion);
       request.assertNotSelfApproval(input.actorUserId, input.allowSelfApproval ?? false);
 
@@ -518,11 +506,7 @@ export class SequelizeLeaveWorkUnit implements LeaveWorkUnit {
       }
 
       // RN-018 / CA-008: saldo revalidado com a conta BLOQUEADA.
-      const account = await this.lockAccount(
-        input.companyId,
-        request.accountId,
-        transaction,
-      );
+      const account = await this.lockAccount(input.companyId, request.accountId, transaction);
       if (account.status !== 'ACTIVE') {
         throw new ValidationError('Leave account is not active.');
       }
@@ -565,21 +549,12 @@ export class SequelizeLeaveWorkUnit implements LeaveWorkUnit {
     allowSelfApproval?: boolean;
   }): Promise<LeaveRequestProps> {
     return withTenant(input.companyId, async (transaction) => {
-      const request = await this.loadAggregate(
-        input.companyId,
-        input.requestId,
-        transaction,
-      );
+      const request = await this.loadAggregate(input.companyId, input.requestId, transaction);
       request.assertVersion(input.expectedVersion);
       request.assertNotSelfApproval(input.actorUserId, input.allowSelfApproval ?? false);
 
       // A entidade `LeaveApproval` exige justificação (RN-026).
-      const props = request.decide(
-        'REJECTED',
-        input.actorUserId,
-        input.comments,
-        new Date(),
-      );
+      const props = request.decide('REJECTED', input.actorUserId, input.comments, new Date());
 
       await this.saveRequest(transaction, props);
       await this.insertNewApprovals(transaction, props);
@@ -597,11 +572,7 @@ export class SequelizeLeaveWorkUnit implements LeaveWorkUnit {
     allowSelfApproval?: boolean;
   }): Promise<LeaveRequestProps> {
     return withTenant(input.companyId, async (transaction) => {
-      const request = await this.loadAggregate(
-        input.companyId,
-        input.requestId,
-        transaction,
-      );
+      const request = await this.loadAggregate(input.companyId, input.requestId, transaction);
       request.assertVersion(input.expectedVersion);
       request.assertNotSelfApproval(input.actorUserId, input.allowSelfApproval ?? false);
 
@@ -630,18 +601,12 @@ export class SequelizeLeaveWorkUnit implements LeaveWorkUnit {
     actorUserId: number;
   }): Promise<LeaveRequestProps> {
     return withTenant(input.companyId, async (transaction) => {
-      const request = await this.loadAggregate(
-        input.companyId,
-        input.requestId,
-        transaction,
-      );
+      const request = await this.loadAggregate(input.companyId, input.requestId, transaction);
       request.assertVersion(input.expectedVersion);
 
       // Guarda ANTES da transição: apenas estados reservados têm
       // saldo a libertar (RN-020).
-      const wasReserved = (RESERVED_LEAVE_STATUSES as readonly string[]).includes(
-        request.status,
-      );
+      const wasReserved = (RESERVED_LEAVE_STATUSES as readonly string[]).includes(request.status);
 
       if (wasReserved) {
         await this.assertNotReconciled(input.companyId, request.id, ['RELEASE'], transaction);
@@ -674,11 +639,7 @@ export class SequelizeLeaveWorkUnit implements LeaveWorkUnit {
     actorUserId: number;
   }): Promise<LeaveRequestProps> {
     return withTenant(input.companyId, async (transaction) => {
-      const request = await this.loadAggregate(
-        input.companyId,
-        input.requestId,
-        transaction,
-      );
+      const request = await this.loadAggregate(input.companyId, input.requestId, transaction);
       request.assertVersion(input.expectedVersion);
 
       const previousDays = request.requestedDays;
@@ -703,11 +664,7 @@ export class SequelizeLeaveWorkUnit implements LeaveWorkUnit {
         // A reserva original existe nos estados elegíveis ao reagendar.
         await this.lockAccount(input.companyId, request.accountId, transaction);
         if (delta > 0) {
-          const balance = await this.balanceOf(
-            input.companyId,
-            request.accountId,
-            transaction,
-          );
+          const balance = await this.balanceOf(input.companyId, request.accountId, transaction);
           if (!balance.canCover(delta)) {
             throw new InsufficientBalanceError(balance.available, delta);
           }
@@ -749,11 +706,7 @@ export class SequelizeLeaveWorkUnit implements LeaveWorkUnit {
     actorUserId: number;
   }): Promise<LeaveRequestProps> {
     return withTenant(input.companyId, async (transaction) => {
-      const request = await this.loadAggregate(
-        input.companyId,
-        input.requestId,
-        transaction,
-      );
+      const request = await this.loadAggregate(input.companyId, input.requestId, transaction);
       request.assertVersion(input.expectedVersion);
 
       const props = request.start(new Date());
@@ -773,11 +726,7 @@ export class SequelizeLeaveWorkUnit implements LeaveWorkUnit {
     actorUserId: number;
   }): Promise<LeaveRequestProps> {
     return withTenant(input.companyId, async (transaction) => {
-      const request = await this.loadAggregate(
-        input.companyId,
-        input.requestId,
-        transaction,
-      );
+      const request = await this.loadAggregate(input.companyId, input.requestId, transaction);
       request.assertVersion(input.expectedVersion);
 
       if (input.startDate < request.startDate || input.endDate > request.endDate) {
@@ -821,11 +770,7 @@ export class SequelizeLeaveWorkUnit implements LeaveWorkUnit {
     actorUserId: number;
   }): Promise<LeaveRequestProps> {
     return withTenant(input.companyId, async (transaction) => {
-      const request = await this.loadAggregate(
-        input.companyId,
-        input.requestId,
-        transaction,
-      );
+      const request = await this.loadAggregate(input.companyId, input.requestId, transaction);
       request.assertVersion(input.expectedVersion);
 
       const reservedDays = request.requestedDays;

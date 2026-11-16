@@ -3,7 +3,8 @@ import { QueryTypes } from 'sequelize';
 import { sequelize } from '../../../../infra/database';
 import { TenantPermissionCheckerPort } from '../../application/ports/tenant-permission-checker.port';
 
-const quoteColumn = (name: string): string => sequelize.getDialect() === 'postgres' ? `"${name}"` : `\`${name}\``;
+const quoteColumn = (name: string): string =>
+  sequelize.getDialect() === 'postgres' ? `"${name}"` : `\`${name}\``;
 
 /**
  * Implementação Sequelize do verificador contextual de permissões.
@@ -39,4 +40,3 @@ export class SequelizeTenantPermissionChecker implements TenantPermissionChecker
     return rows.length > 0;
   }
 }
-

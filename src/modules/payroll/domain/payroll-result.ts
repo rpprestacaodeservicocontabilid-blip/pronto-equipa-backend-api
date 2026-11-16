@@ -2,27 +2,31 @@ import { z } from 'zod';
 import { createHash } from 'crypto';
 import { ValidationError } from '../../../shared/errors/app.error';
 export const amountSchema = z.string().regex(/^(0|[1-9]\d{0,15})\.\d{2}$/);
-export const calculationSchema = z.object({
-  employeeId: z.string().uuid(),
-  grossAmount: amountSchema,
-  deductionsAmount: amountSchema,
-  netAmount: amountSchema,
-  employerCostsAmount: amountSchema,
-  currency: z.string().regex(/^[A-Z]{3}$/),
-  engineVersion: z.string().min(1),
-  legalRuleSetVersion: z.string().min(1),
-  calculationTraceId: z.string().min(1),
-  lines: z
-    .array(
-      z.object({
-        code: z.string().min(1),
-        type: z.enum(['EARNING', 'DEDUCTION', 'EMPLOYER_COST']),
-        amount: amountSchema,
-        sourceReference: z.string().min(1),
-      }).passthrough(),
-    )
-    .min(1),
-}).passthrough();
+export const calculationSchema = z
+  .object({
+    employeeId: z.string().uuid(),
+    grossAmount: amountSchema,
+    deductionsAmount: amountSchema,
+    netAmount: amountSchema,
+    employerCostsAmount: amountSchema,
+    currency: z.string().regex(/^[A-Z]{3}$/),
+    engineVersion: z.string().min(1),
+    legalRuleSetVersion: z.string().min(1),
+    calculationTraceId: z.string().min(1),
+    lines: z
+      .array(
+        z
+          .object({
+            code: z.string().min(1),
+            type: z.enum(['EARNING', 'DEDUCTION', 'EMPLOYER_COST']),
+            amount: amountSchema,
+            sourceReference: z.string().min(1),
+          })
+          .passthrough(),
+      )
+      .min(1),
+  })
+  .passthrough();
 export const cents = (value: string): bigint => {
   if (!/^(0|[1-9]\d{0,15})(\.\d{1,2})?$/.test(value))
     throw new ValidationError('Invalid exact monetary amount.');

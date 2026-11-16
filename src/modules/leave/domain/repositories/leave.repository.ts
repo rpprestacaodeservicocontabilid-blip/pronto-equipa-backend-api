@@ -86,10 +86,7 @@ export interface PaginatedLeave<T> {
 export interface LeaveRepository {
   findAccount(companyId: number, id: string): Promise<LeaveAccountProps | null>;
 
-  findAccountByEmployee(
-    companyId: number,
-    employeeId: string,
-  ): Promise<LeaveAccountProps | null>;
+  findAccountByEmployee(companyId: number, employeeId: string): Promise<LeaveAccountProps | null>;
 
   listAccounts(
     companyId: number,
@@ -113,10 +110,7 @@ export interface LeaveRepository {
   /** Saldo derivado dos movimentos (fonte de verdade). */
   getBalance(companyId: number, accountId: string): Promise<LeaveBalanceSummary | null>;
 
-  listEntitlements(
-    companyId: number,
-    accountId: string,
-  ): Promise<LeaveEntitlementRecord[]>;
+  listEntitlements(companyId: number, accountId: string): Promise<LeaveEntitlementRecord[]>;
 
   /** Períodos que se sobrepõem a um intervalo, para um trabalhador. */
   findOverlappingPeriods(

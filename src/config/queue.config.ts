@@ -1,4 +1,4 @@
-import type { EnvVars } from "./env";
+import type { EnvVars } from './env';
 
 export interface QueueConfig {
   /** `false` quando não há RabbitMQ configurado (desligado). */
@@ -15,12 +15,16 @@ export interface QueueConfig {
  * funciona sem processamento assíncrono e regista o estado como
  * `degraded` no readiness.
  */
-export function createQueueConfig(env: Pick<EnvVars,
-  | "RABBITMQ_URL"
-  | "RABBITMQ_PREFETCH"
-  | "QUEUE_CONCURRENCY"
-  | "QUEUE_MAX_RETRIES"
-  | "QUEUE_BACKOFF_MS">): QueueConfig {
+export function createQueueConfig(
+  env: Pick<
+    EnvVars,
+    | 'RABBITMQ_URL'
+    | 'RABBITMQ_PREFETCH'
+    | 'QUEUE_CONCURRENCY'
+    | 'QUEUE_MAX_RETRIES'
+    | 'QUEUE_BACKOFF_MS'
+  >,
+): QueueConfig {
   return {
     enabled: env.RABBITMQ_URL.length > 0,
     url: env.RABBITMQ_URL,

@@ -8,9 +8,9 @@ import {
   EmployeeDependentView,
   EmployeeDetailsRepository,
 } from '../../../application/ports/employee-details.repository';
-import { EmployeeBankAccountModel } from '../model/employee-bank-account.model';
-import { EmployeeDependentModel } from '../model/employee-dependent.model';
-import { EmployeeModel } from '../model/employee.model';
+import { EmployeeBankAccountModel } from '../models/employee-bank-account.model';
+import { EmployeeDependentModel } from '../models/employee-dependent.model';
+import { EmployeeModel } from '../models/employee.model';
 
 const inTenantTransaction = async <T>(
   companyId: number,

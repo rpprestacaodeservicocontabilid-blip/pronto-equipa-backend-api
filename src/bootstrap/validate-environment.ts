@@ -15,18 +15,16 @@
  * produção use um gestor de segredos para os injetar.
  */
 
-import { assertProductionReady, loadEnv } from "../config/env";
+import { assertProductionReady, loadEnv } from '../config/env';
 
-import type { EnvVars } from "../config/env";
-import type { BootstrapConfig } from "./types/application-context";
+import type { EnvVars } from '../config/env';
+import type { BootstrapConfig } from './types/application-context';
 
 /** Ambiente validado completo (esquema de `config/env`). */
 export type BootstrapEnvironment = EnvVars;
 
 /** Parsing estrito. Lança `ZodError` com todos os problemas. */
-export function loadEnvironment(
-  values: NodeJS.ProcessEnv = process.env,
-): BootstrapEnvironment {
+export function loadEnvironment(values: NodeJS.ProcessEnv = process.env): BootstrapEnvironment {
   return loadEnv(values);
 }
 
@@ -37,9 +35,7 @@ export function loadEnvironment(
  * Envolve o erro de forma controlada (BOOT-001): a aplicação
  * falha ANTES de tocar em qualquer recurso, com mensagem clara.
  */
-export function validateEnvironment(
-  values: NodeJS.ProcessEnv = process.env,
-): BootstrapConfig {
+export function validateEnvironment(values: NodeJS.ProcessEnv = process.env): BootstrapConfig {
   try {
     const env = loadEnv(values);
     assertProductionReady(env);
@@ -52,8 +48,6 @@ export function validateEnvironment(
       shutdownTimeoutMs: env.SHUTDOWN_TIMEOUT_MS,
     };
   } catch (error) {
-    throw new Error(
-      `[bootstrap] invalid environment: ${(error as Error).message}`,
-    );
+    throw new Error(`[bootstrap] invalid environment: ${(error as Error).message}`);
   }
 }

@@ -1,69 +1,52 @@
-export type SecurityEventLevel =
-    | "INFO"
-    | "WARNING"
-    | "CRITICAL";
+export type SecurityEventLevel = 'INFO' | 'WARNING' | 'CRITICAL';
 
 export interface SecurityEvent {
-    event: string;
+  event: string;
 
-    /**
-     * Opcional: os métodos do logger (`info`/`warning`/`critical`)
-     * definem o nível automaticamente ao gravar o evento.
-     */
-    level?: SecurityEventLevel;
+  /**
+   * Opcional: os métodos do logger (`info`/`warning`/`critical`)
+   * definem o nível automaticamente ao gravar o evento.
+   */
+  level?: SecurityEventLevel;
 
-    accountId?: number | null;
-    userId?: number | null;
+  accountId?: number | null;
+  userId?: number | null;
 
-    ipAddress?: string | null;
-    userAgent?: string | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
 
-    metadata?: Record<
-        string,
-        unknown
-    >;
+  metadata?: Record<string, unknown>;
 }
 
 export class SecurityEventLogger {
-    public info(
-        event: SecurityEvent,
-    ): void {
-        this.write({
-            ...event,
-            level: "INFO",
-        });
-    }
+  public info(event: SecurityEvent): void {
+    this.write({
+      ...event,
+      level: 'INFO',
+    });
+  }
 
-    public warning(
-        event: SecurityEvent,
-    ): void {
-        this.write({
-            ...event,
-            level: "WARNING",
-        });
-    }
+  public warning(event: SecurityEvent): void {
+    this.write({
+      ...event,
+      level: 'WARNING',
+    });
+  }
 
-    public critical(
-        event: SecurityEvent,
-    ): void {
-        this.write({
-            ...event,
-            level: "CRITICAL",
-        });
-    }
+  public critical(event: SecurityEvent): void {
+    this.write({
+      ...event,
+      level: 'CRITICAL',
+    });
+  }
 
-    private write(
-        event: SecurityEvent,
-    ): void {
-        const payload = {
-            timestamp:
-                new Date().toISOString(),
+  private write(event: SecurityEvent): void {
+    const payload = {
+      timestamp: new Date().toISOString(),
 
-            ...event,
-        };
+      ...event,
+    };
 
-        console.log(
-            JSON.stringify(payload),
-        );
-    }
+    console.log(JSON.stringify(payload));
+  }
 }

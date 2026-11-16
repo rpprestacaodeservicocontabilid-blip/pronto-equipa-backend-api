@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response, Router } from 'express';
 import { AttendanceController } from '../controllers/attendance.controller';
-import { AttendanceEntityType } from '../../infrastructure/persistence/model/attendance-entity.model';
+
 import {
   attendanceIdSchema,
   attendanceReportSchema,

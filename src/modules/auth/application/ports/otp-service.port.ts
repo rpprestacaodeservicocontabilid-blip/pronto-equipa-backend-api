@@ -9,8 +9,5 @@ export interface OtpServicePort {
 
   hash(code: string): string;
 
-  matches(
-    code: string,
-    codeHash: string,
-  ): boolean;
+  matches(code: string, codeHash: string): boolean;
 }

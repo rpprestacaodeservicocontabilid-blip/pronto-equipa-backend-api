@@ -1,9 +1,9 @@
 import { AuditRecorderPort } from '../../../audit/application/ports/audit-recorder.port';
-import { SequelizeSalaryStructureRepository } from '../../infrastructure/persistence/repositories/sequelize-salary-structure.repository';
+import { SalaryStructureRepositoryPort } from '../ports/salary-structure.repository.port';
 
 export class ManageSalaryStructureUseCase {
   constructor(
-    private readonly repository: SequelizeSalaryStructureRepository,
+    private readonly repository: SalaryStructureRepositoryPort,
     private readonly audit: AuditRecorderPort,
   ) {}
 
@@ -12,7 +12,7 @@ export class ManageSalaryStructureUseCase {
     actorUserId: number,
     action: string,
     entityType: string,
-    operation: (repository: SequelizeSalaryStructureRepository) => Promise<T>,
+    operation: (repository: SalaryStructureRepositoryPort) => Promise<T>,
   ): Promise<T> {
     const result = await operation(this.repository);
     const record =
@@ -42,7 +42,7 @@ export class ManageSalaryStructureUseCase {
     return result;
   }
 
-  query<T>(operation: (repository: SequelizeSalaryStructureRepository) => Promise<T>): Promise<T> {
+  query<T>(operation: (repository: SalaryStructureRepositoryPort) => Promise<T>): Promise<T> {
     return operation(this.repository);
   }
 }

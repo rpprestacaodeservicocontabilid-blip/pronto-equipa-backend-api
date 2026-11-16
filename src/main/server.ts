@@ -7,10 +7,10 @@
  * garante uma falha controlada (BOOT-003): log + exit(1).
  */
 
-import { startServer } from "../bootstrap/server";
-import { logger } from "../config/logger";
+import { startServer } from '../bootstrap/server';
+import { logger } from '../config/logger';
 
 startServer().catch((error) => {
-  logger.error("❌ Falha ao iniciar servidor", error);
+  logger.error('❌ Falha ao iniciar servidor', error);
   process.exit(1);
 });

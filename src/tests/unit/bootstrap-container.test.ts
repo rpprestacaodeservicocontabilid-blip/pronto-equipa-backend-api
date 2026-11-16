@@ -1,12 +1,12 @@
-import { Container } from "../../bootstrap/container";
-import { HealthRegistry } from "../../bootstrap/health";
-import { Lifecycle } from "../../bootstrap/lifecycle";
+import { Container } from '../../bootstrap/container';
+import { HealthRegistry } from '../../bootstrap/health';
+import { Lifecycle } from '../../bootstrap/lifecycle';
 
 import type {
   ApplicationContext,
   BootstrapConfig,
   Logger,
-} from "../../bootstrap/types/application-context";
+} from '../../bootstrap/types/application-context';
 
 // ============================================================
 // BOOT-002 — container de injecção de dependências
@@ -21,10 +21,10 @@ const silentLogger: Logger = {
 };
 
 const config: BootstrapConfig = {
-  nodeEnv: "test",
+  nodeEnv: 'test',
   port: 3333,
-  host: "127.0.0.1",
-  jwtSecret: "secret",
+  host: '127.0.0.1',
+  jwtSecret: 'secret',
   shutdownTimeoutMs: 10000,
 };
 
@@ -46,97 +46,89 @@ function createContainer(): Container {
   return container;
 }
 
-describe("Container", () => {
-  it("cacheia a factory como singleton", () => {
+describe('Container', () => {
+  it('cacheia a factory como singleton', () => {
     const container = createContainer();
 
     let calls = 0;
-    container.register("counter", () => ++calls);
+    container.register('counter', () => ++calls);
 
-    expect(container.resolve("counter")).toBe(1);
-    expect(container.resolve("counter")).toBe(1);
+    expect(container.resolve('counter')).toBe(1);
+    expect(container.resolve('counter')).toBe(1);
     expect(calls).toBe(1);
   });
 
-  it("rejeita registo duplicado", () => {
+  it('rejeita registo duplicado', () => {
     const container = createContainer();
 
-    container.register("service", () => 1);
+    container.register('service', () => 1);
 
-    expect(() => container.register("service", () => 2)).toThrow(
-      /duplicate registration/,
-    );
+    expect(() => container.register('service', () => 2)).toThrow(/duplicate registration/);
   });
 
-  it("rejeita token desconhecido", () => {
+  it('rejeita token desconhecido', () => {
     const container = createContainer();
 
-    expect(() => container.resolve("missing")).toThrow(/unknown token/);
-    expect(container.tryResolve("missing")).toBeUndefined();
+    expect(() => container.resolve('missing')).toThrow(/unknown token/);
+    expect(container.tryResolve('missing')).toBeUndefined();
   });
 
-  it("detecta dependência circular directa", () => {
+  it('detecta dependência circular directa', () => {
     const container = createContainer();
 
-    container.register("self", (context) =>
-      context.container.resolve("self"),
-    );
+    container.register('self', (context) => context.container.resolve('self'));
 
-    expect(() => container.resolve("self")).toThrow(
-      /Circular dependency: self/,
-    );
+    expect(() => container.resolve('self')).toThrow(/Circular dependency: self/);
   });
 
-  it("detecta dependência circular indirecta (a → b → a)", () => {
+  it('detecta dependência circular indirecta (a → b → a)', () => {
     const container = createContainer();
 
-    container.register("a", (context) => context.container.resolve("b"));
-    container.register("b", (context) => context.container.resolve("a"));
+    container.register('a', (context) => context.container.resolve('b'));
+    container.register('b', (context) => context.container.resolve('a'));
 
-    expect(() => container.resolve("a")).toThrow(/Circular dependency/);
+    expect(() => container.resolve('a')).toThrow(/Circular dependency/);
   });
 
-  it("não cacheia factory que falha — nova tentativa tenta de novo", () => {
+  it('não cacheia factory que falha — nova tentativa tenta de novo', () => {
     const container = createContainer();
 
     let attempts = 0;
-    container.register("flaky", () => {
+    container.register('flaky', () => {
       attempts += 1;
-      throw new Error("boom");
+      throw new Error('boom');
     });
 
-    expect(() => container.resolve("flaky")).toThrow("boom");
-    expect(() => container.resolve("flaky")).toThrow("boom");
+    expect(() => container.resolve('flaky')).toThrow('boom');
+    expect(() => container.resolve('flaky')).toThrow('boom');
     expect(attempts).toBe(2);
-    expect(container.tryResolve("flaky")).toBeUndefined();
+    expect(container.tryResolve('flaky')).toBeUndefined();
   });
 
-  it("exige contexto ligado antes de resolver", () => {
+  it('exige contexto ligado antes de resolver', () => {
     const container = new Container();
-    container.register("service", () => ({}));
+    container.register('service', () => ({}));
 
-    expect(() => container.resolve("service")).toThrow(
-      /no application context/,
-    );
+    expect(() => container.resolve('service')).toThrow(/no application context/);
     expect(container.isBound).toBe(false);
   });
 
-  it("expõe tokens registados e liberta tudo no dispose", () => {
+  it('expõe tokens registados e liberta tudo no dispose', () => {
     const container = createContainer();
 
-    container.register("service", () => ({}));
-    container.register("other", () => ({}));
+    container.register('service', () => ({}));
+    container.register('other', () => ({}));
 
-    expect(container.has("service")).toBe(true);
-    expect(container.tokens).toEqual(["service", "other"]);
+    expect(container.has('service')).toBe(true);
+    expect(container.tokens).toEqual(['service', 'other']);
 
-    container.resolve("service");
+    container.resolve('service');
 
     container.dispose();
 
     expect(container.isBound).toBe(false);
-    expect(container.has("service")).toBe(false);
+    expect(container.has('service')).toBe(false);
     expect(container.tokens).toEqual([]);
-    expect(() => container.resolve("service")).toThrow();
+    expect(() => container.resolve('service')).toThrow();
   });
 });

@@ -1,6 +1,5 @@
 import { LeaveAccountProps } from '../aggregates/leave-account.aggregate';
 import { LeaveRequestProps } from '../aggregates/leave-request.aggregate';
-import { LeaveMovementType } from '../value-objects/leave-balance.vo';
 
 /**
  * Porta de ESCRITA do módulo `leave`.

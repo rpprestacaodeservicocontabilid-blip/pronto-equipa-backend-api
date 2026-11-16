@@ -13,35 +13,27 @@
  * explícito, o que mantém os testes sem porta de rede.
  */
 
-import { createServer, type Server } from "http";
+import { createServer, type Server } from 'http';
 
-import type { Express } from "express";
+import type { Express } from 'express';
 
 // Carrega os `.env` antes de qualquer validação (BOOT-001).
-import "../config/env";
+import '../config/env';
 
-import { createConfig } from "../config";
-import { logger } from "../config/logger";
-import { validateSecurityConfig } from "../config/security";
-import NotificationService from "../sockets/socket.server";
+import { createConfig } from '../config';
+import { logger } from '../config/logger';
+import { validateSecurityConfig } from '../config/security';
+import NotificationService from '../sockets/socket.server';
 
-import { createApp, createApplicationContext } from "./app";
-import {
-  defaultModules,
-  initializeModules,
-  shutdownModules,
-} from "./register-modules";
-import {
-  closeHttpServer,
-  createShutdownHandler,
-  type ShutdownFn,
-} from "./shutdown";
+import { createApp, createApplicationContext } from './app';
+import { defaultModules, initializeModules, shutdownModules } from './register-modules';
+import { closeHttpServer, createShutdownHandler, type ShutdownFn } from './shutdown';
 
 import type {
   ApplicationContext,
   BootstrapConfig,
   ModuleDefinition,
-} from "./types/application-context";
+} from './types/application-context';
 
 export interface StartServerOptions {
   /** Porta a ouvir. Por omissão, a do ambiente validado. */
@@ -73,17 +65,17 @@ export interface StartedServer {
 function listen(server: Server, port: number, host?: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const onError = (error: Error) => {
-      server.off("listening", onListening);
+      server.off('listening', onListening);
       reject(error);
     };
 
     const onListening = () => {
-      server.off("error", onError);
+      server.off('error', onError);
       resolve();
     };
 
-    server.once("error", onError);
-    server.once("listening", onListening);
+    server.once('error', onError);
+    server.once('listening', onListening);
 
     if (host) {
       server.listen(port, host);
@@ -93,16 +85,13 @@ function listen(server: Server, port: number, host?: string): Promise<void> {
   });
 }
 
-function registerSignalHandlers(
-  shutdown: ShutdownFn,
-  timeoutMs: number,
-): void {
+function registerSignalHandlers(shutdown: ShutdownFn, timeoutMs: number): void {
   const handle = (signal: NodeJS.Signals) => {
     logger.info(`[bootstrap] ${signal} received — graceful shutdown`);
 
     // Rede de segurança: se o encerramento travar, sai à força.
     const forceExit = setTimeout(() => {
-      logger.error("[bootstrap] shutdown timed out — forcing exit");
+      logger.error('[bootstrap] shutdown timed out — forcing exit');
       process.exit(1);
     }, timeoutMs + 5000);
 
@@ -111,17 +100,17 @@ function registerSignalHandlers(
     shutdown(`signal:${signal}`)
       .then(() => {
         clearTimeout(forceExit);
-        logger.info("[bootstrap] bye 👋");
+        logger.info('[bootstrap] bye 👋');
         process.exit(0);
       })
       .catch((error) => {
-        logger.error("[bootstrap] shutdown failed", error);
+        logger.error('[bootstrap] shutdown failed', error);
         process.exit(1);
       });
   };
 
-  process.once("SIGTERM", handle);
-  process.once("SIGINT", handle);
+  process.once('SIGTERM', handle);
+  process.once('SIGINT', handle);
 }
 
 /**
@@ -129,9 +118,7 @@ function registerSignalHandlers(
  * ambiente é inválido ou uma dependência crítica falha —
  * libertando primeiro tudo o que já tinha sido aberto.
  */
-export async function startServer(
-  options: StartServerOptions = {},
-): Promise<StartedServer> {
+export async function startServer(options: StartServerOptions = {}): Promise<StartedServer> {
   // BOOT-001 — validar ANTES de tocar em qualquer recurso.
   // Módulo 02: a validação completa (Zod + regras de produção +
   // CORS) vive em `config/`; daqui só se projeta o que o
@@ -151,18 +138,13 @@ export async function startServer(
   const { lifecycle } = context;
 
   const port = options.port ?? config.port;
-  const shutdownTimeoutMs =
-    options.shutdownTimeoutMs ?? config.shutdownTimeoutMs;
+  const shutdownTimeoutMs = options.shutdownTimeoutMs ?? config.shutdownTimeoutMs;
 
-  logger.info(
-    `[bootstrap] starting "${config.nodeEnv}" on port ${port} (BOOT-001 ✓)`,
-  );
+  logger.info(`[bootstrap] starting "${config.nodeEnv}" on port ${port} (BOOT-001 ✓)`);
 
   const app = createApp({
     context,
-    allowedOrigins:
-      options.allowedOrigins ??
-      (full.cors.allowAnyOrigin ? true : full.cors.origins),
+    allowedOrigins: options.allowedOrigins ?? (full.cors.allowAnyOrigin ? true : full.cors.origins),
   });
 
   let initialized: ModuleDefinition[] = [];
@@ -172,18 +154,15 @@ export async function startServer(
     lifecycle.markInitializing();
 
     // BOOT-002 — dependências obrigatórias antes do tráfego.
-    initialized = await initializeModules(
-      context,
-      options.modules ?? defaultModules(),
-    );
+    initialized = await initializeModules(context, options.modules ?? defaultModules());
 
     // BOOT-004 — prontidão verificada antes de ouvir.
     const readiness = context.health.snapshot();
-    if (readiness.status === "down") {
+    if (readiness.status === 'down') {
       const down = readiness.checks
-        .filter((check) => check.critical && check.status === "down")
+        .filter((check) => check.critical && check.status === 'down')
         .map((check) => check.name)
-        .join(", ");
+        .join(', ');
 
       throw new Error(`critical dependency unavailable: ${down}`);
     }
@@ -192,7 +171,7 @@ export async function startServer(
 
     if (options.initSockets !== false) {
       NotificationService.initializeSocket(httpServer);
-      logger.info("[bootstrap] socket.io initialized");
+      logger.info('[bootstrap] socket.io initialized');
     }
 
     // BOOT-002 — só agora aceita ligações.
@@ -218,7 +197,7 @@ export async function startServer(
     return { app, httpServer, context, shutdown };
   } catch (error) {
     // BOOT-003 + BOOT-010 — falha controlada com rollback.
-    logger.error("[bootstrap] startup failed", error);
+    logger.error('[bootstrap] startup failed', error);
 
     lifecycle.markFailed();
 

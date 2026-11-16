@@ -1,3 +1,7 @@
+import { SequelizePayslipPersistence } from './infrastructure/persistence/repositories/sequelize-payslip-persistence';
+import { SequelizePayslipSources } from './infrastructure/adapters/sequelize-payslip-sources';
+import { PdfPayslipRenderer } from './infrastructure/pdf-payslip.renderer';
+import { payrollPdf, payrollXlsx } from '../payroll/infrastructure/payroll-export';
 import { RequestHandler } from 'express';
 import { AuditRecorderPort } from '../audit/application/ports/audit-recorder.port';
 import { PayslipsApplicationService } from './application/use-cases/payslips-application.service';
@@ -13,8 +17,17 @@ export interface PayslipsModuleOptions {
 }
 
 export function createPayslipsModule(options: PayslipsModuleOptions) {
-  const storage = process.env.PAYSLIPS_S3_ENDPOINT ? new S3PayslipStorage() : new FileSystemPayslipStorage();
-  const service = new PayslipsApplicationService(options.audit, storage);
+  const storage = process.env.PAYSLIPS_S3_ENDPOINT
+    ? new S3PayslipStorage()
+    : new FileSystemPayslipStorage();
+  const service = new PayslipsApplicationService(
+    options.audit,
+    storage,
+    new PdfPayslipRenderer(),
+    new SequelizePayslipPersistence(),
+    new SequelizePayslipSources(),
+    { pdf: payrollPdf, xlsx: payrollXlsx },
+  );
   const controller = new PayslipsController(service);
   const runtime = new PayslipsRuntime(service);
 

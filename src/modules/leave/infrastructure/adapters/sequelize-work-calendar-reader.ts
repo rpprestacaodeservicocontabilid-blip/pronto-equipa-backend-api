@@ -1,5 +1,5 @@
 import { Op } from 'sequelize';
-import { OrganizationRecordModel } from '../../../organization/infrastructure/persistence/model/organization-record.model';
+import { OrganizationRecordModel } from '../../../organization/infrastructure/persistence/models/organization-record.model';
 import { WorkCalendarReader } from '../../application/ports/work-calendar-reader.port';
 import {
   CalendarDayType,
@@ -56,7 +56,8 @@ export class SequelizeWorkCalendarReader implements WorkCalendarReader {
             (row) =>
               (row.data as { establishmentId?: string } | null)?.establishmentId ===
               scope.establishmentId,
-          ) : undefined) ?? covering[0];
+          )
+        : undefined) ?? covering[0];
 
     const workingWeekdays = readWorkingWeekdays(chosen.data);
 

@@ -20,25 +20,17 @@ export interface GeneratedTokens {
 }
 
 export interface TokenServicePort {
-  generateAccessToken(
-    payload: AccessTokenPayload,
-  ): Promise<{
+  generateAccessToken(payload: AccessTokenPayload): Promise<{
     token: string;
     expiresAt: Date;
   }>;
 
-  generateRefreshToken(
-    payload: RefreshTokenPayload,
-  ): Promise<{
+  generateRefreshToken(payload: RefreshTokenPayload): Promise<{
     token: string;
     expiresAt: Date;
   }>;
 
-  verifyAccessToken(
-    token: string,
-  ): Promise<AccessTokenPayload>;
+  verifyAccessToken(token: string): Promise<AccessTokenPayload>;
 
-  verifyRefreshToken(
-    token: string,
-  ): Promise<RefreshTokenPayload>;
+  verifyRefreshToken(token: string): Promise<RefreshTokenPayload>;
 }

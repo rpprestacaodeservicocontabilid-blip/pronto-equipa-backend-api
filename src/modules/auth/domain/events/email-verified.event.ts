@@ -1,8 +1,6 @@
-import { DomainEvent } from "./domain-event";
+import { DomainEvent } from './domain-event';
 
-export class EmailVerifiedEvent
-  extends DomainEvent
-{
+export class EmailVerifiedEvent extends DomainEvent {
   constructor(
     public readonly userId: number,
     public readonly authAccountId: number,
@@ -12,6 +10,6 @@ export class EmailVerifiedEvent
   }
 
   public get eventName(): string {
-    return "auth.email.verified";
+    return 'auth.email.verified';
   }
 }

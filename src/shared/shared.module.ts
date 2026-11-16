@@ -17,21 +17,21 @@
  * qualquer módulo posterior possa resolver os tokens.
  */
 
-import type { Container } from "../bootstrap/container";
-import type { ModuleDefinition } from "../bootstrap/types/application-context";
-import type { Clock } from "./application/clock";
-import type { IdempotencyStore } from "./application/idempotency";
-import type { TransactionManager } from "./application/transaction-manager";
-import { SystemClock } from "./application/clock";
-import { InMemoryIdempotencyStore } from "./infrastructure/in-memory-idempotency-store";
-import { SequelizeTransactionManager } from "./infrastructure/sequelize-transaction-manager";
-import type { Telemetry } from "./infrastructure/telemetry";
-import { NoopTelemetry } from "./infrastructure/telemetry";
-import { SHARED_TOKENS } from "./tokens";
+import type { Container } from '../bootstrap/container';
+import type { ModuleDefinition } from '../bootstrap/types/application-context';
+import type { Clock } from './application/clock';
+import type { IdempotencyStore } from './application/idempotency';
+import type { TransactionManager } from './application/transaction-manager';
+import { SystemClock } from './application/clock';
+import { InMemoryIdempotencyStore } from './infrastructure/in-memory-idempotency-store';
+import { SequelizeTransactionManager } from './infrastructure/sequelize-transaction-manager';
+import type { Telemetry } from './infrastructure/telemetry';
+import { NoopTelemetry } from './infrastructure/telemetry';
+import { SHARED_TOKENS } from './tokens';
 
 export function sharedModule(): ModuleDefinition {
   return {
-    name: "shared",
+    name: 'shared',
 
     register(container: Container): void {
       container.register<Clock>(SHARED_TOKENS.CLOCK, () => new SystemClock());
@@ -46,20 +46,17 @@ export function sharedModule(): ModuleDefinition {
         () => new InMemoryIdempotencyStore(),
       );
 
-      container.register<Telemetry>(
-        SHARED_TOKENS.TELEMETRY,
-        () => new NoopTelemetry(),
-      );
+      container.register<Telemetry>(SHARED_TOKENS.TELEMETRY, () => new NoopTelemetry());
     },
 
     init(context) {
       // Sem ligações a abrir: os adaptadores são lazy.
-      context.logger.info("[bootstrap] shared services registered");
-      context.health.set("shared", "up", true);
+      context.logger.info('[bootstrap] shared services registered');
+      context.health.set('shared', 'up', true);
     },
 
     shutdown(context) {
-      context.health.set("shared", "down", true);
+      context.health.set('shared', 'down', true);
     },
   };
 }

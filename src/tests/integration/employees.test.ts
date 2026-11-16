@@ -1,10 +1,10 @@
 import request from 'supertest';
 import { app } from '../../main/app';
-import { CompanyMemberModel } from '../../modules/tenancy/infrastructure/persistence/model/company-member.model';
+import { CompanyMemberModel } from '../../modules/tenancy/infrastructure/persistence/models/company-member.model';
 import { RoleModel } from '../../modules/user/infrastructure/persistence/models/role.model';
 import { PermissionModel } from '../../modules/user/infrastructure/persistence/models/permission.model';
-import { RolePermissionModel } from '../../modules/auth/infrastructure/persistence/model/role-permission.model';
-import { AuditLogModel } from '../../modules/audit/infrastructure/persistence/model/audit-log.model';
+import { RolePermissionModel } from '../../modules/auth/infrastructure/persistence/models/role-permission.model';
+import { AuditLogModel } from '../../modules/audit/infrastructure/persistence/models/audit-log.model';
 import { SequelizeEmployeeRepository } from '../../modules/employees/infrastructure/persistence/repositories/sequelize-employee.repository';
 import { createActor, TestActor } from '../support/auth';
 import { resetTestDatabase } from '../support/database';

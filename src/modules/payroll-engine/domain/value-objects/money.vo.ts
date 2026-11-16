@@ -6,7 +6,9 @@ const SCALE = 1_000_000n;
 export class Money {
   private constructor(readonly micros: bigint) {}
 
-  static zero(): Money { return new Money(0n); }
+  static zero(): Money {
+    return new Money(0n);
+  }
 
   static parse(value: string | number | bigint): Money {
     const source = typeof value === 'number' ? String(value) : String(value);
@@ -18,13 +20,27 @@ export class Money {
     return new Money(negative ? -micros : micros);
   }
 
-  add(other: Money): Money { return new Money(this.micros + other.micros); }
-  subtract(other: Money): Money { return new Money(this.micros - other.micros); }
-  min(other: Money): Money { return this.micros <= other.micros ? this : other; }
-  max(other: Money): Money { return this.micros >= other.micros ? this : other; }
-  isNegative(): boolean { return this.micros < 0n; }
-  isZero(): boolean { return this.micros === 0n; }
-  compare(other: Money): number { return this.micros < other.micros ? -1 : this.micros > other.micros ? 1 : 0; }
+  add(other: Money): Money {
+    return new Money(this.micros + other.micros);
+  }
+  subtract(other: Money): Money {
+    return new Money(this.micros - other.micros);
+  }
+  min(other: Money): Money {
+    return this.micros <= other.micros ? this : other;
+  }
+  max(other: Money): Money {
+    return this.micros >= other.micros ? this : other;
+  }
+  isNegative(): boolean {
+    return this.micros < 0n;
+  }
+  isZero(): boolean {
+    return this.micros === 0n;
+  }
+  compare(other: Money): number {
+    return this.micros < other.micros ? -1 : this.micros > other.micros ? 1 : 0;
+  }
 
   multiplyRate(rate: string): Money {
     const normalized = Money.parse(rate);
@@ -32,7 +48,8 @@ export class Money {
   }
 
   multiplyFraction(numerator: bigint, denominator: bigint): Money {
-    if (denominator <= 0n) throw new PayrollEngineError('Invalid fraction denominator.', 'INVALID_FRACTION');
+    if (denominator <= 0n)
+      throw new PayrollEngineError('Invalid fraction denominator.', 'INVALID_FRACTION');
     return new Money((this.micros * numerator) / denominator);
   }
 
@@ -49,7 +66,8 @@ export class Money {
     let increment = false;
     if (mode === 'UP') increment = remainder > 0n;
     if (mode === 'HALF_UP') increment = remainder * 2n >= unit;
-    if (mode === 'HALF_EVEN') increment = remainder * 2n > unit || (remainder * 2n === unit && quotient % 2n === 1n);
+    if (mode === 'HALF_EVEN')
+      increment = remainder * 2n > unit || (remainder * 2n === unit && quotient % 2n === 1n);
     const rounded = (quotient + (increment ? 1n : 0n)) * unit;
     return new Money(this.micros < 0n ? -rounded : rounded);
   }

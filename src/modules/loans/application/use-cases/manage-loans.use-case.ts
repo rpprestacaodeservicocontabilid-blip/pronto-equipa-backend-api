@@ -1,9 +1,9 @@
 import { AuditRecorderPort } from '../../../audit/application/ports/audit-recorder.port';
-import { SequelizeLoansRepository } from '../../infrastructure/persistence/repositories/sequelize-loans.repository';
+import { LoansRepositoryPort } from '../ports/loans.repository.port';
 
 export class ManageLoansUseCase {
   constructor(
-    private readonly repository: SequelizeLoansRepository,
+    private readonly repository: LoansRepositoryPort,
     private readonly audit: AuditRecorderPort,
   ) {}
 
@@ -12,7 +12,7 @@ export class ManageLoansUseCase {
     actorUserId: number,
     action: string,
     entityType: string,
-    operation: (repository: SequelizeLoansRepository) => Promise<T>,
+    operation: (repository: LoansRepositoryPort) => Promise<T>,
   ): Promise<T> {
     const result = await operation(this.repository);
     const record =
@@ -35,7 +35,7 @@ export class ManageLoansUseCase {
     return result;
   }
 
-  query<T>(operation: (repository: SequelizeLoansRepository) => Promise<T>): Promise<T> {
+  query<T>(operation: (repository: LoansRepositoryPort) => Promise<T>): Promise<T> {
     return operation(this.repository);
   }
 }

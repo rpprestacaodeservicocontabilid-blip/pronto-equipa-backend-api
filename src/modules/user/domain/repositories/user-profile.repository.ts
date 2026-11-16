@@ -1,23 +1,13 @@
-import { UserProfile } from "../entities/user-profile.entity";
+import { UserProfile } from '../entities/user-profile.entity';
 
 export interface UserProfileRepository {
-    save(
-        profile: UserProfile,
-    ): Promise<UserProfile>;
+  save(profile: UserProfile): Promise<UserProfile>;
 
-    update(
-        profile: UserProfile,
-    ): Promise<UserProfile>;
+  update(profile: UserProfile): Promise<UserProfile>;
 
-    findById(
-        profileId: number,
-    ): Promise<UserProfile | null>;
+  findById(profileId: number): Promise<UserProfile | null>;
 
-    findByUserId(
-        userId: number,
-    ): Promise<UserProfile | null>;
+  findByUserId(userId: number): Promise<UserProfile | null>;
 
-    delete(
-        profileId: number,
-    ): Promise<void>;
+  delete(profileId: number): Promise<void>;
 }

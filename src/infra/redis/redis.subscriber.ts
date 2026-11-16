@@ -16,14 +16,11 @@ export class RedisSubscriber {
     }
 
     if (!this.client) {
-      this.client = new Redis(
-        ENV.REDIS.URL || 'redis://127.0.0.1:6379',
-        {
-          password: ENV.REDIS.PASSWORD || undefined,
-          lazyConnect: true,
-          maxRetriesPerRequest: null,
-        },
-      );
+      this.client = new Redis(ENV.REDIS.URL || 'redis://127.0.0.1:6379', {
+        password: ENV.REDIS.PASSWORD || undefined,
+        lazyConnect: true,
+        maxRetriesPerRequest: null,
+      });
 
       this.client.on('error', (error) => {
         logger.debug('Redis subscriber error', {
@@ -42,9 +39,7 @@ export class RedisSubscriber {
     const client = this.ensureClient();
 
     if (!client) {
-      logger.warn(
-        `⚠️ Subscrição Redis ignorada (offline): ${channel}`,
-      );
+      logger.warn(`⚠️ Subscrição Redis ignorada (offline): ${channel}`);
       return false;
     }
 

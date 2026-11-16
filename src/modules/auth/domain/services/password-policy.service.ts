@@ -1,7 +1,5 @@
 export interface PasswordPolicyService {
-  validate(
-    password: string,
-  ): PasswordPolicyResult;
+  validate(password: string): PasswordPolicyResult;
 }
 
 export interface PasswordPolicyResult {

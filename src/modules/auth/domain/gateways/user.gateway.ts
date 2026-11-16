@@ -2,40 +2,29 @@ export interface UserGateway {
   /**
    * Procura um utilizador pelo ID.
    */
-  findById(
-    userId: number,
-  ): Promise<AuthUserData | null>;
+  findById(userId: number): Promise<AuthUserData | null>;
 
   /**
    * Procura um utilizador pelo email.
    */
-  findByEmail(
-    email: string,
-  ): Promise<AuthUserData | null>;
+  findByEmail(email: string): Promise<AuthUserData | null>;
 
   /**
    * Procura um utilizador pelo telefone.
    */
-  findByPhone(
-    phone: string,
-  ): Promise<AuthUserData | null>;
+  findByPhone(phone: string): Promise<AuthUserData | null>;
 
   /**
    * Cria um novo utilizador.
    *
    * O ID é gerado pelo sistema/banco de dados.
    */
-  createUser(
-    input: CreateAuthUserInput,
-  ): Promise<AuthUserData>;
+  createUser(input: CreateAuthUserInput): Promise<AuthUserData>;
 
   /**
    * Atualiza o email de um utilizador.
    */
-  updateEmail(
-    userId: number,
-    email: string,
-  ): Promise<void>;
+  updateEmail(userId: number, email: string): Promise<void>;
 }
 
 /**

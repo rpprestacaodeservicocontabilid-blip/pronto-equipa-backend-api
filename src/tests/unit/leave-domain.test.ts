@@ -22,7 +22,10 @@ import {
 } from '../../modules/leave/domain/services/leave-days-calculator.service';
 import { LeaveBalance } from '../../modules/leave/domain/value-objects/leave-balance.vo';
 import { LeaveDays } from '../../modules/leave/domain/value-objects/leave-days.vo';
-import { LeavePeriod, calendarDaysBetween } from '../../modules/leave/domain/value-objects/leave-period.vo';
+import {
+  LeavePeriod,
+  calendarDaysBetween,
+} from '../../modules/leave/domain/value-objects/leave-period.vo';
 import {
   BLOCKING_LEAVE_STATUSES,
   canTransitionLeave,

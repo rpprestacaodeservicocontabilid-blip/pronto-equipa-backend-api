@@ -3,8 +3,8 @@
  * Contratos puros da camada de aplicação.
  */
 
-export * from "./result";
-export * from "./pagination";
-export * from "./clock";
-export * from "./transaction-manager";
-export * from "./idempotency";
+export * from './result';
+export * from './pagination';
+export * from './clock';
+export * from './transaction-manager';
+export * from './idempotency';

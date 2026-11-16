@@ -1,7 +1,11 @@
 import { Request, Response } from 'express';
 import { ManageAttendanceUseCase } from '../../application/use-cases/manage-attendance.use-case';
-import { AttendanceEntityType } from '../../infrastructure/persistence/model/attendance-entity.model';
-import { listAttendanceSchema } from '../schemas/attendance.schema';
+import { AttendanceEntityType } from '../../domain/attendance-entity-type';
+import {
+  createPunchSchema,
+  policySchema,
+  listAttendanceSchema,
+} from '../schemas/attendance.schema';
 
 export class AttendanceController {
   constructor(private readonly attendance: ManageAttendanceUseCase) {}
@@ -12,7 +16,7 @@ export class AttendanceController {
     const result = await this.attendance.recordPunch(
       context.companyId,
       context.actorUserId,
-      req.body,
+      createPunchSchema.parse(req.body),
     );
     res.status(201).json({ success: true, data: result });
   }
@@ -283,7 +287,7 @@ export class AttendanceController {
     const result = await this.attendance.setPolicy(
       context.companyId,
       context.actorUserId,
-      req.body,
+      policySchema.parse(req.body),
     );
     res.status(201).json({ success: true, data: result });
   }

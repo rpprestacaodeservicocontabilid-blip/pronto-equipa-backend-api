@@ -1,24 +1,54 @@
+import { z } from 'zod';
+
+import { SequelizePayrollPersistence } from '../persistence/repositories/sequelize-payroll-persistence';
+import { resolveRecordTransaction } from '../../../../shared/infrastructure/persistence/sequelize-record-store';
+import { payrollPdf, payrollXlsx } from '../payroll-export';
 import { Queue, Worker } from 'bullmq';
 import { Op, QueryTypes } from 'sequelize';
 import { sequelize } from '../../../../infra/database';
 import { RedisManager } from '../../../../infra/redis';
 import { logger } from '../../../../config/logger';
-import { settlePayrollLoanDeductions } from '../adapters/payroll-loans.adapter';
-import { CompanyModel } from '../../../tenancy/infrastructure/persistence/model/company.model';
+import {
+  settlePayrollLoanDeductions,
+  reservePayrollLoanDeductions,
+} from '../adapters/payroll-loans.adapter';
+import { CompanyModel } from '../../../tenancy/infrastructure/persistence/models/company.model';
 import { SequelizeMembershipReader } from '../../../tenancy/infrastructure/persistence/readers/sequelize-membership.reader';
 import { PayrollWorkflowService } from '../../application/use-cases/payroll-workflow.service';
-import { PayrollItem, PayrollExport, PayrollBatch } from '../payroll-workflow.models';
-import { PayrollOutboxModel } from '../payroll.models';
+import {
+  PayrollItem,
+  PayrollExport,
+  PayrollBatch,
+} from '../persistence/models/payroll-workflow.models';
+import { PayrollOutboxModel } from '../persistence/models/payroll.models';
 import {
   HttpPayrollLegalRules,
   SequelizePayrollSourceReader,
 } from '../adapters/payroll-integrations.adapter';
 import { PayrollCalculatorAdapter } from '../../../payroll-engine/infrastructure/adapters/payroll-calculator.adapter';
 
+const payrollTaskSchema = z.object({
+  companyId: z.coerce.number().int().positive(),
+  itemId: z.string().uuid(),
+});
+
 export const defaultPayrollService = () =>
   new PayrollWorkflowService(
     new SequelizePayrollSourceReader(new HttpPayrollLegalRules()),
     new PayrollCalculatorAdapter(),
+    new SequelizePayrollPersistence(),
+    {
+      reserve: (companyId, runId, snapshot, result, context, simulation) =>
+        reservePayrollLoanDeductions(
+          companyId,
+          runId,
+          snapshot,
+          result,
+          resolveRecordTransaction(context)!,
+          simulation,
+        ),
+    },
+    { pdf: payrollPdf, xlsx: payrollXlsx },
   );
 
 export class PayrollRuntime {
@@ -45,8 +75,7 @@ export class PayrollRuntime {
     this.worker = new Worker(
       'payroll-employee',
       async (job) => {
-        const companyId = Number(job.data.companyId);
-        const itemId = String(job.data.itemId);
+        const { companyId, itemId } = payrollTaskSchema.parse(job.data);
         if (!Number.isSafeInteger(companyId) || companyId <= 0)
           throw new Error('Invalid tenant job');
         // Actor and tenant come from persisted task data, never from queue claims.
@@ -69,7 +98,9 @@ export class PayrollRuntime {
           !membership ||
           membership.memberStatus !== 'ACTIVE' ||
           membership.companyStatus !== 'ACTIVE' ||
-          !permissions.includes(job.name === 'validate' ? 'payroll:runs:validate' : 'payroll:runs:process')
+          !permissions.includes(
+            job.name === 'validate' ? 'payroll:runs:validate' : 'payroll:runs:process',
+          )
         )
           throw new Error('Payroll job authorization revoked');
         if (job.name === 'validate') await service.processValidation(companyId, itemId);
@@ -103,13 +134,31 @@ export class PayrollRuntime {
       });
       for (const company of companies) {
         const companyId = company.id;
-        const validations = await sequelize.transaction(async transaction => {
-          if (sequelize.getDialect() === 'postgres') await sequelize.query("SELECT set_config('app.current_tenant', :id, true)", { replacements: { id: String(companyId) }, type: QueryTypes.SELECT, transaction });
-          return PayrollBatch.findAll({ where: { companyId, key: { [Op.like]: 'validation:%' }, status: { [Op.in]: ['PENDING', 'PROCESSING'] } }, limit: 2, transaction });
+        const validations = await sequelize.transaction(async (transaction) => {
+          if (sequelize.getDialect() === 'postgres')
+            await sequelize.query("SELECT set_config('app.current_tenant', :id, true)", {
+              replacements: { id: String(companyId) },
+              type: QueryTypes.SELECT,
+              transaction,
+            });
+          return PayrollBatch.findAll({
+            where: {
+              companyId,
+              key: { [Op.like]: 'validation:%' },
+              status: { [Op.in]: ['PENDING', 'PROCESSING'] },
+            },
+            limit: 2,
+            transaction,
+          });
         });
         for (const batch of validations) {
           if (batch.status === 'PROCESSING' && Number(batch.data.leaseUntil) > Date.now()) continue;
-          await this.enqueue('validate', companyId, batch.id, `${companyId}-validation-${batch.id}`);
+          await this.enqueue(
+            'validate',
+            companyId,
+            batch.id,
+            `${companyId}-validation-${batch.id}`,
+          );
         }
         const pending = await sequelize.transaction(async (transaction) => {
           if (sequelize.getDialect() === 'postgres')
@@ -129,7 +178,12 @@ export class PayrollRuntime {
         // filling the queue ahead of all other companies.
         for (const item of pending) {
           if (item.status === 'PROCESSING' && Number(item.data.leaseUntil) > Date.now()) continue;
-          await this.enqueue('calculate', companyId, item.id, `${companyId}-${item.id}-${item.version}-${Number(item.data.attempts)}`);
+          await this.enqueue(
+            'calculate',
+            companyId,
+            item.id,
+            `${companyId}-${item.id}-${item.version}-${Number(item.data.attempts)}`,
+          );
         }
         const exports = await sequelize.transaction(async (transaction) => {
           if (sequelize.getDialect() === 'postgres')
@@ -180,8 +234,16 @@ export class PayrollRuntime {
       });
       for (const event of events) {
         if (event.get('eventType') === 'payroll.run.closed') {
-          const payload = event.get('payload') as { actorUserId: number; results: Array<Record<string, unknown>> };
-          await settlePayrollLoanDeductions(companyId, String(event.get('aggregateId')), payload.actorUserId, payload.results);
+          const payload = event.get('payload') as {
+            actorUserId: number;
+            results: Array<Record<string, unknown>>;
+          };
+          await settlePayrollLoanDeductions(
+            companyId,
+            String(event.get('aggregateId')),
+            payload.actorUserId,
+            payload.results,
+          );
         }
         const response = await fetch(process.env.PAYROLL_EVENTS_URL!, {
           method: 'POST',
@@ -200,8 +262,21 @@ export class PayrollRuntime {
   }
   private async enqueue(name: string, companyId: number, itemId: string, jobId: string) {
     const existing = await this.queue!.getJob(jobId);
-    if (existing) { if (await existing.getState() === 'failed') await existing.retry(); return; }
-    await this.queue!.add(name, { companyId, itemId }, { jobId, attempts: 5, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: true, removeOnFail: 1000 });
+    if (existing) {
+      if ((await existing.getState()) === 'failed') await existing.retry();
+      return;
+    }
+    await this.queue!.add(
+      name,
+      { companyId, itemId },
+      {
+        jobId,
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: true,
+        removeOnFail: 1000,
+      },
+    );
   }
   async stop() {
     if (this.timer) clearInterval(this.timer);

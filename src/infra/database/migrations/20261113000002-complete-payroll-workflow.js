@@ -108,11 +108,20 @@ module.exports = {
     // SQLite rebuilds tables for DROP COLUMN. Sequelize incorrectly turns
     // multi-column unique indexes into per-column uniqueness during that
     // rebuild. Remove explicit indexes first, then restore their exact scope.
-    const indexes = q.sequelize.getDialect() === 'sqlite'
-      ? (await q.showIndex('payroll_runs')).filter(index => !index.primary && !index.name.startsWith('sqlite_autoindex')) : [];
+    const indexes =
+      q.sequelize.getDialect() === 'sqlite'
+        ? (await q.showIndex('payroll_runs')).filter(
+            (index) => !index.primary && !index.name.startsWith('sqlite_autoindex'),
+          )
+        : [];
     for (const index of indexes) await q.removeIndex('payroll_runs', index.name);
     await q.removeColumn('payroll_runs', 'reason');
     await q.removeColumn('payroll_runs', 'originalRunId');
-    for (const index of indexes) await q.addIndex('payroll_runs', index.fields.map(field => field.attribute), { name: index.name, unique: index.unique });
+    for (const index of indexes)
+      await q.addIndex(
+        'payroll_runs',
+        index.fields.map((field) => field.attribute),
+        { name: index.name, unique: index.unique },
+      );
   },
 };

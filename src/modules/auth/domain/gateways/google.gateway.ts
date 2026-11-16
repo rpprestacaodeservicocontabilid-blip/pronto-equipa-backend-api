@@ -1,7 +1,5 @@
 export interface GoogleGateway {
-  authenticate(
-    accessToken: string,
-  ): Promise<GoogleIdentity | null>;
+  authenticate(accessToken: string): Promise<GoogleIdentity | null>;
 }
 
 export interface GoogleIdentity {

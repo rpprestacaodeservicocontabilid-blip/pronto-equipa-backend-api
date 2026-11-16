@@ -11,7 +11,7 @@
  *   - tudo operacional                         → `up`    (200).
  */
 
-import type { HealthStatus } from "./types/application-context";
+import type { HealthStatus } from './types/application-context';
 
 export interface HealthCheckSnapshot {
   name: string;
@@ -49,19 +49,20 @@ export class HealthRegistry {
   }
 
   snapshot(): HealthSnapshot {
-    const checks: HealthCheckSnapshot[] = [...this.checks.entries()].map(
-      ([name, entry]) => ({ name, ...entry }),
-    );
+    const checks: HealthCheckSnapshot[] = [...this.checks.entries()].map(([name, entry]) => ({
+      name,
+      ...entry,
+    }));
 
-    let status: HealthStatus = "up";
+    let status: HealthStatus = 'up';
 
     for (const check of checks) {
-      if (check.critical && check.status === "down") {
-        return { status: "down", checks };
+      if (check.critical && check.status === 'down') {
+        return { status: 'down', checks };
       }
 
-      if (check.status !== "up" && status === "up") {
-        status = "degraded";
+      if (check.status !== 'up' && status === 'up') {
+        status = 'degraded';
       }
     }
 

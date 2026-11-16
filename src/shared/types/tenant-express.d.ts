@@ -1,4 +1,4 @@
-import type { TenantContext } from "./index";
+import type { TenantContext } from './index';
 
 declare global {
   namespace Express {

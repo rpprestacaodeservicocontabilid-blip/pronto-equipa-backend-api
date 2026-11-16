@@ -10,11 +10,11 @@
  * testes sem alterar os casos de uso.
  */
 
-import type { Express } from "express";
+import type { Express } from 'express';
 
-import type { Container } from "../container";
-import type { HealthRegistry } from "../health";
-import type { Lifecycle } from "../lifecycle";
+import type { Container } from '../container';
+import type { HealthRegistry } from '../health';
+import type { Lifecycle } from '../lifecycle';
 
 // ============================================================
 // CICLO DE VIDA (BOOT-006 / BOOT-009)
@@ -28,18 +28,18 @@ import type { Lifecycle } from "../lifecycle";
  *                   failed ──────┘
  */
 export type LifecycleState =
-  | "created"
-  | "initializing"
-  | "ready"
-  | "draining"
-  | "stopped"
-  | "failed";
+  | 'created'
+  | 'initializing'
+  | 'ready'
+  | 'draining'
+  | 'stopped'
+  | 'failed';
 
 // ============================================================
 // SAÚDE / PRONTIDÃO (BOOT-004)
 // ============================================================
 
-export type HealthStatus = "up" | "degraded" | "down";
+export type HealthStatus = 'up' | 'degraded' | 'down';
 
 // ============================================================
 // LOGGER (contrato mínimo — §5)
@@ -62,7 +62,7 @@ export interface Logger {
 // ============================================================
 
 export interface BootstrapConfig {
-  nodeEnv: "development" | "test" | "production";
+  nodeEnv: 'development' | 'test' | 'production';
   port: number;
   /** Interface de escuta. `0.0.0.0` para ser alcançável em Docker. */
   host: string;

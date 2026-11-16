@@ -1,8 +1,8 @@
-"use strict";
+'use strict';
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("roles", {
+    await queryInterface.createTable('roles', {
       id: {
         type: Sequelize.INTEGER.UNSIGNED,
         autoIncrement: true,
@@ -37,13 +37,13 @@ module.exports = {
       },
     });
 
-    await queryInterface.addIndex("roles", ["name"], {
+    await queryInterface.addIndex('roles', ['name'], {
       unique: true,
-      name: "uq_roles_name",
+      name: 'uq_roles_name',
     });
   },
 
   async down(queryInterface) {
-    await queryInterface.dropTable("roles");
+    await queryInterface.dropTable('roles');
   },
 };

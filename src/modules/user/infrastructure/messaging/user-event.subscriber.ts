@@ -1,26 +1,11 @@
 export interface UserEventBusSubscriber {
-    subscribe(
-        eventName: string,
-        handler: (
-            event: unknown,
-        ) => Promise<void>,
-    ): void;
+  subscribe(eventName: string, handler: (event: unknown) => Promise<void>): void;
 }
 
 export class UserEventSubscriber {
-    constructor(
-        private readonly eventBus: UserEventBusSubscriber,
-    ) { }
+  constructor(private readonly eventBus: UserEventBusSubscriber) {}
 
-    subscribe(
-        eventName: string,
-        handler: (
-            event: unknown,
-        ) => Promise<void>,
-    ): void {
-        this.eventBus.subscribe(
-            eventName,
-            handler,
-        );
-    }
+  subscribe(eventName: string, handler: (event: unknown) => Promise<void>): void {
+    this.eventBus.subscribe(eventName, handler);
+  }
 }

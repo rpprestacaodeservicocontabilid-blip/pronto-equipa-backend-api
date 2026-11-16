@@ -9,24 +9,21 @@
  * chamadores através de `onTransition`).
  */
 
-import type { LifecycleState } from "./types/application-context";
+import type { LifecycleState } from './types/application-context';
 
 const ALLOWED_TRANSITIONS: Record<LifecycleState, readonly LifecycleState[]> = {
-  created: ["initializing", "draining", "stopped"],
-  initializing: ["ready", "failed", "draining"],
-  ready: ["draining", "failed"],
-  draining: ["stopped", "failed"],
-  failed: ["stopped", "draining"],
+  created: ['initializing', 'draining', 'stopped'],
+  initializing: ['ready', 'failed', 'draining'],
+  ready: ['draining', 'failed'],
+  draining: ['stopped', 'failed'],
+  failed: ['stopped', 'draining'],
   stopped: [],
 };
 
-export type LifecycleListener = (
-  next: LifecycleState,
-  previous: LifecycleState,
-) => void;
+export type LifecycleListener = (next: LifecycleState, previous: LifecycleState) => void;
 
 export class Lifecycle {
-  private currentState: LifecycleState = "created";
+  private currentState: LifecycleState = 'created';
 
   private readonly listeners = new Set<LifecycleListener>();
 
@@ -36,17 +33,17 @@ export class Lifecycle {
 
   /** Pronto a servir tráfego. */
   get isReady(): boolean {
-    return this.currentState === "ready";
+    return this.currentState === 'ready';
   }
 
   /** A encerrar: novos pedidos recebem 503 (BOOT-009). */
   get isDraining(): boolean {
-    return this.currentState === "draining";
+    return this.currentState === 'draining';
   }
 
   /** Alias explícito do requisito BOOT-009. */
   get isAcceptingRequests(): boolean {
-    return this.currentState === "ready";
+    return this.currentState === 'ready';
   }
 
   canTransition(next: LifecycleState): boolean {
@@ -63,9 +60,7 @@ export class Lifecycle {
     if (previous === next) return;
 
     if (!this.canTransition(next)) {
-      throw new Error(
-        `[bootstrap] invalid lifecycle transition: ${previous} -> ${next}`,
-      );
+      throw new Error(`[bootstrap] invalid lifecycle transition: ${previous} -> ${next}`);
     }
 
     this.currentState = next;
@@ -86,34 +81,31 @@ export class Lifecycle {
   }
 
   markInitializing(): void {
-    this.transition("initializing");
+    this.transition('initializing');
   }
 
   markReady(): void {
-    this.transition("ready");
+    this.transition('ready');
   }
 
   /** Entra em draining (idempotente). No-op se já parou. */
   beginDrain(): void {
-    if (this.currentState === "draining" || this.currentState === "stopped") {
+    if (this.currentState === 'draining' || this.currentState === 'stopped') {
       return;
     }
-    this.transition("draining");
+    this.transition('draining');
   }
 
   markFailed(): void {
-    if (
-      this.currentState === "failed" ||
-      this.currentState === "stopped"
-    ) {
+    if (this.currentState === 'failed' || this.currentState === 'stopped') {
       return;
     }
-    this.transition("failed");
+    this.transition('failed');
   }
 
   markStopped(): void {
-    if (this.currentState === "stopped") return;
-    this.transition("stopped");
+    if (this.currentState === 'stopped') return;
+    this.transition('stopped');
   }
 
   toString(): string {

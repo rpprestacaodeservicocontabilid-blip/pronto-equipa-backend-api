@@ -3,7 +3,7 @@ import request from 'supertest';
 import { app } from '../../main/app';
 import { createActor, TestActor } from '../support/auth';
 import { resetTestDatabase } from '../support/database';
-import { UserRoleModel } from '../../modules/auth/infrastructure/persistence/model/user-role.model';
+import { UserRoleModel } from '../../modules/auth/infrastructure/persistence/models/user-role.model';
 import { PermissionModel } from '../../modules/user/infrastructure/persistence/models/permission.model';
 
 jest.setTimeout(60_000);

@@ -1,8 +1,6 @@
-import { DomainEvent } from "./domain-event";
+import { DomainEvent } from './domain-event';
 
-export class PasswordResetEvent
-  extends DomainEvent
-{
+export class PasswordResetEvent extends DomainEvent {
   constructor(
     public readonly userId: number,
     public readonly authAccountId: number,
@@ -11,6 +9,6 @@ export class PasswordResetEvent
   }
 
   public get eventName(): string {
-    return "auth.password.reset";
+    return 'auth.password.reset';
   }
 }

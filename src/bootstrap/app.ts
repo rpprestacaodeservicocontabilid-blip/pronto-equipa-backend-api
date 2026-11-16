@@ -12,25 +12,25 @@
  * em `server.ts`.
  */
 
-import express, { type Express } from "express";
+import express, { type Express } from 'express';
 
-import "express-async-errors";
+import 'express-async-errors';
 
-import { logger as defaultLogger } from "../config/logger";
+import { logger as defaultLogger } from '../config/logger';
 
-import { Container } from "./container";
-import { HealthRegistry } from "./health";
-import { Lifecycle } from "./lifecycle";
-import { registerErrorHandlers } from "./register-error-handlers";
-import { registerMiddlewares } from "./register-middlewares";
-import { registerRoutes } from "./register-routes";
-import { validateEnvironment } from "./validate-environment";
+import { Container } from './container';
+import { HealthRegistry } from './health';
+import { Lifecycle } from './lifecycle';
+import { registerErrorHandlers } from './register-error-handlers';
+import { registerMiddlewares } from './register-middlewares';
+import { registerRoutes } from './register-routes';
+import { validateEnvironment } from './validate-environment';
 
 import type {
   AppDependencies,
   ApplicationContext,
   CreateContextOptions,
-} from "./types/application-context";
+} from './types/application-context';
 
 /**
  * Cria e liga o contexto da aplicação ao contentor.
@@ -39,9 +39,7 @@ import type {
  * para que os módulos possam ser inicializados com ele; em
  * testes basta chamar `createApp()`.
  */
-export function createApplicationContext(
-  options: CreateContextOptions = {},
-): ApplicationContext {
+export function createApplicationContext(options: CreateContextOptions = {}): ApplicationContext {
   const container = options.container ?? new Container();
   const lifecycle = options.lifecycle ?? new Lifecycle();
   const health = options.health ?? new HealthRegistry();
@@ -59,10 +57,10 @@ export function createApplicationContext(
   container.bind(context);
 
   // Serviços base sempre disponíveis no contentor.
-  container.register("app.context", () => context);
-  container.register("app.lifecycle", () => lifecycle);
-  container.register("app.health", () => health);
-  container.register("app.config", () => config);
+  container.register('app.context', () => context);
+  container.register('app.lifecycle', () => lifecycle);
+  container.register('app.health', () => health);
+  container.register('app.config', () => config);
 
   return context;
 }

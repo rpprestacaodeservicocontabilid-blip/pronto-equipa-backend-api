@@ -1,13 +1,13 @@
 import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { app } from '../../main/app';
-import { AuditLogModel } from '../../modules/audit/infrastructure/persistence/model/audit-log.model';
-import { EmploymentContractModel } from '../../modules/contracts/infrastructure/persistence/model/employment-contract.model';
-import { EmployeeModel } from '../../modules/employees/infrastructure/persistence/model/employee.model';
-import { CompanyMemberModel } from '../../modules/tenancy/infrastructure/persistence/model/company-member.model';
+import { AuditLogModel } from '../../modules/audit/infrastructure/persistence/models/audit-log.model';
+import { EmploymentContractModel } from '../../modules/contracts/infrastructure/persistence/models/employment-contract.model';
+import { EmployeeModel } from '../../modules/employees/infrastructure/persistence/models/employee.model';
+import { CompanyMemberModel } from '../../modules/tenancy/infrastructure/persistence/models/company-member.model';
 import { PermissionModel } from '../../modules/user/infrastructure/persistence/models/permission.model';
 import { RoleModel } from '../../modules/user/infrastructure/persistence/models/role.model';
-import { RolePermissionModel } from '../../modules/auth/infrastructure/persistence/model/role-permission.model';
+import { RolePermissionModel } from '../../modules/auth/infrastructure/persistence/models/role-permission.model';
 import { createActor, TestActor } from '../support/auth';
 import { resetTestDatabase } from '../support/database';
 

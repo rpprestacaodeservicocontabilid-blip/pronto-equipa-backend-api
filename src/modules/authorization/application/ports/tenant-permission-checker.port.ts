@@ -10,13 +10,9 @@
  * da empresa (`company_members.roleId`) define o acesso.
  */
 export interface TenantPermissionCheckerPort {
-    /**
-     * `true` quando o utilizador tem a permissão indicada na empresa
-     * indicada (membro activo + papel com a permissão).
-     */
-    hasPermission(
-        userId: number,
-        companyId: number,
-        permission: string,
-    ): Promise<boolean>;
+  /**
+   * `true` quando o utilizador tem a permissão indicada na empresa
+   * indicada (membro activo + papel com a permissão).
+   */
+  hasPermission(userId: number, companyId: number, permission: string): Promise<boolean>;
 }

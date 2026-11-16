@@ -4,7 +4,12 @@ module.exports = {
   async up(q, S) {
     await q.createTable('legal_rule_sets', {
       id: { type: S.UUID, primaryKey: true, allowNull: false },
-      companyId: { type: S.INTEGER, allowNull: true, references: { model: 'companies', key: 'id' }, onDelete: 'RESTRICT' },
+      companyId: {
+        type: S.INTEGER,
+        allowNull: true,
+        references: { model: 'companies', key: 'id' },
+        onDelete: 'RESTRICT',
+      },
       scopeKey: { type: S.STRING(40), allowNull: false },
       ruleSetId: { type: S.STRING(100), allowNull: false },
       version: { type: S.STRING(50), allowNull: false },
@@ -29,16 +34,29 @@ module.exports = {
       updatedAt: { type: S.DATE, allowNull: false },
     });
     await q.addIndex('legal_rule_sets', ['scopeKey', 'ruleSetId', 'version'], {
-      unique: true, name: 'uq_legal_rule_scope_version',
+      unique: true,
+      name: 'uq_legal_rule_scope_version',
     });
-    await q.addIndex('legal_rule_sets', ['jurisdiction', 'status', 'effectiveFrom', 'effectiveTo'], {
-      name: 'ix_legal_rule_resolution',
+    await q.addIndex(
+      'legal_rule_sets',
+      ['jurisdiction', 'status', 'effectiveFrom', 'effectiveTo'],
+      {
+        name: 'ix_legal_rule_resolution',
+      },
+    );
+    await q.addIndex('legal_rule_sets', ['companyId', 'status'], {
+      name: 'ix_legal_rule_company_status',
     });
-    await q.addIndex('legal_rule_sets', ['companyId', 'status'], { name: 'ix_legal_rule_company_status' });
     if (q.sequelize.getDialect() === 'postgres') {
-      await q.sequelize.query(`ALTER TABLE legal_rule_sets ADD CONSTRAINT ck_legal_rule_effective_dates CHECK ("effectiveTo" IS NULL OR "effectiveTo" >= "effectiveFrom")`);
-      await q.sequelize.query(`ALTER TABLE legal_rule_sets ADD CONSTRAINT ck_legal_rule_jurisdiction CHECK (jurisdiction = 'AO')`);
-      await q.sequelize.query(`ALTER TABLE legal_rule_sets ADD CONSTRAINT ck_legal_rule_status CHECK (status IN ('DRAFT','IN_REVIEW','APPROVED','PUBLISHED','RETIRED'))`);
+      await q.sequelize.query(
+        `ALTER TABLE legal_rule_sets ADD CONSTRAINT ck_legal_rule_effective_dates CHECK ("effectiveTo" IS NULL OR "effectiveTo" >= "effectiveFrom")`,
+      );
+      await q.sequelize.query(
+        `ALTER TABLE legal_rule_sets ADD CONSTRAINT ck_legal_rule_jurisdiction CHECK (jurisdiction = 'AO')`,
+      );
+      await q.sequelize.query(
+        `ALTER TABLE legal_rule_sets ADD CONSTRAINT ck_legal_rule_status CHECK (status IN ('DRAFT','IN_REVIEW','APPROVED','PUBLISHED','RETIRED'))`,
+      );
       await q.sequelize.query(`CREATE FUNCTION protect_legal_rule_set() RETURNS trigger AS $$
         BEGIN
           IF TG_OP = 'DELETE' THEN
@@ -65,12 +83,16 @@ module.exports = {
           END IF;
           RETURN NEW;
         END; $$ LANGUAGE plpgsql`);
-      await q.sequelize.query(`CREATE TRIGGER legal_rule_sets_immutable BEFORE UPDATE OR DELETE ON legal_rule_sets FOR EACH ROW EXECUTE FUNCTION protect_legal_rule_set()`);
+      await q.sequelize.query(
+        `CREATE TRIGGER legal_rule_sets_immutable BEFORE UPDATE OR DELETE ON legal_rule_sets FOR EACH ROW EXECUTE FUNCTION protect_legal_rule_set()`,
+      );
     }
   },
   async down(q) {
     if (q.sequelize.getDialect() === 'postgres') {
-      await q.sequelize.query('DROP TRIGGER IF EXISTS legal_rule_sets_immutable ON legal_rule_sets');
+      await q.sequelize.query(
+        'DROP TRIGGER IF EXISTS legal_rule_sets_immutable ON legal_rule_sets',
+      );
       await q.sequelize.query('DROP FUNCTION IF EXISTS protect_legal_rule_set()');
     }
     await q.dropTable('legal_rule_sets');

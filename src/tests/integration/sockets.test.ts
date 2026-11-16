@@ -15,10 +15,7 @@ describe('Socket.io Notifications', () => {
   const PORT = 3001;
 
   async function mintToken(userId = 1): Promise<string> {
-    const service = new JwtTokenService(
-      ENV.JWT.SECRET || 'secret',
-      '15m',
-    );
+    const service = new JwtTokenService(ENV.JWT.SECRET || 'secret', '15m');
 
     const result = await service.generateAccessToken({
       userId,
@@ -100,11 +97,9 @@ describe('Socket.io Notifications', () => {
       clientSocket.on('connect', () => {
         // Rooms são verificadas no servidor (o cliente não expõe rooms).
         setTimeout(() => {
-          const rooms: Map<string, Set<string>> = (
-            ioServer.sockets.adapter as unknown as {
-              rooms: Map<string, Set<string>>;
-            }
-          ).rooms;
+          const { rooms } = ioServer.sockets.adapter as unknown as {
+            rooms: Map<string, Set<string>>;
+          };
 
           expect(rooms.has('user:1')).toBe(true);
           expect(rooms.has('city:1')).toBe(true);

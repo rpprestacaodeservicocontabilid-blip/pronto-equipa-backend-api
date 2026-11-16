@@ -1,19 +1,19 @@
-import { Lifecycle } from "../../bootstrap/lifecycle";
+import { Lifecycle } from '../../bootstrap/lifecycle';
 
 // ============================================================
 // BOOT-007 — gestão do ciclo de vida da aplicação
 // ============================================================
 
-describe("Lifecycle", () => {
-  it("percorre created → initializing → ready → draining → stopped", () => {
+describe('Lifecycle', () => {
+  it('percorre created → initializing → ready → draining → stopped', () => {
     const lifecycle = new Lifecycle();
 
-    expect(lifecycle.state).toBe("created");
+    expect(lifecycle.state).toBe('created');
     expect(lifecycle.isReady).toBe(false);
     expect(lifecycle.isAcceptingRequests).toBe(false);
 
     lifecycle.markInitializing();
-    expect(lifecycle.state).toBe("initializing");
+    expect(lifecycle.state).toBe('initializing');
 
     lifecycle.markReady();
     expect(lifecycle.isReady).toBe(true);
@@ -24,40 +24,36 @@ describe("Lifecycle", () => {
     expect(lifecycle.isAcceptingRequests).toBe(false);
 
     lifecycle.markStopped();
-    expect(lifecycle.state).toBe("stopped");
+    expect(lifecycle.state).toBe('stopped');
   });
 
-  it("impede transições ilegais", () => {
+  it('impede transições ilegais', () => {
     const lifecycle = new Lifecycle();
 
-    expect(() => lifecycle.markReady()).toThrow(
-      "invalid lifecycle transition: created -> ready",
-    );
+    expect(() => lifecycle.markReady()).toThrow('invalid lifecycle transition: created -> ready');
 
     lifecycle.markInitializing();
     lifecycle.markReady();
 
     expect(() => lifecycle.markInitializing()).toThrow(
-      "invalid lifecycle transition: ready -> initializing",
+      'invalid lifecycle transition: ready -> initializing',
     );
 
     lifecycle.beginDrain();
 
-    expect(() => lifecycle.markReady()).toThrow(
-      "invalid lifecycle transition: draining -> ready",
-    );
+    expect(() => lifecycle.markReady()).toThrow('invalid lifecycle transition: draining -> ready');
   });
 
-  it("suporta falha de inicialização e de encerramento", () => {
+  it('suporta falha de inicialização e de encerramento', () => {
     const lifecycle = new Lifecycle();
 
     lifecycle.markInitializing();
     lifecycle.markFailed();
 
-    expect(lifecycle.state).toBe("failed");
+    expect(lifecycle.state).toBe('failed');
 
     lifecycle.markStopped();
-    expect(lifecycle.state).toBe("stopped");
+    expect(lifecycle.state).toBe('stopped');
 
     // Falha durante o draining também é explícita.
     const other = new Lifecycle();
@@ -66,10 +62,10 @@ describe("Lifecycle", () => {
     other.beginDrain();
     other.markFailed();
 
-    expect(other.state).toBe("failed");
+    expect(other.state).toBe('failed');
   });
 
-  it("é idempotente no encerramento (BOOT-008)", () => {
+  it('é idempotente no encerramento (BOOT-008)', () => {
     const lifecycle = new Lifecycle();
 
     lifecycle.markInitializing();
@@ -80,10 +76,10 @@ describe("Lifecycle", () => {
     lifecycle.markStopped();
     lifecycle.markFailed();
 
-    expect(lifecycle.state).toBe("stopped");
+    expect(lifecycle.state).toBe('stopped');
   });
 
-  it("notifica ouvintes e permite cancelar a subscrição", () => {
+  it('notifica ouvintes e permite cancelar a subscrição', () => {
     const lifecycle = new Lifecycle();
     const seen: string[] = [];
 
@@ -97,24 +93,24 @@ describe("Lifecycle", () => {
     unsubscribe();
     lifecycle.beginDrain();
 
-    expect(seen).toEqual(["created->initializing", "initializing->ready"]);
+    expect(seen).toEqual(['created->initializing', 'initializing->ready']);
   });
 
-  it("ignora ouvintes que lançam erro", () => {
+  it('ignora ouvintes que lançam erro', () => {
     const lifecycle = new Lifecycle();
 
     lifecycle.onTransition(() => {
-      throw new Error("listener failed");
+      throw new Error('listener failed');
     });
 
     lifecycle.markInitializing();
 
-    expect(lifecycle.state).toBe("initializing");
+    expect(lifecycle.state).toBe('initializing');
   });
 
-  it("representa o estado em string", () => {
+  it('representa o estado em string', () => {
     const lifecycle = new Lifecycle();
 
-    expect(String(lifecycle)).toBe("created");
+    expect(String(lifecycle)).toBe('created');
   });
 });

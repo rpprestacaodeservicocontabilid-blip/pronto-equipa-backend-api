@@ -1,15 +1,9 @@
 export class AccessToken {
-  private constructor(
-    private readonly value: string,
-  ) {}
+  private constructor(private readonly value: string) {}
 
-  public static create(
-    value: string,
-  ): AccessToken {
+  public static create(value: string): AccessToken {
     if (!value?.trim()) {
-      throw new Error(
-        "Access token is required.",
-      );
+      throw new Error('Access token is required.');
     }
 
     return new AccessToken(value);

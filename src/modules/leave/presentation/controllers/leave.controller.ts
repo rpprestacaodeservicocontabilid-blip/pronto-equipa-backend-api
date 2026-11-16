@@ -261,12 +261,9 @@ export class LeaveController {
       endDate: string;
       establishmentId?: string;
     };
-    const data = await this.planning.getCalendar(
-      companyId,
-      query.startDate,
-      query.endDate,
-      { establishmentId: query.establishmentId ?? null },
-    );
+    const data = await this.planning.getCalendar(companyId, query.startDate, query.endDate, {
+      establishmentId: query.establishmentId ?? null,
+    });
     res.status(200).json({ success: true, data });
   }
 

@@ -1,9 +1,9 @@
-"use strict";
+'use strict';
 
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("auth_accounts", {
+    await queryInterface.createTable('auth_accounts', {
       id: {
         type: Sequelize.INTEGER,
         allowNull: false,
@@ -77,34 +77,22 @@ module.exports = {
     // INDEXES
     // ============================================================
 
-    await queryInterface.addIndex(
-      "auth_accounts",
-      ["provider", "providerAccountId"],
-      {
-        unique: true,
-        name: "uq_auth_accounts_provider_account",
-      },
-    );
+    await queryInterface.addIndex('auth_accounts', ['provider', 'providerAccountId'], {
+      unique: true,
+      name: 'uq_auth_accounts_provider_account',
+    });
 
-    await queryInterface.addIndex(
-      "auth_accounts",
-      ["email"],
-      {
-        unique: true,
-        name: "uq_auth_accounts_email",
-      },
-    );
+    await queryInterface.addIndex('auth_accounts', ['email'], {
+      unique: true,
+      name: 'uq_auth_accounts_email',
+    });
 
-    await queryInterface.addIndex(
-      "auth_accounts",
-      ["userId"],
-      {
-        name: "idx_auth_accounts_user_id",
-      },
-    );
+    await queryInterface.addIndex('auth_accounts', ['userId'], {
+      name: 'idx_auth_accounts_user_id',
+    });
   },
 
   async down(queryInterface) {
-    await queryInterface.dropTable("auth_accounts");
+    await queryInterface.dropTable('auth_accounts');
   },
 };

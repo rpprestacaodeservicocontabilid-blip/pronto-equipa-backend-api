@@ -1,6 +1,6 @@
 import { CronJob } from 'cron';
 import { logger } from '../../../../config/logger';
-import { CompanyModel } from '../../../tenancy/infrastructure/persistence/model/company.model';
+import { CompanyModel } from '../../../tenancy/infrastructure/persistence/models/company.model';
 import { SequelizeContractRepository } from '../persistence/repositories/sequelize-contract.repository';
 
 export class ContractExpirationJob {

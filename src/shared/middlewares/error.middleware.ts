@@ -5,10 +5,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
-import {
-  ForeignKeyConstraintError,
-  UniqueConstraintError,
-} from 'sequelize';
+import { ForeignKeyConstraintError, UniqueConstraintError } from 'sequelize';
 import { logger } from '../../config/logger';
 import { AppError } from '../errors/app.error';
 
@@ -79,8 +76,7 @@ export function errorMiddleware(
     return res.status(400).json({
       success: false,
       error: {
-        message:
-          'Invalid reference: the related record does not exist',
+        message: 'Invalid reference: the related record does not exist',
         code: 'FOREIGN_KEY_VIOLATION',
         statusCode: 400,
         timestamp: new Date().toISOString(),
@@ -91,7 +87,7 @@ export function errorMiddleware(
   // Fallback para erros de domínio legados (plain Error).
   // Mapeia mensagens convencionais para o status HTTP correto.
   if (error instanceof Error) {
-    const message = error.message || "";
+    const message = error.message || '';
 
     if (/not found\.?$/i.test(message)) {
       return res.status(404).json({

@@ -1,4 +1,4 @@
-"use strict";
+'use strict';
 
 /**
  * Correção das chaves estrangeiras de `role_permissions`.
@@ -41,7 +41,7 @@
 module.exports = {
   async up(queryInterface) {
     const sequelize = queryInterface.sequelize;
-    const isSqlite = sequelize.getDialect() === "sqlite";
+    const isSqlite = sequelize.getDialect() === 'sqlite';
 
     // ============================================================
     // 1. LIGAÇÕES ÓRFÃS
@@ -62,41 +62,41 @@ module.exports = {
     // ============================================================
 
     if (isSqlite) {
-      await sequelize.query("PRAGMA foreign_keys = OFF");
+      await sequelize.query('PRAGMA foreign_keys = OFF');
     }
 
     try {
       const wrongConstraints = [
-        "fk_role_permissions_role",
-        "fk_role_permissions_permission",
-        "fk_role_permissions_permission_id",
+        'fk_role_permissions_role',
+        'fk_role_permissions_permission',
+        'fk_role_permissions_permission_id',
       ];
 
       for (const name of wrongConstraints) {
         try {
-          await queryInterface.removeConstraint("role_permissions", name);
+          await queryInterface.removeConstraint('role_permissions', name);
         } catch (error) {
           // Já não existe (corrido noutra base) — segue em frente.
-          if (error.name !== "UnknownConstraintError") {
+          if (error.name !== 'UnknownConstraintError') {
             throw error;
           }
         }
       }
 
-      await queryInterface.addConstraint("role_permissions", {
-        fields: ["permissionId"],
-        type: "foreign key",
-        name: "fk_role_permissions_permission_id",
+      await queryInterface.addConstraint('role_permissions', {
+        fields: ['permissionId'],
+        type: 'foreign key',
+        name: 'fk_role_permissions_permission_id',
         references: {
-          table: "permissions",
-          field: "id",
+          table: 'permissions',
+          field: 'id',
         },
-        onUpdate: "CASCADE",
-        onDelete: "CASCADE",
+        onUpdate: 'CASCADE',
+        onDelete: 'CASCADE',
       });
     } finally {
       if (isSqlite) {
-        await sequelize.query("PRAGMA foreign_keys = ON");
+        await sequelize.query('PRAGMA foreign_keys = ON');
       }
     }
 
@@ -104,20 +104,16 @@ module.exports = {
     // 3. ÍNDICE ÚNICO (perdido nos rebuilds do SQLite)
     // ============================================================
 
-    const indexes = await queryInterface.showIndex("role_permissions");
+    const indexes = await queryInterface.showIndex('role_permissions');
     const hasUniqueIndex = indexes.some(
-      (index) => index.name === "uq_role_permissions_role_permission",
+      (index) => index.name === 'uq_role_permissions_role_permission',
     );
 
     if (!hasUniqueIndex) {
-      await queryInterface.addIndex(
-        "role_permissions",
-        ["roleId", "permissionId"],
-        {
-          name: "uq_role_permissions_role_permission",
-          unique: true,
-        },
-      );
+      await queryInterface.addIndex('role_permissions', ['roleId', 'permissionId'], {
+        name: 'uq_role_permissions_role_permission',
+        unique: true,
+      });
     }
   },
 
@@ -130,20 +126,20 @@ module.exports = {
    */
   async down(queryInterface) {
     const sequelize = queryInterface.sequelize;
-    const isSqlite = sequelize.getDialect() === "sqlite";
+    const isSqlite = sequelize.getDialect() === 'sqlite';
 
     if (isSqlite) {
-      await sequelize.query("PRAGMA foreign_keys = OFF");
+      await sequelize.query('PRAGMA foreign_keys = OFF');
     }
 
     try {
       try {
         await queryInterface.removeConstraint(
-          "role_permissions",
-          "fk_role_permissions_permission_id",
+          'role_permissions',
+          'fk_role_permissions_permission_id',
         );
       } catch (error) {
-        if (error.name !== "UnknownConstraintError") {
+        if (error.name !== 'UnknownConstraintError') {
           throw error;
         }
       }
@@ -156,32 +152,32 @@ module.exports = {
                 )`,
       );
 
-      await queryInterface.addConstraint("role_permissions", {
-        fields: ["permissionId"],
-        type: "foreign key",
-        name: "fk_role_permissions_permission_id",
+      await queryInterface.addConstraint('role_permissions', {
+        fields: ['permissionId'],
+        type: 'foreign key',
+        name: 'fk_role_permissions_permission_id',
         references: {
-          table: "auth_permissions",
-          field: "id",
+          table: 'auth_permissions',
+          field: 'id',
         },
-        onUpdate: "CASCADE",
-        onDelete: "CASCADE",
+        onUpdate: 'CASCADE',
+        onDelete: 'CASCADE',
       });
 
-      await queryInterface.addConstraint("role_permissions", {
-        fields: ["roleId"],
-        type: "foreign key",
-        name: "fk_role_permissions_role",
+      await queryInterface.addConstraint('role_permissions', {
+        fields: ['roleId'],
+        type: 'foreign key',
+        name: 'fk_role_permissions_role',
         references: {
-          table: "auth_roles",
-          field: "id",
+          table: 'auth_roles',
+          field: 'id',
         },
-        onUpdate: "CASCADE",
-        onDelete: "CASCADE",
+        onUpdate: 'CASCADE',
+        onDelete: 'CASCADE',
       });
     } finally {
       if (isSqlite) {
-        await sequelize.query("PRAGMA foreign_keys = ON");
+        await sequelize.query('PRAGMA foreign_keys = ON');
       }
     }
   },

@@ -1,4 +1,4 @@
-"use strict";
+'use strict';
 
 /**
  * Seed das roles canónicas do sistema.
@@ -18,15 +18,15 @@ module.exports = {
     const now = new Date();
 
     const roles = [
-      { id: 3, name: "TEAM_OWNER" },
-      { id: 4, name: "FIELD_OWNER" },
-      { id: 5, name: "ORGANIZER" },
-      { id: 7, name: "ADMIN" },
-      { id: 8, name: "SUPER_ADMIN" },
+      { id: 3, name: 'TEAM_OWNER' },
+      { id: 4, name: 'FIELD_OWNER' },
+      { id: 5, name: 'ORGANIZER' },
+      { id: 7, name: 'ADMIN' },
+      { id: 8, name: 'SUPER_ADMIN' },
     ];
 
     await queryInterface.bulkInsert(
-      "roles",
+      'roles',
       roles.map((role) => ({
         ...role,
         description: null,
@@ -38,7 +38,7 @@ module.exports = {
     );
 
     await queryInterface.bulkInsert(
-      "auth_roles",
+      'auth_roles',
       roles.map((role) => ({
         ...role,
         description: null,
@@ -50,24 +50,10 @@ module.exports = {
   },
 
   async down(queryInterface, Sequelize) {
-    const names = [
-      "TEAM_OWNER",
-      "FIELD_OWNER",
-      "ORGANIZER",
-      "ADMIN",
-      "SUPER_ADMIN",
-    ];
+    const names = ['TEAM_OWNER', 'FIELD_OWNER', 'ORGANIZER', 'ADMIN', 'SUPER_ADMIN'];
 
-    await queryInterface.bulkDelete(
-      "roles",
-      { name: { [Sequelize.Op.in]: names } },
-      {},
-    );
+    await queryInterface.bulkDelete('roles', { name: { [Sequelize.Op.in]: names } }, {});
 
-    await queryInterface.bulkDelete(
-      "auth_roles",
-      { name: { [Sequelize.Op.in]: names } },
-      {},
-    );
+    await queryInterface.bulkDelete('auth_roles', { name: { [Sequelize.Op.in]: names } }, {});
   },
 };

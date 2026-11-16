@@ -15,10 +15,25 @@ const permissions = [
   ['contracts.terminate', 'Registar cessação de contratos.', 'contracts', 'terminate'],
   ['contracts.archive', 'Arquivar contratos encerrados.', 'contracts', 'archive'],
   ['contracts.documents.read', 'Consultar documentos contratuais.', 'contracts.documents', 'read'],
-  ['contracts.documents.manage', 'Associar documentos contratuais.', 'contracts.documents', 'manage'],
-  ['contracts.history.read', 'Consultar versões e histórico contratual.', 'contracts.history', 'read'],
+  [
+    'contracts.documents.manage',
+    'Associar documentos contratuais.',
+    'contracts.documents',
+    'manage',
+  ],
+  [
+    'contracts.history.read',
+    'Consultar versões e histórico contratual.',
+    'contracts.history',
+    'read',
+  ],
   ['contracts.export', 'Exportar informação contratual autorizada.', 'contracts', 'export'],
-  ['contracts.types.manage', 'Configurar modalidades contratuais da empresa.', 'contracts.types', 'manage'],
+  [
+    'contracts.types.manage',
+    'Configurar modalidades contratuais da empresa.',
+    'contracts.types',
+    'manage',
+  ],
 ];
 
 module.exports = {

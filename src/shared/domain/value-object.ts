@@ -27,9 +27,7 @@ function valuesEqual(left: unknown, right: unknown): boolean {
   return false;
 }
 
-export abstract class ValueObject<
-  TProps extends ValueObjectProps = ValueObjectProps,
-> {
+export abstract class ValueObject<TProps extends ValueObjectProps = ValueObjectProps> {
   protected readonly props: Readonly<TProps>;
 
   protected constructor(props: TProps) {
@@ -65,8 +63,7 @@ export abstract class ValueObject<
 
     return leftKeys.every(
       (key) =>
-        Object.prototype.hasOwnProperty.call(right, key) &&
-        valuesEqual(left[key], right[key]),
+        Object.prototype.hasOwnProperty.call(right, key) && valuesEqual(left[key], right[key]),
     );
   }
 

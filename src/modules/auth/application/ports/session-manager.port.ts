@@ -31,26 +31,15 @@ export interface SessionResult {
 }
 
 export interface SessionManagerPort {
-  createSession(
-    input: CreateSessionInput,
-  ): Promise<SessionResult>;
+  createSession(input: CreateSessionInput): Promise<SessionResult>;
 
-  getSession(
-    sessionId: number,
-  ): Promise<SessionResult | null>;
+  getSession(sessionId: number): Promise<SessionResult | null>;
 
-  revokeSession(
-    sessionId: number,
-  ): Promise<void>;
+  revokeSession(sessionId: number): Promise<void>;
 
-  revokeAllSessions(
-    userId: number,
-    exceptSessionId?: number,
-  ): Promise<void>;
+  revokeAllSessions(userId: number, exceptSessionId?: number): Promise<void>;
 
-  isSessionActive(
-    sessionId: number,
-  ): Promise<boolean>;
+  isSessionActive(sessionId: number): Promise<boolean>;
 
   registerRefreshToken(input: {
     sessionId: number;
