@@ -1,3 +1,4 @@
+import { AuditObject } from '../../domain/audit-contracts';
 import {
   AuditAccess,
   AuditQuery,
@@ -13,7 +14,7 @@ export class AuditExportService {
     private readonly core: AuditCore,
     private readonly evidence: AuditEvidenceService,
   ) {}
-  async request(access: AuditAccess, filter: AuditQuery) {
+  async request(access: AuditAccess, filter: AuditQuery): Promise<AuditObject> {
     this.core.purpose(access);
     this.core.validateQuery(filter);
     return this.core.repository.transaction(access, async (tx) => {
@@ -50,7 +51,12 @@ export class AuditExportService {
       return row;
     });
   }
-  async decide(access: AuditAccess, id: string, approved: boolean, reason: string) {
+  async decide(
+    access: AuditAccess,
+    id: string,
+    approved: boolean,
+    reason: string,
+  ): Promise<AuditObject> {
     return this.core.repository.transaction(access, async (tx) => {
       const row = await this.core.requireObject(access, 'EXPORT', id, tx);
       if (row.data.sensitive === true && !access.sensitive)
@@ -77,7 +83,8 @@ export class AuditExportService {
       return updated;
     });
   }
-  async execute(access: AuditAccess, id: string) {
+  async execute(access: AuditAccess, id: string): Promise<AuditObject> {
+    const leaseToken = this.core.clock.id();
     const claimed = await this.core.repository.transaction(access, async (tx) => {
       const row = await this.core.requireObject(access, 'EXPORT', id, tx);
       if (row.status === 'READY') return row;
@@ -95,7 +102,7 @@ export class AuditExportService {
         row,
         {
           status: 'PROCESSING',
-          data: { ...row.data, leaseUntil: this.core.clock.now().getTime() + 300000 },
+          data: { ...row.data, leaseToken, leaseUntil: this.core.clock.now().getTime() + 300000 },
         },
         tx,
       );
@@ -110,6 +117,7 @@ export class AuditExportService {
       const pack = await this.evidence.create(ownerAccess, auditStrings(claimed.data.recordIds));
       return this.core.repository.transaction(access, async (tx) => {
         const row = await this.core.requireObject(access, 'EXPORT', id, tx);
+        if (row.data.leaseToken !== leaseToken) throw auditFailure('Export lease changed.', 409);
         const updated = await this.core.repository.updateObject(
           row,
           {
@@ -136,6 +144,7 @@ export class AuditExportService {
     } catch (error) {
       await this.core.repository.transaction(access, async (tx) => {
         const row = await this.core.requireObject(access, 'EXPORT', id, tx);
+        if (row.data.leaseToken !== leaseToken) return;
         await this.core.repository.updateObject(
           row,
           {
@@ -152,7 +161,7 @@ export class AuditExportService {
       throw error;
     }
   }
-  async download(access: AuditAccess, id: string) {
+  async download(access: AuditAccess, id: string): Promise<Buffer> {
     const row = await this.core.objectData(access, 'EXPORT', id);
     new AuditExportRequest(row).assertDownload(access.actorId);
     const bytes = await this.evidence.download(

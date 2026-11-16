@@ -1,10 +1,10 @@
+import { AuditObject } from '../../domain/audit-contracts';
 import {
   AuditAccess,
   AuditCategory,
-  AuditRecordView,
   auditFailure,
-  auditStrings,
   auditText,
+  auditStrings,
 } from '../../domain/audit-contracts';
 import { AuditCore } from './audit-core';
 import { AuditEvidenceService } from './audit-evidence.service';
@@ -17,8 +17,14 @@ export class AuditRetentionService {
   ) {}
   async policy(
     access: AuditAccess,
-    input: { category: AuditCategory; days: number; legalReference: string; reason: string },
-  ) {
+    input: {
+      category: AuditCategory;
+      days: number;
+      legalReference: string;
+      reason: string;
+      automatic?: boolean;
+    },
+  ): Promise<AuditObject> {
     if (!Number.isSafeInteger(input.days) || input.days < 1)
       throw auditFailure('A positive retention period must be explicitly approved.');
     return this.core.repository.transaction(access, async (tx) => {
@@ -63,7 +69,7 @@ export class AuditRetentionService {
       resourceId?: string;
       wholeScope?: boolean;
     },
-  ) {
+  ): Promise<AuditObject> {
     if (!input.wholeScope && !input.recordIds?.length && !input.resourceType)
       throw auditFailure('Specify records, a resource, or an explicit scope-wide legal hold.');
     return this.core.repository.transaction(access, async (tx) => {
@@ -91,7 +97,7 @@ export class AuditRetentionService {
       return row;
     });
   }
-  release(access: AuditAccess, id: string, reason: string) {
+  release(access: AuditAccess, id: string, reason: string): Promise<AuditObject> {
     return this.core.repository.transaction(access, async (tx) => {
       const row = await this.core.requireObject(access, 'LEGAL_HOLD', id, tx);
       if (row.status !== 'ACTIVE') throw auditFailure('Legal hold is not active.', 409);
@@ -119,7 +125,7 @@ export class AuditRetentionService {
       return updated;
     });
   }
-  async execute(access: AuditAccess, policyId: string) {
+  async execute(access: AuditAccess, policyId: string): Promise<AuditObject> {
     const policy = await this.core.objectData(access, 'RETENTION', policyId);
     if (policy.status !== 'ACTIVE') throw auditFailure('Retention policy is not active.', 409);
     const cutoff = new Date(this.core.clock.now().getTime() - Number(policy.data.days) * 86400000);
@@ -133,33 +139,33 @@ export class AuditRetentionService {
     )
       throw auditFailure('Retention execution already running.', 409);
     await this.integrity.checkpoint(access);
-    const run = await this.core.repository.transaction(access, async (tx) =>
-      previous
-        ? this.core.repository.updateObject(
-            previous,
-            {
-              status: 'RUNNING',
-              data: { ...previous.data, leaseUntil: this.core.clock.now().getTime() + 600000 },
-            },
-            tx,
-          )
-        : this.core.createObject(
-            access,
-            'RETENTION_RUN',
-            key,
-            'RUNNING',
-            {
-              policyId,
-              cutoff: cutoff.toISOString(),
-              leaseUntil: this.core.clock.now().getTime() + 600000,
-            },
-            tx,
-          ),
-    );
-    let cursor = 0,
-      archived = 0,
-      held = 0;
-    const packages: string[] = [];
+    const leaseToken = this.core.clock.id();
+    const run = await this.core.repository.transaction(access, async (tx) => {
+      const current = (await this.core.repository.objects(access, 'RETENTION_RUN', tx)).find(
+        (row) => row.key === key,
+      );
+      if (current?.status === 'COMPLETED') return current;
+      if (
+        current?.status === 'RUNNING' &&
+        Number(current.data.leaseUntil) > this.core.clock.now().getTime()
+      )
+        throw auditFailure('Retention execution already running.', 409);
+      const data = {
+        ...current?.data,
+        policyId,
+        cutoff: cutoff.toISOString(),
+        leaseToken,
+        leaseUntil: this.core.clock.now().getTime() + 600000,
+      };
+      return current
+        ? this.core.repository.updateObject(current, { status: 'RUNNING', data }, tx)
+        : this.core.createObject(access, 'RETENTION_RUN', key, 'RUNNING', data, tx);
+    });
+    if (run.status === 'COMPLETED') return run;
+    let cursor = Number(run.data.cursor || 0),
+      archived = Number(run.data.archived || 0),
+      held = Number(run.data.held || 0);
+    const packages: string[] = run.data.packages ? auditStrings(run.data.packages) : [];
     try {
       while (true) {
         const batch = await this.core.repository.transaction(access, async (tx) => {
@@ -171,6 +177,14 @@ export class AuditRetentionService {
               cursor,
               limit: 1000,
             },
+            tx,
+          );
+          const current = await this.core.requireObject(access, 'RETENTION_RUN', run.id, tx);
+          if (current.data.leaseToken !== leaseToken)
+            throw auditFailure('Retention lease changed.', 409);
+          await this.core.repository.updateObject(
+            current,
+            { data: { ...current.data, leaseUntil: this.core.clock.now().getTime() + 600000 } },
             tx,
           );
           const holds = (await this.core.repository.objects(access, 'LEGAL_HOLD', tx)).filter(
@@ -205,9 +219,30 @@ export class AuditRetentionService {
           packages.push(evidence.id);
           archived += batch.records.length;
         }
+        await this.core.repository.transaction(access, async (tx) => {
+          const current = await this.core.requireObject(access, 'RETENTION_RUN', run.id, tx);
+          if (current.data.leaseToken !== leaseToken)
+            throw auditFailure('Retention lease changed.', 409);
+          await this.core.repository.updateObject(
+            current,
+            {
+              data: {
+                ...current.data,
+                cursor,
+                archived,
+                held,
+                packages,
+                leaseUntil: this.core.clock.now().getTime() + 600000,
+              },
+            },
+            tx,
+          );
+        });
       }
       return this.core.repository.transaction(access, async (tx) => {
         const current = await this.core.requireObject(access, 'RETENTION_RUN', run.id, tx);
+        if (current.data.leaseToken !== leaseToken)
+          throw auditFailure('Retention lease changed.', 409);
         const result = await this.core.repository.updateObject(
           current,
           {
@@ -238,6 +273,7 @@ export class AuditRetentionService {
     } catch (error) {
       await this.core.repository.transaction(access, async (tx) => {
         const current = await this.core.requireObject(access, 'RETENTION_RUN', run.id, tx);
+        if (current.data.leaseToken !== leaseToken) return;
         await this.core.repository.updateObject(
           current,
           {

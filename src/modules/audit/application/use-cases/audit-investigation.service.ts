@@ -1,9 +1,10 @@
-import { AuditAccess, auditStrings, auditText } from '../../domain/audit-contracts';
+import { AuditObject } from '../../domain/audit-contracts';
+import { AuditAccess, auditText, auditFailure } from '../../domain/audit-contracts';
 import { AuditInvestigation } from '../../domain/aggregates/audit-investigation';
 import { AuditCore } from './audit-core';
 export class AuditInvestigationService {
   constructor(private readonly core: AuditCore) {}
-  open(access: AuditAccess, title: string, reason: string) {
+  open(access: AuditAccess, title: string, reason: string): Promise<AuditObject> {
     this.core.purpose(access);
     return this.core.repository.transaction(access, async (tx) => {
       const row = await this.core.createObject(
@@ -33,10 +34,11 @@ export class AuditInvestigationService {
       return row;
     });
   }
-  addEvidence(access: AuditAccess, id: string, ids: string[]) {
+  addEvidence(access: AuditAccess, id: string, ids: string[]): Promise<AuditObject> {
     return this.core.repository.transaction(access, async (tx) => {
       const row = await this.core.requireObject(access, 'INVESTIGATION', id, tx);
-      await this.core.accessibleRecords(access, ids, tx);
+      if (row.data.sensitive === true && !access.sensitive)
+        throw auditFailure('Sensitive investigation permission required.', 403);
       const records = await this.core.accessibleRecords(access, ids, tx);
       const data = {
         ...new AuditInvestigation(row).addEvidence(ids),
@@ -55,9 +57,11 @@ export class AuditInvestigationService {
       return updated;
     });
   }
-  close(access: AuditAccess, id: string, reason: string) {
+  close(access: AuditAccess, id: string, reason: string): Promise<AuditObject> {
     return this.core.repository.transaction(access, async (tx) => {
       const row = await this.core.requireObject(access, 'INVESTIGATION', id, tx);
+      if (row.data.sensitive === true && !access.sensitive)
+        throw auditFailure('Sensitive investigation permission required.', 403);
       const data = new AuditInvestigation(row).close(
         access.actorId,
         reason,

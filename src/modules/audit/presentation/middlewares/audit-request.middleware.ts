@@ -65,7 +65,9 @@ export function auditRequestMiddleware(
               action: req.method,
               resource: {
                 resourceType: 'HTTP',
-                resourceId: String(req.route?.path || 'unmatched').slice(0, 200),
+                resourceId: String(
+                  (req.route as { path?: unknown } | undefined)?.path || 'unmatched',
+                ).slice(0, 200),
               },
               outcome: denied ? 'DENIED' : res.statusCode >= 400 ? 'FAILURE' : 'SUCCESS',
               occurredAt: new Date().toISOString(),

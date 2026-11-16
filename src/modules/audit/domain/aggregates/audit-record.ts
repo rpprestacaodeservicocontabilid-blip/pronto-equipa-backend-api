@@ -1,7 +1,11 @@
 import { AuditRecordView, auditFailure, auditScope } from '../audit-contracts';
-export function auditSeal(row: AuditRecordView) {
+export function auditSeal(
+  row: AuditRecordView,
+): Omit<AuditRecordView, 'payloadHash' | 'recordHash' | 'previousHash'> {
   return {
     id: row.id,
+    eventId: row.eventId,
+    sourceId: row.sourceId,
     scopeKey: row.scopeKey,
     companyId: row.companyId,
     sequence: row.sequence,

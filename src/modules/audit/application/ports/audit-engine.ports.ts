@@ -74,6 +74,7 @@ export interface AuditAppendPort {
   append(input: AuditEventInput, context?: RecordStoreContext): Promise<AuditReceipt>;
 }
 export interface AuditEventSourcePort {
+  status?(scope: AuditScope): Promise<{ pending: number; oldestPendingAt: string | null }>;
   scan(
     scope: AuditScope,
     cursor: string | null,

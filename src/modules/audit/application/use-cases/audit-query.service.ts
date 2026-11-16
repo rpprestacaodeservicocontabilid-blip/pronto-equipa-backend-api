@@ -1,8 +1,12 @@
-import { AuditAccess, AuditQuery, auditFailure } from '../../domain/audit-contracts';
+import { AuditRecordView } from '../../domain/audit-contracts';
+import { AuditAccess, AuditQuery } from '../../domain/audit-contracts';
 import { AuditCore } from './audit-core';
 export class AuditQueryService {
   constructor(private readonly core: AuditCore) {}
-  async search(access: AuditAccess, query: AuditQuery) {
+  async search(
+    access: AuditAccess,
+    query: AuditQuery,
+  ): Promise<{ data: AuditRecordView[]; nextCursor: number | null }> {
     this.core.purpose(access);
     this.core.validateQuery(query);
     const data = await this.core.repository.transaction(access, (tx) =>
@@ -19,7 +23,7 @@ export class AuditQueryService {
         data.length === Math.min(query.limit || 100, 1000) ? data[data.length - 1]?.sequence : null,
     };
   }
-  async get(access: AuditAccess, id: string) {
+  async get(access: AuditAccess, id: string): Promise<AuditRecordView> {
     this.core.purpose(access);
     const rows = await this.core.repository.transaction(access, (tx) =>
       this.core.accessibleRecords(access, [id], tx),
@@ -29,7 +33,18 @@ export class AuditQueryService {
     });
     return rows[0];
   }
-  async dashboard(access: AuditAccess, query: AuditQuery = {}) {
+  async dashboard(
+    access: AuditAccess,
+    query: AuditQuery = {},
+  ): Promise<{
+    events: number;
+    critical: number;
+    denied: number;
+    failures: number;
+    withoutCorrelation: number;
+    categories: Record<string, number>;
+    asOfSequence: number;
+  }> {
     this.core.purpose(access);
     this.core.validateQuery(query);
     const counters = { events: 0, critical: 0, denied: 0, failures: 0, withoutCorrelation: 0 };

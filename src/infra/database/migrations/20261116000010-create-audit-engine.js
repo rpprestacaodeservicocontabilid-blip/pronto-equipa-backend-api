@@ -17,6 +17,48 @@ const objectTables = [
   'audit_outbox',
 ];
 const captures = [
+  'users',
+  'auth_accounts',
+  'user_roles',
+  'user_permissions',
+  'employees',
+  'employee_bank_accounts',
+  'employee_status_history',
+  'contract_records',
+  'salary_component_versions',
+  'employee_salary_components',
+  'salary_revisions',
+  'salary_revision_batches',
+  'payroll_periods',
+  'payroll_approvals',
+  'payroll_exports',
+  'payroll_payment_orders',
+  'payroll_payment_provider_configs',
+  'payroll_payment_reconciliations',
+  'leave_requests',
+  'leave_approvals',
+  'attendance_records',
+  'employee_loans',
+  'loan_approvals',
+  'loan_repayments',
+  'organization_records',
+  'documents',
+  'document_versions',
+  'document_approvals',
+  'document_access_grants',
+  'document_legal_holds',
+  'document_deletion_requests',
+  'payslip_documents',
+  'payslip_deliveries',
+  'tenant_subscriptions',
+  'subscription_change_requests',
+  'subscription_approvals',
+  'subscription_plan_versions',
+  'simulation_scenarios',
+  'report_records',
+  'onboarding_applications',
+  'onboarding_resources',
+  'support_records',
   'companies',
   'company_members',
   'roles',
@@ -62,13 +104,18 @@ async function installCapture(q) {
     if (!columns.id && !(columns.roleId && columns.permissionId)) continue;
     const keys = fields.filter((key) => columns[key]);
     const projection = (alias) =>
-      keys.flatMap((key) => ["'" + key + "'", alias + '.' + quote(key)]).join(',');
+      keys
+        .flatMap((key) => [
+          "'" + key + "'",
+          /amount|salary|gross/i.test(key) ? "'[REDACTED]'" : alias + '.' + quote(key),
+        ])
+        .join(',');
     const company = (alias) =>
       columns.companyId
         ? alias + '.' + quote('companyId')
         : table === 'companies'
           ? alias + '.id'
-          : table === 'role_permissions'
+          : ['role_permissions', 'user_roles'].includes(table)
             ? '(SELECT ' +
               quote('companyId') +
               ' FROM audit_role_scopes WHERE ' +
@@ -236,6 +283,8 @@ async function installCapture(q) {
 }
 module.exports = {
   async up(q, S) {
+    if (!['postgres', 'sqlite'].includes(q.sequelize.getDialect()))
+      throw new Error('Audit migrations require PostgreSQL; SQLite is reserved for tests.');
     const string = (n = 200) => ({ type: S.STRING(n), allowNull: false }),
       nullable = (n = 200) => ({ type: S.STRING(n), allowNull: true });
     const scope = { scopeKey: string(), companyId: { type: S.INTEGER, allowNull: true } };
@@ -264,7 +313,31 @@ module.exports = {
       recordHash: string(64),
       payload: { type: S.JSON, allowNull: false },
     };
-    await q.createTable('audit_records', record);
+    if (q.sequelize.getDialect() === 'postgres') {
+      const integer = new Set(['companyId', 'schemaVersion', 'policyVersion']);
+      const columns = Object.entries(record).map(([name, attribute]) => {
+        const type =
+          name === 'id'
+            ? 'UUID'
+            : name === 'sequence'
+              ? 'BIGINT'
+              : integer.has(name)
+                ? 'INTEGER'
+                : ['occurredAt', 'receivedAt'].includes(name)
+                  ? 'TIMESTAMPTZ'
+                  : name === 'payload'
+                    ? 'JSONB'
+                    : attribute.type.toString();
+        return `"${name}" ${type}${attribute.allowNull === true ? '' : ' NOT NULL'}`;
+      });
+      await q.sequelize.query(
+        `CREATE TABLE audit_records (${columns.join(',')},PRIMARY KEY ("scopeKey",id),CHECK ("scopeKey"=CASE WHEN "companyId" IS NULL THEN 'platform' ELSE 'tenant:'||"companyId"::text END)) PARTITION BY HASH ("scopeKey")`,
+      );
+      for (let remainder = 0; remainder < 16; remainder++)
+        await q.sequelize.query(
+          `CREATE TABLE audit_records_p${remainder} PARTITION OF audit_records FOR VALUES WITH (MODULUS 16,REMAINDER ${remainder})`,
+        );
+    } else await q.createTable('audit_records', record);
     await q.addIndex('audit_records', ['scopeKey', 'sourceId', 'eventId'], { unique: true });
     await q.addIndex('audit_records', ['scopeKey', 'sequence'], { unique: true });
     for (const index of [
@@ -325,7 +398,12 @@ module.exports = {
     }
     await installCapture(q, S);
     if (q.sequelize.getDialect() === 'postgres') {
-      for (const table of ['audit_records', 'audit_chain_heads', ...objectTables]) {
+      for (const table of [
+        'audit_records',
+        ...Array.from({ length: 16 }, (_, n) => `audit_records_p${n}`),
+        'audit_chain_heads',
+        ...objectTables,
+      ]) {
         await q.sequelize.query(
           `ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY; ALTER TABLE "${table}" FORCE ROW LEVEL SECURITY; CREATE POLICY "${table}_tenant" ON "${table}" USING ("companyId" = NULLIF(current_setting('app.current_tenant', true), '')::integer OR ("companyId" IS NULL AND NULLIF(current_setting('app.current_tenant', true), '') IS NULL)) WITH CHECK ("companyId" = NULLIF(current_setting('app.current_tenant', true), '')::integer OR ("companyId" IS NULL AND NULLIF(current_setting('app.current_tenant', true), '') IS NULL));`,
         );
@@ -334,8 +412,12 @@ module.exports = {
         `ALTER TABLE audit_capture_events ENABLE ROW LEVEL SECURITY; ALTER TABLE audit_capture_events FORCE ROW LEVEL SECURITY; CREATE POLICY audit_capture_select ON audit_capture_events FOR SELECT USING (\"companyId\" = NULLIF(current_setting('app.current_tenant',true),'')::integer OR (\"companyId\" IS NULL AND NULLIF(current_setting('app.current_tenant',true),'') IS NULL)); CREATE POLICY audit_capture_insert ON audit_capture_events FOR INSERT WITH CHECK (true); CREATE POLICY audit_capture_update ON audit_capture_events FOR UPDATE USING (\"companyId\" = NULLIF(current_setting('app.current_tenant',true),'')::integer OR (\"companyId\" IS NULL AND NULLIF(current_setting('app.current_tenant',true),'') IS NULL));`,
       );
       await q.sequelize.query(
-        `CREATE FUNCTION audit_reject_record_mutation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit records are append-only'; END; $$; CREATE TRIGGER audit_record_immutable BEFORE UPDATE OR DELETE ON audit_records FOR EACH ROW EXECUTE FUNCTION audit_reject_record_mutation();`,
+        `CREATE FUNCTION audit_reject_record_mutation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit records are append-only'; END; $$; CREATE TRIGGER audit_record_immutable BEFORE UPDATE OR DELETE ON audit_records FOR EACH ROW EXECUTE FUNCTION audit_reject_record_mutation(); CREATE TRIGGER audit_record_no_truncate BEFORE TRUNCATE ON audit_records FOR EACH STATEMENT EXECUTE FUNCTION audit_reject_record_mutation(); REVOKE UPDATE,DELETE,TRUNCATE ON audit_records FROM PUBLIC;`,
       );
+      for (let remainder = 0; remainder < 16; remainder++)
+        await q.sequelize.query(
+          `CREATE TRIGGER audit_record_no_truncate BEFORE TRUNCATE ON audit_records_p${remainder} FOR EACH STATEMENT EXECUTE FUNCTION audit_reject_record_mutation(); REVOKE ALL ON audit_records_p${remainder} FROM PUBLIC;`,
+        );
     } else if (q.sequelize.getDialect() === 'sqlite')
       for (const op of ['UPDATE', 'DELETE'])
         await q.sequelize.query(

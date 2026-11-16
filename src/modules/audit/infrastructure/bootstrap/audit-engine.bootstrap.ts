@@ -20,6 +20,11 @@ import {
 } from '../../presentation/routes/audit-engine.routes';
 import { AuditRuntime } from '../jobs/audit-runtime';
 import { AuditNotificationPort } from '../../application/ports/audit-engine.ports';
+import { AuditAppendPort } from '../../application/ports/audit-engine.ports';
+
+export function createAuditAppendPort(): AuditAppendPort {
+  return auditEngine().core;
+}
 
 let instance: AuditServices | undefined;
 export function auditEngine(): AuditServices {

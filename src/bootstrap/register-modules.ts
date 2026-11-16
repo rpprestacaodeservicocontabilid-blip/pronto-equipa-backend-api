@@ -69,16 +69,6 @@ export function defaultModules(): ModuleDefinition[] {
       },
     },
     {
-      name: 'audit',
-      critical: true,
-      async init() {
-        await audit.runtime.start();
-      },
-      async shutdown() {
-        await audit.runtime.stop();
-      },
-    },
-    {
       name: 'redis',
       async init(context) {
         const up = await RedisManager.connect();
@@ -98,6 +88,16 @@ export function defaultModules(): ModuleDefinition[] {
       async shutdown(context) {
         await RabbitMQManager.disconnect();
         context.health.set('rabbitmq', 'down');
+      },
+    },
+    {
+      name: 'audit',
+      critical: true,
+      async init() {
+        await audit.runtime.start();
+      },
+      async shutdown() {
+        await audit.runtime.stop();
       },
     },
     {

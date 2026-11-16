@@ -8,7 +8,7 @@ import {
 const secret =
   /password|passwd|token|secret|authorization|cookie|apikey|credential|privatekey|otp|pincode|accountnumber|accountidentifier|accountciphertext|iban|beneficiarysnapshot/i;
 const sensitive =
-  /salary|remuneration|gross|netamount|deduction|bank|taxid|nif|email|phone|birth|address|amount/i;
+  /salary|remuneration|gross|netamount|deduction|bank|taxid|nif|email|phone|birth|address|amount|fullname|firstname|lastname|identitynumber|documentnumber/i;
 export function canonicalAudit(value: unknown): string {
   if (value === null) return 'null';
   if (Array.isArray(value)) return `[${value.map(canonicalAudit).join(',')}]`;
@@ -87,11 +87,20 @@ export function normalizeAudit(input: AuditEventInput, now: Date): AuditEventInp
     throw auditFailure('Invalid audit classification.');
   if (!['USER', 'SERVICE', 'SYSTEM', 'EXTERNAL'].includes(input.actor.actorType))
     throw auditFailure('Invalid audit actor.');
+  if(input.actor.actorType!=='EXTERNAL'&&!input.actor.actorId)throw auditFailure('Identified audit actor required.');
+  if(input.sensitivity!==undefined&&!['STANDARD','SENSITIVE'].includes(input.sensitivity))throw auditFailure('Invalid audit sensitivity.');
   const occurredAt = new Date(input.occurredAt);
   if (Number.isNaN(occurredAt.getTime()) || occurredAt.getTime() > now.getTime() + 300000)
     throw auditFailure('Invalid audit occurrence time.');
   const normalized: AuditEventInput = {
-    ...input,
+    category:input.category,
+    severity:input.severity,
+    outcome:input.outcome,
+    sensitivity:input.sensitivity,
+    correlationId:input.correlationId,
+    causationId:input.causationId,
+    requestId:input.requestId,
+    reason:input.reason,
     eventId: auditText(input.eventId, 'event id'),
     sourceId: auditText(input.sourceId, 'source'),
     eventType: auditText(input.eventType, 'event type'),
@@ -111,11 +120,11 @@ export function normalizeAudit(input: AuditEventInput, now: Date): AuditEventInp
         : undefined,
     },
     occurredAt: occurredAt.toISOString(),
-    metadata: redactAudit(input.metadata || {}) as Record<string, unknown>,
+    metadata: redactAudit(input.metadata || {}, true) as Record<string, unknown>,
     changes: input.changes?.map((change) => ({
       field: auditText(change.field, 'change path', 500),
-      before: redactAudit(change.before, false, change.field),
-      after: redactAudit(change.after, false, change.field),
+      before: redactAudit(change.before, true, change.field),
+      after: redactAudit(change.after, true, change.field),
     })),
   };
   for (const key of ['correlationId', 'causationId', 'requestId', 'reason'] as const)

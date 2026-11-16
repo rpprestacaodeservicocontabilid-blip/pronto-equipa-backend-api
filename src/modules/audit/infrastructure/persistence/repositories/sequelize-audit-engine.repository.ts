@@ -91,16 +91,16 @@ export class SequelizeAuditEngineRepository implements AuditRepositoryPort {
     const transaction = resolveRecordTransaction(context);
     await AuditScopeCatalogModel.findOrCreate({
       where: { scopeKey: scope.scopeKey },
-      defaults: scope,
+      defaults: auditScope(scope.companyId),
       transaction,
     });
     await AuditHeadModel.findOrCreate({
       where: { scopeKey: scope.scopeKey },
-      defaults: { ...scope, sequence: 0, recordHash: '0'.repeat(64) },
+      defaults: { ...auditScope(scope.companyId), sequence: 0, recordHash: '0'.repeat(64) },
       transaction,
     });
     const row = await AuditHeadModel.findOne({
-      where: { ...scope },
+      where: { ...auditScope(scope.companyId) },
       transaction,
       lock: transaction?.LOCK.UPDATE,
     });
@@ -110,7 +110,7 @@ export class SequelizeAuditEngineRepository implements AuditRepositoryPort {
   }
   async byEvent(scope: AuditScope, sourceId: string, eventId: string, context: RecordStoreContext) {
     const row = await AuditRecordModel.findOne({
-      where: { ...scope, sourceId, eventId },
+      where: { ...auditScope(scope.companyId), sourceId, eventId },
       transaction: resolveRecordTransaction(context),
     });
     return row ? recordView(row) : null;
@@ -134,7 +134,7 @@ export class SequelizeAuditEngineRepository implements AuditRepositoryPort {
     context: RecordStoreContext,
     access?: Pick<AuditAccess, 'actorId' | 'sensitive' | 'ownOnly'>,
   ) {
-    const where: Record<string | symbol, unknown> = { ...scope };
+    const where: Record<string | symbol, unknown> = { ...auditScope(scope.companyId) };
     for (const field of [
       'eventType',
       'category',
@@ -175,7 +175,7 @@ export class SequelizeAuditEngineRepository implements AuditRepositoryPort {
   }
   async record(scope: AuditScope, id: string, context: RecordStoreContext) {
     const row = await AuditRecordModel.findOne({
-      where: { ...scope, id },
+      where: { ...auditScope(scope.companyId), id },
       transaction: resolveRecordTransaction(context),
     });
     return row ? recordView(row) : null;
@@ -190,7 +190,7 @@ export class SequelizeAuditEngineRepository implements AuditRepositoryPort {
   async object(scope: AuditScope, kind: AuditObjectKind, id: string, context: RecordStoreContext) {
     const transaction = resolveRecordTransaction(context),
       row = await auditObjectModels[kind].findOne({
-        where: { ...scope, id, kind },
+        where: { ...auditScope(scope.companyId), id, kind },
         transaction,
         lock: transaction?.LOCK.UPDATE,
       });
@@ -199,7 +199,7 @@ export class SequelizeAuditEngineRepository implements AuditRepositoryPort {
   async objects(scope: AuditScope, kind: AuditObjectKind, context: RecordStoreContext) {
     return (
       await auditObjectModels[kind].findAll({
-        where: { ...scope, kind },
+        where: { ...auditScope(scope.companyId), kind },
         order: [
           ['createdAt', 'ASC'],
           ['id', 'ASC'],

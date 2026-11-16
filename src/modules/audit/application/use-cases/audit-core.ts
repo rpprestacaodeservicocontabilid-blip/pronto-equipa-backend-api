@@ -1,16 +1,14 @@
 import { RecordStoreContext } from '../../../../shared/application/ports/record-store.port';
+import { AuditObject, AuditReceipt } from '../../domain/audit-contracts';
 import {
   AuditAccess,
   AuditEventInput,
-  AuditObject,
   AuditObjectKind,
   AuditQuery,
   AuditRecordView,
   AuditScope,
-  auditData,
   auditFailure,
   auditScope,
-  auditStrings,
   auditText,
 } from '../../domain/audit-contracts';
 import { canonicalAudit, normalizeAudit } from '../../domain/services/audit-data.service';
@@ -27,12 +25,16 @@ export class AuditCore implements AuditAppendPort {
     readonly crypto: AuditCryptoPort,
     readonly clock: AuditClockPort,
   ) {}
-  async append(input: AuditEventInput, context?: RecordStoreContext) {
+  async append(input: AuditEventInput, context?: RecordStoreContext): Promise<AuditReceipt> {
     const event = normalizeAudit(input, this.clock.now());
     const scope = auditScope(event.scope === 'TENANT' ? Number(event.tenantId) : null);
     return this.repository.transaction(scope, (tx) => this.persist(scope, event, tx), context);
   }
-  private async persist(scope: AuditScope, event: AuditEventInput, tx: RecordStoreContext) {
+  private async persist(
+    scope: AuditScope,
+    event: AuditEventInput,
+    tx: RecordStoreContext,
+  ): Promise<AuditReceipt> {
     const inputHash = this.crypto.hash(canonicalAudit(event)),
       old = await this.repository.byEvent(scope, event.sourceId, event.eventId, tx);
     if (old) {
@@ -52,11 +54,15 @@ export class AuditCore implements AuditAppendPort {
             p.status === 'ACTIVE' && (!p.data.eventType || p.data.eventType === event.eventType),
         )
         .sort((a, b) => Number(b.data.version) - Number(a.data.version))[0];
-    const severity = policy?.data.severity
+    const configuredSeverity = policy?.data.severity
       ? auditText(policy.data.severity, 'policy severity')
       : event.severity;
-    if (!['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(severity))
-      throw auditFailure('Invalid audit policy.');
+    const priorities = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+    if (!priorities.includes(configuredSeverity)) throw auditFailure('Invalid audit policy.');
+    const severity =
+      priorities[
+        Math.max(priorities.indexOf(event.severity), priorities.indexOf(configuredSeverity))
+      ];
     const sensitive =
       event.sensitivity === 'SENSITIVE' ||
       policy?.data.sensitive === true ||
@@ -135,10 +141,19 @@ export class AuditCore implements AuditAppendPort {
     status: string,
     data: Record<string, unknown>,
     tx: RecordStoreContext,
-  ) {
+  ): Promise<AuditObject> {
     const now = this.clock.now().toISOString();
     return this.repository.createObject(
-      { ...scope, id: this.clock.id(), kind, key, status, data, createdAt: now, updatedAt: now },
+      {
+        ...auditScope(scope.companyId),
+        id: this.clock.id(),
+        kind,
+        key,
+        status,
+        data,
+        createdAt: now,
+        updatedAt: now,
+      },
       tx,
     );
   }
@@ -147,12 +162,12 @@ export class AuditCore implements AuditAppendPort {
     kind: AuditObjectKind,
     id: string,
     tx: RecordStoreContext,
-  ) {
+  ): Promise<AuditObject> {
     const row = await this.repository.object(scope, kind, id, tx);
     if (!row) throw auditFailure('Audit resource not found.', 404);
     return row;
   }
-  assertRecordAccess(record: AuditRecordView, access: AuditAccess) {
+  assertRecordAccess(record: AuditRecordView, access: AuditAccess): void {
     if (
       record.scopeKey !== access.scopeKey ||
       (access.ownOnly &&
@@ -165,7 +180,11 @@ export class AuditCore implements AuditAppendPort {
     if (record.sensitivity === 'SENSITIVE' && !access.sensitive)
       throw auditFailure('Sensitive audit permission required.', 403);
   }
-  async accessibleRecords(access: AuditAccess, ids: string[], tx: RecordStoreContext) {
+  async accessibleRecords(
+    access: AuditAccess,
+    ids: string[],
+    tx: RecordStoreContext,
+  ): Promise<AuditRecordView[]> {
     const rows: AuditRecordView[] = [];
     for (const id of [...new Set(ids)]) {
       const row = await this.repository.record(access, id, tx);
@@ -182,7 +201,7 @@ export class AuditCore implements AuditAppendPort {
     resourceId: string,
     metadata: Record<string, unknown>,
     tx?: RecordStoreContext,
-  ) {
+  ): Promise<AuditReceipt> {
     return this.append(
       {
         eventId: this.clock.id(),
@@ -222,13 +241,13 @@ export class AuditCore implements AuditAppendPort {
       throw auditFailure('Audit query limit must be between 1 and 1000.');
     return query;
   }
-  purpose(access: AuditAccess) {
+  purpose(access: AuditAccess): void {
     auditText(access.purpose, 'audit purpose', 2000);
   }
-  async objectData(scope: AuditScope, kind: AuditObjectKind, id: string) {
+  async objectData(scope: AuditScope, kind: AuditObjectKind, id: string): Promise<AuditObject> {
     return this.repository.transaction(scope, (tx) => this.requireObject(scope, kind, id, tx));
   }
-  list(scope: AuditScope, kind: AuditObjectKind) {
+  list(scope: AuditScope, kind: AuditObjectKind): Promise<AuditObject[]> {
     return this.repository.transaction(scope, (tx) => this.repository.objects(scope, kind, tx));
   }
 }

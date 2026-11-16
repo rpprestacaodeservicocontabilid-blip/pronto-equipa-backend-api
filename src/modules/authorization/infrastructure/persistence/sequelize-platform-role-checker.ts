@@ -3,6 +3,8 @@ import { QueryTypes } from 'sequelize';
 import { sequelize } from '../../../../infra/database';
 import { PlatformPermissionCheckerPort } from '../../application/ports/platform-permission-checker.port';
 import { PlatformRoleCheckerPort } from '../../application/ports/platform-role-checker.port';
+const column = (name: string): string =>
+  sequelize.getDialect() === 'postgres' ? `"${name}"` : `\`${name}\``;
 
 export class SequelizePlatformRoleChecker
   implements PlatformRoleCheckerPort, PlatformPermissionCheckerPort
@@ -15,9 +17,9 @@ export class SequelizePlatformRoleChecker
     const rows = await sequelize.query<{ matched: number }>(
       `SELECT 1 AS matched
                FROM user_roles ur
-               JOIN roles r ON r.id = ur.roleId
-              WHERE ur.userId = :userId
-                AND r.companyId IS NULL
+               JOIN roles r ON r.id = ur.${column('roleId')}
+              WHERE ur.${column('userId')} = :userId
+                AND r.${column('companyId')} IS NULL
                 AND UPPER(r.name) IN (:roles)
               LIMIT 1`,
       {
@@ -36,11 +38,11 @@ export class SequelizePlatformRoleChecker
     const rows = await sequelize.query<{ matched: number }>(
       `SELECT 1 AS matched
                FROM user_roles ur
-               JOIN roles r ON r.id = ur.roleId
-               JOIN role_permissions rp ON rp.roleId = r.id
-               JOIN permissions p ON p.id = rp.permissionId
-              WHERE ur.userId = :userId
-                AND r.companyId IS NULL
+               JOIN roles r ON r.id = ur.${column('roleId')}
+               JOIN role_permissions rp ON rp.${column('roleId')} = r.id
+               JOIN permissions p ON p.id = rp.${column('permissionId')}
+              WHERE ur.${column('userId')} = :userId
+                AND r.${column('companyId')} IS NULL
                 AND p.scope = 'PLATFORM'
                 AND p.name = :permission
               LIMIT 1`,

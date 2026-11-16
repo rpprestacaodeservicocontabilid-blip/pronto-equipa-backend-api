@@ -223,12 +223,12 @@ test('signed evidence is verifiable and export approval requires a different per
   const exp = await services.exports.request(access(), { eventType: 'test.changed' });
   await expect(
     services.exports.decide(access(), exp.id, true, 'Approved independently'),
-  ).rejects.toMatchObject({ statusCode: 409 });
+  ).rejects.toMatchObject({ statusCode: 403 });
   await services.exports.decide(access(1, 11), exp.id, true, 'Approved independently');
   const completed = await services.exports.execute(access(), exp.id);
   expect(completed.status).toBe('READY');
   await expect(services.exports.download(access(1, 11), exp.id)).rejects.toMatchObject({
-    statusCode: 403,
+    statusCode: 404,
   });
   expect(await services.exports.download(access(), exp.id)).toBeInstanceOf(Buffer);
   await services.investigations.close(access(), investigation.id, 'Review completed');
@@ -416,4 +416,3 @@ test('migration installs transactional capture and SQL append-only guards, and r
     await db.close();
   }
 });
-

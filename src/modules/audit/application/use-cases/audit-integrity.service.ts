@@ -1,9 +1,9 @@
+import { AuditObject } from '../../domain/audit-contracts';
 import {
   AuditAccess,
   AuditScope,
   AuditSignature,
   auditData,
-  auditFailure,
   auditText,
 } from '../../domain/audit-contracts';
 import { auditSeal } from '../../domain/aggregates/audit-record';
@@ -15,7 +15,7 @@ export class AuditIntegrityService {
     private readonly core: AuditCore,
     private readonly storage: AuditEvidenceStoragePort,
   ) {}
-  async checkpoint(access: AuditAccess) {
+  async checkpoint(access: AuditAccess): Promise<AuditObject> {
     const id = this.core.clock.id(),
       head = await this.core.repository.transaction(access, (tx) =>
         this.core.repository.head(access, tx),
@@ -55,7 +55,16 @@ export class AuditIntegrityService {
       return row;
     });
   }
-  async verify(scope: AuditScope, actor = 0) {
+  async verify(
+    scope: AuditScope,
+    actor = 0,
+  ): Promise<{
+    valid: boolean;
+    throughSequence: number;
+    assurance: string;
+    failures: Array<{ sequence: number; code: string }>;
+    verificationId: string;
+  }> {
     const head = await this.core.repository.transaction(scope, (tx) =>
       this.core.repository.head(scope, tx),
     );

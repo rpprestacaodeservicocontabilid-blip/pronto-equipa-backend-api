@@ -7,3 +7,4 @@ export type {
 } from './application/ports/audit-engine.ports';
 export type { AuditEventInput, AuditReceipt } from './domain/audit-contracts';
 export { auditRequestMiddleware } from './presentation/middlewares/audit-request.middleware';
+export { createAuditAppendPort } from './infrastructure/bootstrap/audit-engine.bootstrap';

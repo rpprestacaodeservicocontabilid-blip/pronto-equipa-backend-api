@@ -1,3 +1,5 @@
+import { AuditReceipt } from '../../domain/audit-contracts';
+import { AuditObject } from '../../domain/audit-contracts';
 import {
   AuditAccess,
   AuditEventInput,
@@ -5,7 +7,6 @@ import {
   AuditQuery,
   auditData,
   auditFailure,
-  auditText,
 } from '../../domain/audit-contracts';
 import { normalizeAudit, canonicalAudit } from '../../domain/services/audit-data.service';
 import { AuditCore } from './audit-core';
@@ -15,7 +16,32 @@ export class AuditMonitorService {
     private readonly core: AuditCore,
     private readonly source: AuditEventSourcePort,
   ) {}
-  async ingest(scope: AuditScope, input: AuditEventInput) {
+  async status(scope: AuditScope): Promise<Record<string, unknown>> {
+    const source = this.source.status ? await this.source.status(scope) : null;
+    const failures = await this.core.list(scope, 'INGESTION_FAILURE');
+    const outbox = await this.core.list(scope, 'OUTBOX');
+    const alerts = await this.core.list(scope, 'ALERT');
+    const exports = await this.core.list(scope, 'EXPORT');
+    const reconciliation = await this.core.list(scope, 'RECONCILIATION');
+    const checkpoints = await this.core.list(scope, 'CHECKPOINT');
+    const latest = checkpoints[checkpoints.length - 1];
+    return {
+      source,
+      ingestionLagMs: source?.oldestPendingAt
+        ? Math.max(0, this.core.clock.now().getTime() - new Date(source.oldestPendingAt).getTime())
+        : 0,
+      retries: failures.filter((f) => f.status === 'RETRY').length,
+      deadLetters: failures.filter((f) => f.status === 'DEAD').length,
+      pendingOutbox: outbox.filter((o) => o.status === 'PENDING').length,
+      openAlerts: alerts.filter((a) => a.status === 'OPEN').length,
+      pendingExports: exports.filter((e) =>
+        ['PENDING_APPROVAL', 'APPROVED', 'PROCESSING'].includes(e.status),
+      ).length,
+      latestReconciliation: reconciliation[reconciliation.length - 1] || null,
+      lastCheckpointAt: latest?.createdAt || null,
+    };
+  }
+  async ingest(scope: AuditScope, input: AuditEventInput): Promise<AuditReceipt | null> {
     try {
       const normalized = normalizeAudit(input, this.core.clock.now());
       if (
@@ -79,7 +105,16 @@ export class AuditMonitorService {
       return null;
     }
   }
-  async drain(scope: AuditScope, reconcile = false) {
+  async drain(
+    scope: AuditScope,
+    reconcile = false,
+  ): Promise<{
+    scanned: number;
+    ingested: number;
+    duplicates: number;
+    failed: number;
+    next: string | null;
+  }> {
     const cursorKey = reconcile ? 'database-reconciliation' : 'database';
     const cursorEntry = (await this.core.list(scope, 'SOURCE_CURSOR')).find(
       (row) => row.key === cursorKey,
@@ -138,7 +173,7 @@ export class AuditMonitorService {
     });
     return { scanned: batch.events.length, ingested, duplicates, failed, next: batch.next };
   }
-  async retry(scope: AuditScope, id: string, force = false) {
+  async retry(scope: AuditScope, id: string, force = false): Promise<AuditObject> {
     const row = await this.core.objectData(scope, 'INGESTION_FAILURE', id);
     if (row.status === 'RECOVERED') return row;
     if (
@@ -168,7 +203,7 @@ export class AuditMonitorService {
       );
     return this.core.objectData(scope, 'INGESTION_FAILURE', id);
   }
-  async retryDue(scope: AuditScope) {
+  async retryDue(scope: AuditScope): Promise<void> {
     for (const row of await this.core.list(scope, 'INGESTION_FAILURE'))
       if (row.status === 'RETRY') await this.retry(scope, row.id);
   }
@@ -181,7 +216,7 @@ export class AuditMonitorService {
       sensitive: boolean;
       reason: string;
     },
-  ) {
+  ): Promise<AuditObject> {
     return this.core.repository.transaction(access, async (tx) => {
       const versions = (await this.core.repository.objects(access, 'POLICY', tx)).filter(
         (p) => p.data.code === input.code,
@@ -218,7 +253,7 @@ export class AuditMonitorService {
       threshold: number;
       windowMinutes: number;
     },
-  ) {
+  ): Promise<AuditObject> {
     return this.core.repository.transaction(access, async (tx) => {
       const row = await this.core.createObject(
         access,
@@ -239,7 +274,7 @@ export class AuditMonitorService {
       return row;
     });
   }
-  async evaluate(scope: AuditScope) {
+  async evaluate(scope: AuditScope): Promise<void> {
     for (const rule of (await this.core.list(scope, 'ALERT_RULE')).filter(
       (r) => r.status === 'ACTIVE',
     )) {

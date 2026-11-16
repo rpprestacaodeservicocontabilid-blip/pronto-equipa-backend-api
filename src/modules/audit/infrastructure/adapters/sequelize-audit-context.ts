@@ -8,7 +8,7 @@ export function installAuditTransactionContext() {
   const stamped = new WeakSet<Transaction>();
   const stamp = async (options: { transaction?: Transaction | null }) => {
     const context = auditRequestContext.getStore(),
-      transaction = options.transaction;
+      { transaction } = options;
     if (
       !context ||
       !transaction ||

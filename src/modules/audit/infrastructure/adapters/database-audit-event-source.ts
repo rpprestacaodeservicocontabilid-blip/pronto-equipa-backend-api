@@ -25,6 +25,31 @@ const sourceCategories: Record<string, AuditCategory> = {
   employment_contracts: 'DATA_CHANGE',
 };
 export class DatabaseAuditEventSource implements AuditEventSourcePort {
+  async status(scope: AuditScope): Promise<{ pending: number; oldestPendingAt: string | null }> {
+    return sequelize.transaction(async (transaction) => {
+      if (sequelize.getDialect() === 'postgres')
+        await sequelize.query("SELECT set_config('app.current_tenant',:tenant,true)", {
+          replacements: { tenant: scope.companyId === null ? '' : String(scope.companyId) },
+          type: QueryTypes.SELECT,
+          transaction,
+        });
+      const where = { companyId: scope.companyId, processedAt: null };
+      const pending = await AuditCaptureModel.count({ where, transaction });
+      const oldest = await AuditCaptureModel.findOne({
+        where,
+        transaction,
+        attributes: ['occurredAt'],
+        order: [
+          ['occurredAt', 'ASC'],
+          ['id', 'ASC'],
+        ],
+      });
+      return {
+        pending,
+        oldestPendingAt: oldest ? new Date(oldest.getDataValue('occurredAt')).toISOString() : null,
+      };
+    });
+  }
   async acknowledge(scope: AuditScope, ids: string[]) {
     if (!ids.length) return;
     await sequelize.transaction(async (transaction) => {
@@ -81,8 +106,23 @@ export class DatabaseAuditEventSource implements AuditEventSourcePort {
         eventId: row.id,
         eventType: row.eventType,
         sourceId: 'database',
-        category: sourceCategories[row.resourceType] || 'DATA_CHANGE',
-        severity: 'CRITICAL',
+        category:
+          sourceCategories[row.resourceType] ||
+          (/payslip|salary|payroll/.test(row.resourceType)
+            ? 'PAYROLL'
+            : /payment|billing|subscription|loan/.test(row.resourceType)
+              ? 'FINANCIAL'
+              : /document/.test(row.resourceType)
+                ? 'DOCUMENT'
+                : /auth|user_roles|user_permissions/.test(row.resourceType)
+                  ? 'SECURITY'
+                  : 'DATA_CHANGE'),
+        severity:
+          /payroll_runs|payroll_approvals|payment|billing|roles|permissions|legal_rule_sets/.test(
+            row.resourceType,
+          )
+            ? 'CRITICAL'
+            : 'HIGH',
         scope: row.companyId === null ? 'PLATFORM' : 'TENANT',
         tenantId: row.companyId === null ? undefined : String(row.companyId),
         actor: row.actorId

@@ -1,3 +1,4 @@
+import { AuditObject } from '../../domain/audit-contracts';
 import {
   AuditAccess,
   AuditManifest,
@@ -5,7 +6,6 @@ import {
   AuditSignature,
   auditData,
   auditFailure,
-  auditStrings,
   auditText,
 } from '../../domain/audit-contracts';
 import { canonicalAudit } from '../../domain/services/audit-data.service';
@@ -17,7 +17,11 @@ export class AuditEvidenceService {
     private readonly core: AuditCore,
     private readonly storage: AuditEvidenceStoragePort,
   ) {}
-  async create(access: AuditAccess, recordIds: string[], investigationId?: string) {
+  async create(
+    access: AuditAccess,
+    recordIds: string[],
+    investigationId?: string,
+  ): Promise<AuditObject> {
     this.core.purpose(access);
     if (!recordIds.length || recordIds.length > 1000)
       throw auditFailure('Evidence requires between 1 and 1000 records.');
@@ -88,7 +92,7 @@ export class AuditEvidenceService {
       return row;
     });
   }
-  async verify(access: AuditAccess, id: string) {
+  async verify(access: AuditAccess, id: string): Promise<{ valid: boolean; checksum: unknown }> {
     const row = await this.core.objectData(access, 'EVIDENCE', id);
     if (row.data.sensitive === true && !access.sensitive)
       throw auditFailure('Sensitive audit permission required.', 403);
@@ -129,7 +133,7 @@ export class AuditEvidenceService {
     });
     return { valid, checksum: row.data.checksum };
   }
-  async download(access: AuditAccess, id: string) {
+  async download(access: AuditAccess, id: string): Promise<Buffer> {
     const row = await this.core.objectData(access, 'EVIDENCE', id);
     if (row.data.sensitive === true && !access.sensitive)
       throw auditFailure('Sensitive audit permission required.', 403);

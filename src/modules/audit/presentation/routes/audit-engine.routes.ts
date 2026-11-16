@@ -4,7 +4,6 @@ import { AuditServices } from '../../application/use-cases/audit-services';
 import {
   AuditAccess,
   AuditObjectKind,
-  AuditQuery,
   auditCategories,
   auditFailure,
   auditScope,
@@ -55,6 +54,11 @@ export function createAuditEngineRoutes(
       !platform &&
       (await authorize(actorId, companyId, 'audit:records:read-own'));
     if (!permitted && !ownOnly) throw auditFailure('Audit permission denied.', 403);
+    if (
+      permission === 'audit:reports:export' &&
+      !(await authorize(actorId, companyId, 'audit:exports:create'))
+    )
+      throw auditFailure('Audit export permission required.', 403);
     const purpose = auditText(
       req.get('X-Audit-Purpose') ||
         req.query.purpose ||
@@ -114,8 +118,34 @@ export function createAuditEngineRoutes(
       correlationId: text.parse(req.params.correlationId),
     }),
   );
-  route('get', '/dashboard', read, (a) => services.query.dashboard(a));
-  route('get', '/reports', 'audit:reports:read', (a) => services.query.dashboard(a));
+  route('get', '/dashboard', read, (a, req) =>
+    services.query.dashboard(a, querySchema.parse(req.query)),
+  );
+  route('get', '/reports', 'audit:reports:read', (a, req) =>
+    services.query.dashboard(a, querySchema.parse(req.query)),
+  );
+  for (const [name, category] of [
+    ['security', 'SECURITY'],
+    ['payroll', 'PAYROLL'],
+    ['financial', 'FINANCIAL'],
+  ] as const) {
+    route('get', `/reports/${name}`, 'audit:reports:read', (a, req) =>
+      services.query.dashboard(a, { ...querySchema.parse(req.query), category }),
+    );
+    route('post', `/reports/${name}/exports`, 'audit:reports:export', (a, req) =>
+      services.exports.request(a, {
+        ...querySchema.parse((req.body as { filter?: unknown } | undefined)?.filter || {}),
+        category,
+      }),
+    );
+  }
+  route('get', '/admin/metrics', 'audit:administration:read', async (a) => {
+    const result = await services.monitor.status(a);
+    await services.core.notice(a, a.actorId, 'audit.metrics.read', a.scopeKey, {
+      purpose: a.purpose,
+    });
+    return result;
+  });
   const objectList = (path: string, kind: AuditObjectKind, permission: string) =>
     route('get', path, permission, async (a, req) => {
       const limit = z.coerce.number().int().min(1).max(200).default(50).parse(req.query.limit);
@@ -238,6 +268,7 @@ export function createAuditEngineRoutes(
           category: z.enum(auditCategories),
           days: z.number().int().positive().max(365000),
           legalReference: reason,
+          automatic: z.boolean().default(false),
           reason,
         })
         .parse(req.body),
