@@ -64,6 +64,8 @@ suite('Audit PostgreSQL migration, RLS and partition protections', () => {
                 sequence: 1,
                 schemaVersion: 1,
                 eventType: 'test.changed',
+                module: 'test',
+                action: 'CHANGE',
                 category: 'DATA_CHANGE',
                 severity: 'MEDIUM',
                 outcome: 'SUCCESS',
@@ -93,9 +95,14 @@ suite('Audit PostgreSQL migration, RLS and partition protections', () => {
           { type: QueryTypes.SELECT, transaction },
         );
         expect(rows).toEqual([{ companyId: 1 }]);
-        for (let n = 0; n < 16; n++) {
+        const partitions = await db.query<{ name: string }>(
+          "SELECT c.relname AS name FROM pg_inherits i JOIN pg_class c ON c.oid=i.inhrelid WHERE i.inhparent='audit_records'::regclass",
+          { type: QueryTypes.SELECT, transaction },
+        );
+        expect(partitions.length).toBeGreaterThanOrEqual(5);
+        for (const partition of partitions) {
           const rows = await db.query<{ companyId: number }>(
-            `SELECT "companyId" FROM audit_records_p${n}`,
+            `SELECT "companyId" FROM "${partition.name.replace(/"/g, '""')}"`,
             { type: QueryTypes.SELECT, transaction },
           );
           expect(rows.every((row) => row.companyId === 1)).toBe(true);
@@ -105,7 +112,8 @@ suite('Audit PostgreSQL migration, RLS and partition protections', () => {
         'UPDATE audit_records SET severity=\'LOW\' WHERE "companyId"=1',
         'DELETE FROM audit_records WHERE "companyId"=1',
         'TRUNCATE audit_records',
-        'TRUNCATE audit_records_p0',
+        'TRUNCATE audit_records_default',
+        'TRUNCATE audit_record_identities',
       ])
         await expect(
           db.transaction(async (transaction) => {
@@ -135,7 +143,7 @@ suite('Audit PostgreSQL migration, RLS and partition protections', () => {
         for (const table of (await q.showAllTables()).reverse())
           await q.dropTable(table, { cascade: true });
         const functions = await db.query<{ name: string }>(
-          "SELECT proname AS name FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND (proname LIKE 'audit_capture_%' OR proname='audit_reject_record_mutation')",
+          "SELECT proname AS name FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND (proname LIKE 'audit_capture_%' OR proname IN ('audit_reject_record_mutation','audit_reserve_identity'))",
           { type: QueryTypes.SELECT },
         );
         for (const fn of functions)

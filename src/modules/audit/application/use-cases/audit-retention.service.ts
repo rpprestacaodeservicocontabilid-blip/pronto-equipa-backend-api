@@ -9,6 +9,8 @@ import {
 import { AuditCore } from './audit-core';
 import { AuditEvidenceService } from './audit-evidence.service';
 import { AuditIntegrityService } from './audit-integrity.service';
+import { AuditRetentionPolicy } from '../../domain/aggregates/audit-retention-policy';
+import { AuditLegalHold } from '../../domain/aggregates/audit-legal-hold';
 export class AuditRetentionService {
   constructor(
     private readonly core: AuditCore,
@@ -25,8 +27,7 @@ export class AuditRetentionService {
       automatic?: boolean;
     },
   ): Promise<AuditObject> {
-    if (!Number.isSafeInteger(input.days) || input.days < 1)
-      throw auditFailure('A positive retention period must be explicitly approved.');
+    input = AuditRetentionPolicy.normalize({ ...input });
     return this.core.repository.transaction(access, async (tx) => {
       const versions = (await this.core.repository.objects(access, 'RETENTION', tx)).filter(
         (p) => p.data.category === input.category,
@@ -70,8 +71,7 @@ export class AuditRetentionService {
       wholeScope?: boolean;
     },
   ): Promise<AuditObject> {
-    if (!input.wholeScope && !input.recordIds?.length && !input.resourceType)
-      throw auditFailure('Specify records, a resource, or an explicit scope-wide legal hold.');
+    input = AuditLegalHold.configuration(input);
     return this.core.repository.transaction(access, async (tx) => {
       if (input.recordIds?.length) await this.core.accessibleRecords(access, input.recordIds, tx);
       const row = await this.core.createObject(
@@ -100,17 +100,15 @@ export class AuditRetentionService {
   release(access: AuditAccess, id: string, reason: string): Promise<AuditObject> {
     return this.core.repository.transaction(access, async (tx) => {
       const row = await this.core.requireObject(access, 'LEGAL_HOLD', id, tx);
-      if (row.status !== 'ACTIVE') throw auditFailure('Legal hold is not active.', 409);
       const updated = await this.core.repository.updateObject(
         row,
         {
           status: 'RELEASED',
-          data: {
-            ...row.data,
-            releasedBy: access.actorId,
-            releasedAt: this.core.clock.now().toISOString(),
-            releaseReason: auditText(reason, 'release reason', 2000),
-          },
+          data: new AuditLegalHold(row).release(
+            access.actorId,
+            reason,
+            this.core.clock.now().toISOString(),
+          ),
         },
         tx,
       );
@@ -127,8 +125,8 @@ export class AuditRetentionService {
   }
   async execute(access: AuditAccess, policyId: string): Promise<AuditObject> {
     const policy = await this.core.objectData(access, 'RETENTION', policyId);
-    if (policy.status !== 'ACTIVE') throw auditFailure('Retention policy is not active.', 409);
-    const cutoff = new Date(this.core.clock.now().getTime() - Number(policy.data.days) * 86400000);
+    const domainPolicy = new AuditRetentionPolicy(policy);
+    const cutoff = domainPolicy.cutoff(this.core.clock.now());
     if (Number.isNaN(cutoff.getTime())) throw auditFailure('Invalid retention cutoff.');
     const key = `${policyId}:${cutoff.toISOString().slice(0, 10)}`;
     const previous = (await this.core.list(access, 'RETENTION_RUN')).find((row) => row.key === key);
@@ -175,7 +173,7 @@ export class AuditRetentionService {
               category: policy.data.category as AuditCategory,
               to: cutoff.toISOString(),
               cursor,
-              limit: 1000,
+              limit: 50,
             },
             tx,
           );
@@ -193,18 +191,12 @@ export class AuditRetentionService {
           const investigations = (
             await this.core.repository.objects(access, 'INVESTIGATION', tx)
           ).filter((i) => i.status === 'OPEN');
-          const records = rows.filter(
-            (record) =>
-              !holds.some(
-                (hold) =>
-                  hold.data.wholeScope === true ||
-                  (Array.isArray(hold.data.recordIds) && hold.data.recordIds.includes(record.id)) ||
-                  (hold.data.resourceType === record.resourceType &&
-                    (!hold.data.resourceId || hold.data.resourceId === record.resourceId)),
-              ) &&
-              !investigations.some(
-                (i) => Array.isArray(i.data.recordIds) && i.data.recordIds.includes(record.id),
-              ),
+          const records = rows.filter((record) =>
+            domainPolicy.mayArchive(
+              record,
+              holds.map((hold) => new AuditLegalHold(hold)),
+              investigations,
+            ),
           );
           return { rows, records };
         });

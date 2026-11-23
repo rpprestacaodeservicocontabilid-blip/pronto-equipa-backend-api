@@ -3,14 +3,17 @@ import {
   OnboardingApplication,
   OnboardingResource,
   OnboardingEvent,
+  OnboardingPolicy,
 } from '../models/onboarding.model';
 import {
   OnboardingApplicationView,
   OnboardingResourceView,
   OnboardingEventView,
   OnboardingPersistencePort,
+  OnboardingPolicyView,
 } from '../../../application/ports/onboarding-store.port';
 export class SequelizeOnboardingStore implements OnboardingPersistencePort {
+  readonly policies = new SequelizeRecordStore<OnboardingPolicyView>(OnboardingPolicy, 'onboarding');
   readonly applications = new SequelizeRecordStore<OnboardingApplicationView>(
     OnboardingApplication,
     'onboarding',
@@ -21,3 +24,4 @@ export class SequelizeOnboardingStore implements OnboardingPersistencePort {
   );
   readonly events = new SequelizeRecordStore<OnboardingEventView>(OnboardingEvent, 'onboarding');
 }
+

@@ -7,6 +7,8 @@ import { logger } from '../../../../config/logger';
 import { AuditServices } from '../../application/use-cases/audit-services';
 import { AuditNotificationPort } from '../../application/ports/audit-engine.ports';
 import { AuditAccess, AuditScope, auditScope } from '../../domain/audit-contracts';
+import { AuditEventPublisherPort } from '../../application/ports/audit-event-publisher.port';
+import { AuditEventDeliveryService } from '../../application/use-cases/audit-event-delivery.service';
 type Authorize = (actor: number, company: number | null, permission: string) => Promise<boolean>;
 const stages = [
   'ingestion',
@@ -33,6 +35,7 @@ export class AuditRuntime {
     private readonly services: AuditServices,
     private readonly authorize: Authorize,
     private notifications?: AuditNotificationPort,
+    private readonly publisher?: AuditEventPublisherPort,
   ) {}
   setNotifications(port: AuditNotificationPort): void {
     this.notifications = port;
@@ -66,6 +69,14 @@ export class AuditRuntime {
       );
       if (!roles.length || roles[0].superuser || roles[0].bypass)
         throw new Error('Audit runtime role must not bypass RLS.');
+      const privileges = await sequelize.query<{ directInsert: boolean; owns: boolean }>(
+        "SELECT has_table_privilege(current_user,'audit_capture_events','INSERT') AS \"directInsert\",EXISTS(SELECT 1 FROM pg_class WHERE oid='audit_records'::regclass AND pg_has_role(current_user,relowner,'MEMBER')) AS owns",
+        { type: QueryTypes.SELECT },
+      );
+      if (!privileges.length || privileges[0].directInsert || privileges[0].owns)
+        throw new Error(
+          'Audit runtime requires a separate non-owner role without direct capture INSERT privilege.',
+        );
       const triggers = await sequelize.query<{ name: string }>(
         "SELECT tgname AS name FROM pg_trigger WHERE NOT tgisinternal AND tgenabled='O'",
         { type: QueryTypes.SELECT },
@@ -95,6 +106,9 @@ export class AuditRuntime {
       if (process.env.AUDIT_QUEUE_ENABLED !== 'true')
         throw new Error('Production audit requires AUDIT_QUEUE_ENABLED=true.');
     }
+    const interval = Number(process.env.AUDIT_POLL_INTERVAL_MS || 10000);
+    if (!Number.isSafeInteger(interval) || interval < 1000)
+      throw new Error('Invalid audit polling interval.');
     if (process.env.AUDIT_QUEUE_ENABLED === 'true') {
       if (!RedisManager.isEnabled()) throw new Error('Audit queues require Redis.');
       const redis = RedisManager.client.options;
@@ -138,9 +152,6 @@ export class AuditRuntime {
         this.workers.push(worker);
       }
     }
-    const interval = Number(process.env.AUDIT_POLL_INTERVAL_MS || 10000);
-    if (!Number.isSafeInteger(interval) || interval < 1000)
-      throw new Error('Invalid audit polling interval.');
     const tick = () => {
       if (!this.active)
         this.active = this.runOnce()
@@ -195,11 +206,8 @@ export class AuditRuntime {
       case 'ingestion':
         await s.monitor.drain(scope);
         await s.monitor.retryDue(scope);
-        for (const row of await s.core.list(scope, 'OUTBOX'))
-          if (row.status === 'PENDING')
-            await s.core.repository.transaction(scope, (tx) =>
-              s.core.repository.updateObject(row, { status: 'PERSISTED' }, tx),
-            );
+        if (this.publisher)
+          await new AuditEventDeliveryService(s.core, this.publisher).drain(scope);
         break;
       case 'exports':
         await this.processExports(scope);
@@ -254,7 +262,11 @@ export class AuditRuntime {
         break;
       }
       case 'evidence':
-        for (const row of await s.core.list(scope, 'EVIDENCE')) {
+        for (const row of await s.core.list(scope, 'EVIDENCE', {
+          status: ['READY'],
+          limit: 1000,
+          beforeUpdatedAt: new Date(Date.now() - 86400000).toISOString(),
+        })) {
           if (
             row.status !== 'READY' ||
             (row.data.lastVerifiedAt &&
@@ -294,7 +306,10 @@ export class AuditRuntime {
   }
   private async processExports(scope: AuditScope): Promise<void> {
     const s = this.services;
-    for (const row of await s.core.list(scope, 'EXPORT')) {
+    for (const row of await s.core.list(scope, 'EXPORT', {
+      status: ['APPROVED', 'PROCESSING'],
+      limit: 1000,
+    })) {
       if (
         row.status !== 'APPROVED' &&
         !(row.status === 'PROCESSING' && Number(row.data.leaseUntil) < Date.now())
@@ -311,6 +326,7 @@ export class AuditRuntime {
         continue;
       if (
         !Number.isSafeInteger(approver) ||
+        approver === actor ||
         !(await this.authorize(approver, scope.companyId, 'audit:exports:approve'))
       )
         continue;
@@ -331,7 +347,11 @@ export class AuditRuntime {
   }
   private async notify(scope: AuditScope): Promise<void> {
     if (!this.notifications) return;
-    for (const alert of await this.services.core.list(scope, 'ALERT'))
+    for (const alert of await this.services.core.list(scope, 'ALERT', {
+      status: ['OPEN'],
+      unnotified: true,
+      limit: 1000,
+    }))
       if (alert.status === 'OPEN' && !alert.data.notifiedAt) {
         await this.notifications.alert(scope, alert.id, String(alert.data.severity || 'HIGH'));
         await this.services.core.repository.transaction(scope, async (tx) => {

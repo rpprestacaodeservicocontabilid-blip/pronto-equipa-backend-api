@@ -3,6 +3,7 @@ import { AuthAccountRepository } from '../../domain/repositories/auth-account.re
 import { Password } from '../../domain/value-objects/password.vo';
 
 import { PasswordHasherPort } from '../ports/password-hasher.port';
+import { AuditServicePort } from '../ports/audit-service.port';
 
 export interface ResetPasswordInput {
   token: string;
@@ -18,6 +19,7 @@ export class ResetPasswordUseCase {
     private readonly authAccountRepository: AuthAccountRepository,
 
     private readonly passwordHasher: PasswordHasherPort,
+    private readonly audit?: AuditServicePort,
   ) {}
 
   async execute(input: ResetPasswordInput): Promise<void> {
@@ -54,5 +56,13 @@ export class ResetPasswordUseCase {
     resetToken.use();
 
     await this.passwordResetRepository.save(resetToken);
+    await this.audit?.record({
+      userId: account.userId,
+      action: 'PASSWORD_RESET',
+      resource: 'USER',
+      resourceId: String(account.userId),
+      ipAddress: null,
+      userAgent: null,
+    });
   }
 }

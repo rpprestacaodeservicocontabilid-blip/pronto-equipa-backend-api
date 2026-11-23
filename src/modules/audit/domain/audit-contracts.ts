@@ -19,6 +19,7 @@ export type AuditSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 export type AuditOutcome = 'SUCCESS' | 'FAILURE' | 'DENIED' | 'PARTIAL' | 'CANCELLED';
 export type AuditSensitivity = 'STANDARD' | 'SENSITIVE';
 export interface AuditEventInput {
+  module?: string;
   eventId: string;
   eventType: string;
   category: AuditCategory;
@@ -54,6 +55,9 @@ export interface AuditAccess extends AuditScope {
   ownOnly?: boolean;
 }
 export interface AuditQuery {
+  module?: string;
+  action?: string;
+  throughSequence?: number;
   eventType?: string;
   category?: AuditCategory;
   severity?: AuditSeverity;
@@ -68,6 +72,8 @@ export interface AuditQuery {
   limit?: number;
 }
 export interface AuditRecordView extends AuditScope {
+  module: string;
+  action: string;
   id: string;
   eventId: string;
   sourceId: string;

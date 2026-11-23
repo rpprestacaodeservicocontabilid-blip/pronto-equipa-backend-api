@@ -12,7 +12,7 @@ export const notificationSchema = z.object({
   template: z.string().regex(/^[A-Z0-9_]{2,80}$/),
   variables: z.record(z.string(), z.string().max(4000)),
   recipients: z
-    .array(z.number().int().positive())
+    .array(z.number().int().positive().max(2147483647))
     .min(1)
     .max(500)
     .transform((v) => [...new Set(v)]),
@@ -57,11 +57,13 @@ export function createNotificationsRoutes(
     [routes, false],
     [personalRoutes, true],
   ] as const) {
+    router.use('/me', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
     router.get(
       '/me',
       handle(
         (r, c, a) =>
-          service.inbox(c, a, z.coerce.number().int().min(1).default(1).parse(r.query.page)),
+          service.inbox(c, a, z.coerce.number().int().min(1).max(100000).default(1).parse(r.query.page),
+            z.enum(['UNREAD', 'READ', 'ARCHIVED']).optional().parse(r.query.state)),
         personal,
       ),
     );
@@ -73,6 +75,8 @@ export function createNotificationsRoutes(
       '/me/preferences',
       handle((_r, c, a) => service.preferences(c, a), personal),
     );
+    router.get('/me/preferences/history', handle((_r, c, a) => service.preferenceHistory(c, a), personal));
+    router.get('/me/:id([a-fA-F0-9-]{36})', handle((r, c, a) => service.inboxItem(c, a, r.params.id), personal));
     router.post(
       '/me/read-all',
       handle((_r, c, a) => service.readAll(c, a), personal),
@@ -121,7 +125,7 @@ export function createNotificationsRoutes(
   routes.post(
     '/campaigns/:id/cancel',
     options.guard('notifications:campaigns:cancel'),
-    handle((r, c) => service.cancel(c, r.params.id)),
+    handle((r, c, a) => service.cancel(c, r.params.id, a)),
   );
   for (const [path, kind] of Object.entries({
     templates: 'TEMPLATE',

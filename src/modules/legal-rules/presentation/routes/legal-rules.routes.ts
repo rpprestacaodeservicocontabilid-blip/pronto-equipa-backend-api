@@ -1,5 +1,7 @@
 import { NextFunction, Request, Response, Router } from 'express';
 import { timingSafeEqual } from 'crypto';
+import { z } from 'zod';
+import { sourceInputSchema } from '../../domain/legal-governance';
 import { AppError } from '../../../../shared/errors/app.error';
 import { LegalRulesController } from '../controllers/legal-rules.controller';
 import {
@@ -8,6 +10,8 @@ import {
   listLegalRuleSetsSchema,
   resolveLegalRuleSetSchema,
   updateLegalRuleSetSchema,
+  rejectLegalRuleSchema,
+  transitionLegalRuleSchema,
 } from '../schemas/legal-rules.schema';
 
 type Middleware = (req: Request, res: Response, next: NextFunction) => void;
@@ -43,6 +47,15 @@ export function createLegalRuleManagementRoutes(
     validate('query', listLegalRuleSetsSchema),
     (req, res) => controller.list(req, res),
   );
+  router.get('/sources', requirePlatformPermission('legal-rules:read'), validate('query', z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }).strict()), (req, res) => controller.sources(req, res));
+  router.post('/sources', requirePlatformPermission('legal-rules:create'),
+    validate('body', sourceInputSchema), (req, res) => controller.registerSource(req, res));
+  router.post('/impact', requirePlatformPermission('legal-rules:read'), (req, res) => controller.impact(req, res));
+  router.post('/:id/reject', requirePlatformPermission('legal-rules:approve'), validateId,
+    validate('body', rejectLegalRuleSchema), (req, res) => controller.reject(req, res));
   router.get('/:id', requirePlatformPermission('legal-rules:read'), validateId, (req, res) =>
     controller.get(req, res),
   );
@@ -63,24 +76,28 @@ export function createLegalRuleManagementRoutes(
     '/:id/submit',
     requirePlatformPermission('legal-rules:submit'),
     validateId,
+    validate('body', transitionLegalRuleSchema),
     (req, res) => controller.submit(req, res),
   );
   router.post(
     '/:id/approve',
     requirePlatformPermission('legal-rules:approve'),
     validateId,
+    validate('body', transitionLegalRuleSchema),
     (req, res) => controller.approve(req, res),
   );
   router.post(
     '/:id/publish',
     requirePlatformPermission('legal-rules:publish'),
     validateId,
+    validate('body', transitionLegalRuleSchema),
     (req, res) => controller.publish(req, res),
   );
   router.post(
     '/:id/retire',
     requirePlatformPermission('legal-rules:retire'),
     validateId,
+    validate('body', transitionLegalRuleSchema),
     (req, res) => controller.retire(req, res),
   );
   return router;

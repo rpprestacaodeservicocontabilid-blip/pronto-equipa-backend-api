@@ -17,10 +17,16 @@ import {
   supportRatingSchema,
 } from '../schemas/support.schema';
 import { Request, Response } from 'express';
+import type { SupportTicketStatus } from '../../domain/support-ticket';
 import { SupportApplicationService } from '../../application/use-cases/support-application.service';
 
 export class SupportController {
-  constructor(private readonly service: SupportApplicationService) {}
+  constructor(
+    private readonly service: SupportApplicationService,
+    private readonly resolveCompany = (req: Request) => req.tenant?.companyId,
+    private readonly platform = false,
+    private readonly verifyAgent?: (agent: number) => Promise<boolean>,
+  ) {}
 
   async createTicket(req: Request, res: Response) {
     const { companyId, actor } = this.context(req);
@@ -35,7 +41,9 @@ export class SupportController {
     res.json({
       success: true,
       ...(await this.service.listTickets(companyId, actor, {
-        ownOnly,
+        ownOnly, platform: this.platform,
+        type: typeof req.query.type === 'string' ? req.query.type : undefined,
+        queue: typeof req.query.queue === 'string' ? req.query.queue : undefined,
         page: Number(req.query.page || 1),
         limit: Number(req.query.limit || 20),
         status: typeof req.query.status === 'string' ? req.query.status : undefined,
@@ -48,7 +56,7 @@ export class SupportController {
     const { companyId, actor } = this.context(req);
     res.json({
       success: true,
-      data: await this.service.getTicket(companyId, actor, req.params.id, agent),
+      data: await this.service.getTicket(companyId, actor, req.params.id, agent, false, this.platform),
     });
   }
 
@@ -74,6 +82,8 @@ export class SupportController {
         actor,
         req.params.id,
         supportAssignmentSchema.parse(req.body),
+        this.platform,
+        this.verifyAgent,
       ),
     });
   }
@@ -87,6 +97,7 @@ export class SupportController {
         actor,
         req.params.id,
         supportTransferSchema.parse(req.body).teamId,
+        this.platform,
       ),
     });
   }
@@ -107,7 +118,7 @@ export class SupportController {
   async transition(
     req: Request,
     res: Response,
-    status: 'RESOLVED' | 'CLOSED' | 'OPEN' | 'CANCELLED',
+    status?: SupportTicketStatus,
   ) {
     const { companyId, actor } = this.context(req);
     res.json({
@@ -116,7 +127,7 @@ export class SupportController {
         companyId,
         actor,
         req.params.id,
-        status,
+        status ?? (req.body.status as SupportTicketStatus),
         supportTransitionSchema.parse(req.body).resolution,
       ),
     });
@@ -125,7 +136,7 @@ export class SupportController {
   async messages(req: Request, res: Response, agent: boolean) {
     const { companyId, actor } = this.context(req);
     if (req.method === 'GET') {
-      const ticket = await this.service.getTicket(companyId, actor, req.params.id, agent);
+      const ticket = await this.service.getTicket(companyId, actor, req.params.id, agent, agent, this.platform);
       res.json({ success: true, data: ticket.messages });
       return;
     }
@@ -137,6 +148,7 @@ export class SupportController {
         req.params.id,
         supportMessageSchema.parse(req.body),
         agent,
+        this.platform,
       ),
     });
   }
@@ -145,7 +157,7 @@ export class SupportController {
     const { companyId, actor } = this.context(req);
     res.json({
       success: true,
-      data: await this.service.historyForTicket(companyId, actor, req.params.id, agent),
+      data: await this.service.historyForTicket(companyId, actor, req.params.id, agent, this.platform, false),
     });
   }
 
@@ -161,13 +173,13 @@ export class SupportController {
     const { companyId, actor } = this.context(req);
     res.status(201).json({
       success: true,
-      data: await this.service.createPolicy(companyId, actor, supportPolicySchema.parse(req.body)),
+      data: await this.service.createPolicy(companyId, actor, supportPolicySchema.parse(req.body), this.platform),
     });
   }
 
   async listPolicies(req: Request, res: Response) {
     const { companyId } = this.context(req);
-    res.json({ success: true, data: await this.service.listPolicies(companyId) });
+    res.json({ success: true, data: await this.service.listPolicies(companyId, this.platform) });
   }
 
   async createResource(req: Request, res: Response, kind: string) {
@@ -178,19 +190,19 @@ export class SupportController {
         companyId,
         actor,
         kind,
-        supportResourceSchema.parse(req.body),
+        { ...supportResourceSchema.parse(req.body), workspace: this.platform ? 'PLATFORM' : 'COMPANY' },
       ),
     });
   }
 
   async listResource(req: Request, res: Response, kind: string) {
     const { companyId } = this.context(req);
-    res.json({ success: true, data: await this.service.listKind(companyId, kind) });
+    res.json({ success: true, data: await this.service.listKind(companyId, kind, this.platform) });
   }
 
   async monitorSla(req: Request, res: Response) {
-    const { companyId, actor } = this.context(req);
-    const result = await this.service.slaMonitor(companyId, actor);
+    const { companyId } = this.context(req);
+    const result = await this.service.slaSnapshot(companyId, this.platform);
     res.json({
       success: true,
       data: req.path.endsWith('/breaches') ? result.breached : result.atRisk,
@@ -201,11 +213,7 @@ export class SupportController {
     const { companyId, actor } = this.context(req);
     res.status(201).json({
       success: true,
-      data: await this.service.createIncident(
-        companyId,
-        actor,
-        supportIncidentSchema.parse(req.body),
-      ),
+      data: await this.service.createIncident(companyId, actor, { ...supportIncidentSchema.parse(req.body), workspace: this.platform ? 'PLATFORM' : 'COMPANY' }),
     });
   }
 
@@ -218,6 +226,7 @@ export class SupportController {
         actor,
         req.params.id,
         supportIncidentPatchSchema.parse(req.body),
+        this.platform,
       ),
     });
   }
@@ -231,6 +240,7 @@ export class SupportController {
         actor,
         req.params.id,
         supportIncidentLinkSchema.parse(req.body).incidentId,
+        this.platform,
       ),
     });
   }
@@ -255,7 +265,7 @@ export class SupportController {
       data: await this.service.createArticle(
         companyId,
         actor,
-        supportArticleSchema.parse(req.body),
+        { ...supportArticleSchema.parse(req.body), workspace: this.platform ? 'PLATFORM' : 'COMPANY' },
       ),
     });
   }
@@ -269,6 +279,7 @@ export class SupportController {
         actor,
         req.params.id,
         supportArticlePatchSchema.parse(req.body),
+        this.platform,
       ),
     });
   }
@@ -277,7 +288,7 @@ export class SupportController {
     const { companyId, actor } = this.context(req);
     res.json({
       success: true,
-      data: await this.service.publishArticle(companyId, actor, req.params.id),
+      data: await this.service.publishArticle(companyId, actor, req.params.id, this.platform),
     });
   }
 
@@ -285,7 +296,7 @@ export class SupportController {
     const { companyId } = this.context(req);
     res.json({
       success: true,
-      data: await this.service.searchArticles(companyId, String(req.query.q || ''), internal),
+      data: await this.service.searchArticles(companyId, String(req.query.q || '').slice(0, 200), internal, this.platform, this.platform),
     });
   }
 
@@ -305,16 +316,26 @@ export class SupportController {
 
   async dashboard(req: Request, res: Response) {
     const { companyId } = this.context(req);
-    res.json({ success: true, data: await this.service.dashboard(companyId) });
+    res.json({ success: true, data: await this.service.dashboard(companyId, this.platform) });
   }
 
   async audit(req: Request, res: Response) {
     const { companyId } = this.context(req);
-    res.json({ success: true, data: await this.service.auditEntries(companyId) });
+    res.json({ success: true, data: await this.service.auditEntries(companyId, this.platform) });
+  }
+
+  async completeEscalation(req: Request, res: Response) {
+    const { companyId, actor } = this.context(req);
+    res.json({ success: true, data: await this.service.completeEscalation(companyId, actor, req.params.id, req.body.resolution, this.platform) });
+  }
+
+  async updateAgent(req: Request, res: Response) {
+    const { companyId, actor } = this.context(req);
+    res.json({ success: true, data: await this.service.updateAgent(companyId, actor, req.params.id, req.body.status, this.platform) });
   }
 
   private context(req: Request) {
-    const companyId = req.tenant?.companyId;
+    const companyId = this.resolveCompany(req);
     const actor = req.user?.userId;
     if (!companyId || !actor)
       throw Object.assign(new Error('Contexto de empresa ou utilizador indisponível.'), {

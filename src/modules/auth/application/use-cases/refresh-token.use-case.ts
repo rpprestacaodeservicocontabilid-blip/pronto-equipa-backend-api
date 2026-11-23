@@ -15,6 +15,8 @@ export interface RefreshTokenResult {
   refreshTokenExpiresAt: Date;
 }
 
+export class InvalidRefreshTokenError extends Error {}
+
 export class RefreshTokenUseCase {
   constructor(
     private readonly tokenService: TokenServicePort,
@@ -24,19 +26,32 @@ export class RefreshTokenUseCase {
     private readonly getPermissionNames?: (userId: number) => Promise<string[]>,
   ) {}
 
+  async identifyBrowserSession(token: string) {
+    const payload = await this.tokenService.verifyRefreshToken(token).catch(() => {
+      throw new InvalidRefreshTokenError('Invalid or expired refresh token.');
+    });
+    if (!(await this.sessionManager.isRefreshTokenCurrent({ ...payload, token }))) {
+      throw new InvalidRefreshTokenError('Browser session is no longer active.');
+    }
+    return payload;
+  }
+
+  async resumeBrowserSession(token: string) {
+    const { userId, sessionId } = await this.identifyBrowserSession(token);
+    const access = await this.issueAccessToken(userId, sessionId);
+    return { accessToken: access.token, accessTokenExpiresAt: access.expiresAt };
+  }
+
+  private async issueAccessToken(userId: number, sessionId: number) {
+    const roles = this.getRoleNames ? await this.getRoleNames(userId) : [];
+    const permissions = this.getPermissionNames ? await this.getPermissionNames(userId) : [];
+    return this.tokenService.generateAccessToken({ userId, sessionId, roles, permissions });
+  }
+
   async execute(input: RefreshTokenInput): Promise<RefreshTokenResult> {
     const payload = await this.tokenService.verifyRefreshToken(input.refreshToken);
 
-    const roles = this.getRoleNames ? await this.getRoleNames(payload.userId) : [];
-    const permissions = this.getPermissionNames
-      ? await this.getPermissionNames(payload.userId)
-      : [];
-    const accessToken = await this.tokenService.generateAccessToken({
-      userId: payload.userId,
-      sessionId: payload.sessionId,
-      roles,
-      permissions,
-    });
+    const accessToken = await this.issueAccessToken(payload.userId, payload.sessionId);
     const refreshToken = await this.sessionManager.rotateRefreshToken({
       sessionId: payload.sessionId,
       tokenId: payload.tokenId,

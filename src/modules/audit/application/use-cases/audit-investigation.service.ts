@@ -41,7 +41,11 @@ export class AuditInvestigationService {
         throw auditFailure('Sensitive investigation permission required.', 403);
       const records = await this.core.accessibleRecords(access, ids, tx);
       const data = {
-        ...new AuditInvestigation(row).addEvidence(ids),
+        ...new AuditInvestigation(row).addEvidence(
+          ids,
+          access.actorId,
+          this.core.clock.now().toISOString(),
+        ),
         sensitive:
           row.data.sensitive === true || records.some((r) => r.sensitivity === 'SENSITIVE'),
       };

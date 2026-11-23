@@ -30,16 +30,21 @@ export class NotificationsService {
       channels: NotificationRequest['channels'];
       enabled: boolean;
     },
+    administrative = false,
   ) {
+    if (administrative && input.enabled) {
+      for (const recipient of [...new Set(input.recipients)]) await this.directory.resolve(recipient, companyId);
+    }
     return this.tx(companyId, async (tx) => {
       const old = await this.store.findOne({
         where: { companyId, kind: 'RULE', key: input.code },
         transaction: tx,
       });
+      const configured = { ...input, administrative: administrative || old?.data.administrative === true };
       const row = old
         ? await this.store.update(
             old,
-            { status: input.enabled ? 'ACTIVE' : 'DISABLED', data: input },
+            { status: input.enabled ? 'ACTIVE' : 'DISABLED', data: configured },
             { transaction: tx },
           )
         : await this.row(
@@ -47,7 +52,7 @@ export class NotificationsService {
             'RULE',
             input.code,
             input.enabled ? 'ACTIVE' : 'DISABLED',
-            input,
+            configured,
             tx,
           );
       await this.row(
@@ -77,7 +82,7 @@ export class NotificationsService {
           variables: event.variables,
           recipients: rule.data.recipients,
           channels: rule.data.channels,
-        }),
+        }, rule.data.administrative === true ? 'RULE' : undefined),
       );
     }
     return results;
@@ -119,6 +124,7 @@ export class NotificationsService {
     companyId: number | null,
     id: string,
     input: { subject: string; body: string },
+    actor?: number,
   ) {
     return this.tx(companyId, async (tx) => {
       const row = await this.store.findOne({
@@ -128,7 +134,9 @@ export class NotificationsService {
       });
       if (!row) throw error('Modelo não encontrado.', 404);
       if (row.status !== 'DRAFT') throw error('Crie nova versão do modelo publicado.', 409);
+      if (actor && row.data.mandatory) throw error('Modelo obrigatório reservado ao sistema.', 403);
       await this.store.update(row, { data: { ...row.data, ...input } }, { transaction: tx });
+      if (actor) await this.row(companyId, 'AUDIT', randomUUID(), 'RECORDED', { action: 'template.updated', actor, id }, tx);
       return row;
     });
   }
@@ -192,6 +200,8 @@ export class NotificationsService {
       });
       if (!row || row.status !== 'FAILED_PERMANENT')
         throw error('Entrega não permite nova tentativa.', 409);
+      const message = await this.store.findOne({ where: { companyId, id: row.data.messageId, kind: 'MESSAGE' }, transaction: tx });
+      if (!message || message.status === 'CANCELLED') throw error('O envio associado está indisponível ou cancelado.', 409);
       await this.store.update(
         row,
         { status: 'QUEUED', data: { ...row.data, nextAttemptAt: 0 } },
@@ -215,20 +225,17 @@ export class NotificationsService {
   }
   async unread(companyId: number | null, userId: number) {
     return this.tx(companyId, async (tx) => {
-      const rows = await this.store.findAll({
-        where: { companyId, userId, kind: 'DELIVERY', status: 'DELIVERED' },
+      const count = await this.store.count({
+        where: { companyId, userId, kind: 'DELIVERY', status: 'DELIVERED', 'data.channel': 'IN_APP', 'data.readState': 'UNREAD' },
         transaction: tx,
       });
-      return {
-        count: rows.filter((r) => r.data.channel === 'IN_APP' && r.data.readState === 'UNREAD')
-          .length,
-      };
+      return { count: Number(count) };
     });
   }
   async readAll(companyId: number | null, userId: number) {
     return this.tx(companyId, async (tx) => {
       const rows = await this.store.findAll({
-        where: { companyId, userId, kind: 'DELIVERY', status: 'DELIVERED' },
+        where: { companyId, userId, kind: 'DELIVERY', status: 'DELIVERED', 'data.channel': 'IN_APP', 'data.readState': 'UNREAD' },
         transaction: tx,
       });
       for (const row of rows)
@@ -279,14 +286,19 @@ export class NotificationsService {
     companyId: number | null,
     actor: number,
     input: { code: string; subject: string; body: string; category: string; mandatory: boolean },
+    administrative = false,
   ) {
     return this.tx(companyId, async (tx) => {
       const latest = await this.store.findAll({
-        where: { companyId, kind: 'TEMPLATE', key: { [Op.like]: `${input.code}:%` } },
+        where: { companyId, kind: 'TEMPLATE', 'data.code': input.code },
         transaction: tx,
       });
-      const version = latest.length + 1;
-      return this.row(
+      if (administrative && latest.some(row => row.data.mandatory))
+        throw error('Este código está reservado a um modelo obrigatório.', 403);
+      if (administrative && latest.some(row => row.data.category !== input.category))
+        throw error('Uma nova versão deve conservar a categoria do modelo.', 409);
+      const version = latest.reduce((highest, row) => Math.max(highest, row.data.version), 0) + 1;
+      const template = await this.row(
         companyId,
         'TEMPLATE',
         `${input.code}:${version}`,
@@ -294,9 +306,12 @@ export class NotificationsService {
         { ...input, version, actor },
         tx,
       );
+      if (administrative) await this.row(companyId, 'AUDIT', randomUUID(), 'RECORDED',
+        { action: 'template.created', actor, id: template.id }, tx);
+      return template;
     });
   }
-  async publish(companyId: number | null, actor: number, id: string) {
+  async publish(companyId: number | null, actor: number, id: string, administrative = false) {
     return this.tx(companyId, async (tx) => {
       const row = await this.store.findOne({
         where: { id, companyId, kind: 'TEMPLATE' },
@@ -305,6 +320,7 @@ export class NotificationsService {
       });
       if (!row) throw error('Modelo não encontrado.', 404);
       if (row.status !== 'DRAFT') throw error('Versão já publicada.', 409);
+      if (administrative && row.data.mandatory) throw error('Modelo obrigatório reservado ao sistema.', 403);
       await this.store.update(
         row,
         { status: 'PUBLISHED', data: { ...row.data, publishedBy: actor } },
@@ -321,7 +337,7 @@ export class NotificationsService {
       return row;
     });
   }
-  async send(companyId: number | null, actor: number, input: NotificationRequest) {
+  async send(companyId: number | null, actor: number, input: NotificationRequest, origin?: 'CAMPAIGN' | 'RULE') {
     if (
       ['PAYROLL', 'PAYSLIP', 'PAYMENT'].includes(input.category) &&
       Object.keys(input.variables).some((k) =>
@@ -353,6 +369,10 @@ export class NotificationsService {
         .filter((t) => t.data.code === input.template)
         .sort((a, b) => b.data.version - a.data.version)[0];
       if (!template) throw error('Modelo publicado não encontrado.');
+      if (origin && template.data.mandatory) throw error('Modelos obrigatórios são reservados a eventos do sistema.', 403);
+      const scheduled = input.scheduledAt ? Date.parse(input.scheduledAt) : null;
+      if (origin && scheduled !== null && (!Number.isFinite(scheduled) || scheduled <= Date.now()))
+        throw error('Seleccione uma data de envio futura.');
       if (template.data.category !== input.category)
         throw error('Categoria incompatível com o modelo.');
       const subject = render(template.data.subject, input.variables),
@@ -379,9 +399,13 @@ export class NotificationsService {
           actor,
           category: input.category,
           templateVersion: template.data.version,
+          templateCode: template.data.code,
+          channels: input.channels,
+          recipientCount: addresses.length,
+          origin: origin ?? 'SYSTEM',
           subject,
           body,
-          scheduledAt: input.scheduledAt || new Date().toISOString(),
+          scheduledAt: scheduled === null ? new Date().toISOString() : new Date(scheduled).toISOString(),
         },
         tx,
       );
@@ -410,6 +434,7 @@ export class NotificationsService {
             suppressed ? 'SUPPRESSED' : 'QUEUED',
             {
               messageId: message.id,
+              category: input.category,
               channel,
               recipient,
               subject,
@@ -433,10 +458,11 @@ export class NotificationsService {
       return message;
     });
   }
-  inbox(companyId: number | null, userId: number, page = 1) {
+  inbox(companyId: number | null, userId: number, page = 1, state?: 'UNREAD' | 'READ' | 'ARCHIVED') {
     return this.tx(companyId, (tx) =>
       this.store.findAll({
-        where: { companyId, userId, kind: 'DELIVERY', status: 'DELIVERED' },
+        where: { companyId, userId, kind: 'DELIVERY', status: 'DELIVERED', 'data.channel': 'IN_APP',
+          'data.readState': state ?? { [Op.in]: ['UNREAD', 'READ'] }, },
         transaction: tx,
         order: [['createdAt', 'DESC']],
         limit: 50,
@@ -444,16 +470,30 @@ export class NotificationsService {
       }),
     );
   }
+  inboxItem(companyId: number | null, userId: number, id: string) {
+    return this.tx(companyId, async tx => {
+      const row = await this.store.findOne({ where: { companyId, userId, id, kind: 'DELIVERY', status: 'DELIVERED', 'data.channel': 'IN_APP' }, transaction: tx });
+      if (!row) throw error('Notificação não encontrada.', 404);
+      return row;
+    });
+  }
+
+  preferenceHistory(companyId: number | null, userId: number) {
+    return this.tx(companyId, tx => this.store.findAll({ where: { companyId, kind: 'AUDIT',
+      'data.userId': userId, 'data.action': 'preference.updated' }, order: [['createdAt', 'DESC']], limit: 100, transaction: tx }));
+  }
+
   async mark(companyId: number | null, userId: number, id: string, state: string) {
     return this.tx(companyId, async (tx) => {
       const row = await this.store.findOne({
-        where: { companyId, userId, id, kind: 'DELIVERY' },
+        where: { companyId, userId, id, kind: 'DELIVERY', status: 'DELIVERED' },
         transaction: tx,
       });
       if (!row || row.data.channel !== 'IN_APP') throw error('Notificação não encontrada.', 404);
+      if (row.data.readState === state || row.data.readState === 'ARCHIVED') return row;
       await this.store.update(
         row,
-        { data: { ...row.data, readState: state, readAt: new Date().toISOString() } },
+        { data: { ...row.data, readState: state, readAt: row.data.readAt ?? new Date().toISOString() } },
         { transaction: tx },
       );
       return row;
@@ -499,28 +539,91 @@ export class NotificationsService {
       }),
     );
   }
-  async cancel(companyId: number | null, id: string) {
+  adminList<K extends NotificationKind>(companyId: number | null, kind: K, filter: {
+    page: number; limit: number; status?: string; channel?: string; origin?: string;
+  }) {
+    return this.tx(companyId, async tx => {
+      const where = { companyId, kind,
+        ...(filter.status ? { status: filter.status } : {}),
+        ...(kind === 'DELIVERY' && filter.channel ? { 'data.channel': filter.channel } : {}),
+        ...(kind === 'MESSAGE' && filter.origin ? { 'data.origin': filter.origin } : {}),
+      };
+      const total = Number(await this.store.count({ where, transaction: tx }));
+      const items = await this.store.findAll({ where, transaction: tx,
+        limit: filter.limit, offset: (filter.page - 1) * filter.limit, order: [['createdAt', 'DESC'], ['id', 'DESC']] });
+      return { items, page: filter.page, limit: filter.limit, total };
+    });
+  }
+
+  attempts(companyId: number | null, deliveryId: string) {
+    return this.tx(companyId, async tx => {
+      const delivery = await this.store.findOne({ where: { companyId, id: deliveryId, kind: 'DELIVERY' }, transaction: tx });
+      if (!delivery) throw error('Entrega não encontrada.', 404);
+      return this.store.findAll({ where: { companyId, kind: 'ATTEMPT', 'data.deliveryId': deliveryId },
+        transaction: tx, limit: 100, order: [['createdAt', 'DESC']] });
+    });
+  }
+
+  templateVersions(companyId: number | null, id: string) {
+    return this.tx(companyId, async tx => {
+      const template = await this.store.findOne({ where: { companyId, id, kind: 'TEMPLATE' }, transaction: tx });
+      if (!template) throw error('Modelo não encontrado.', 404);
+      const versions = await this.store.findAll({ where: { companyId, kind: 'TEMPLATE', 'data.code': template.data.code },
+        transaction: tx, limit: 100, order: [['createdAt', 'DESC']] });
+      return versions.sort((left, right) => right.data.version - left.data.version);
+    });
+  }
+
+  categoryPolicy(companyId: number | null) {
+    return this.tx(companyId, async tx => {
+      const templates = await this.store.findAll({ where: { companyId, kind: 'TEMPLATE', status: 'PUBLISHED' }, transaction: tx });
+      const latest = new Map<string, NotificationRecord<'TEMPLATE'>>();
+      for (const row of templates) {
+        if ((latest.get(row.data.code)?.data.version ?? 0) < row.data.version) latest.set(row.data.code, row);
+      }
+      return [...latest.values()].map(row => ({ code: row.data.code, category: row.data.category, mandatory: row.data.mandatory, version: row.data.version }));
+    });
+  }
+
+  adminReport(companyId: number | null) {
+    return this.tx(companyId, async tx => {
+      const messages = Number(await this.store.count({ where: { companyId, kind: 'MESSAGE' }, transaction: tx }));
+      const rows = await this.store.count({ where: { companyId, kind: 'DELIVERY' }, group: ['status'], transaction: tx });
+      const byStatus = Object.fromEntries((Array.isArray(rows) ? rows : []).map(row => [String(row.status), Number(row.count)]));
+      const byChannel: Record<string, number> = {};
+      for (const channel of ['IN_APP', 'EMAIL', 'SMS']) {
+        byChannel[channel] = Number(await this.store.count({ where: { companyId, kind: 'DELIVERY', 'data.channel': channel }, transaction: tx }));
+      }
+      return { messages, byStatus, byChannel, totalDeliveries: Object.values(byStatus).reduce((sum, count) => sum + count, 0) };
+    });
+  }
+
+  async cancel(companyId: number | null, id: string, actor?: number) {
     return this.tx(companyId, async (tx) => {
       const message = await this.store.findOne({
         where: { id, companyId, kind: 'MESSAGE' },
         transaction: tx,
       });
       if (!message) throw error('Envio não encontrado.', 404);
+      if (actor && message.data.origin !== 'CAMPAIGN') throw error('A notificação não é uma campanha.', 409);
+      if (message.status === 'CANCELLED') return message;
+      if (!['PENDING', 'SCHEDULED'].includes(message.status)) throw error('O envio já foi processado.', 409);
       const rows = await this.store.findAll({
-        where: { companyId, kind: 'DELIVERY', status: 'QUEUED' },
+        where: { companyId, kind: 'DELIVERY', status: 'QUEUED', 'data.messageId': id },
         transaction: tx,
       });
-      for (const row of rows)
-        if (row.data.messageId === id)
-          await this.store.update(row, { status: 'CANCELLED' }, { transaction: tx });
+      for (const row of rows) await this.store.update(row, { status: 'CANCELLED' }, { transaction: tx });
       await this.store.update(message, { status: 'CANCELLED' }, { transaction: tx });
+      if (actor) await this.row(companyId, 'AUDIT', randomUUID(), 'RECORDED', { action: 'notification.cancelled', actor, id }, tx);
       return message;
     });
   }
   async process(companyId: number | null) {
     return this.tx(companyId, async (tx) => {
       const deliveries = await this.store.findAll({
-        where: { companyId, kind: 'DELIVERY', status: 'QUEUED' },
+        where: { companyId, kind: 'DELIVERY', status: 'QUEUED',
+          'data.scheduledAt': { [Op.lte]: new Date().toISOString() },
+          [Op.or]: [{ 'data.nextAttemptAt': { [Op.is]: null } }, { 'data.nextAttemptAt': { [Op.lte]: Date.now() } }], },
         order: [['createdAt', 'ASC']],
         limit: 20,
         transaction: tx,

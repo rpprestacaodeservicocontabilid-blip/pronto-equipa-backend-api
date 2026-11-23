@@ -133,7 +133,7 @@ export function registerMiddlewares(
       origin: corsOptions,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Company-Id'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Company-Id', 'X-Pronto-Session', 'X-Audit-Purpose'],
     }),
   );
 

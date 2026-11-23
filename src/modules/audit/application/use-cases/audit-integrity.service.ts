@@ -5,8 +5,9 @@ import {
   AuditSignature,
   auditData,
   auditText,
+  auditFailure,
 } from '../../domain/audit-contracts';
-import { auditSeal } from '../../domain/aggregates/audit-record';
+import { AuditIntegrityBatch } from '../../domain/aggregates/audit-integrity-batch';
 import { canonicalAudit } from '../../domain/services/audit-data.service';
 import { AuditEvidenceStoragePort } from '../ports/audit-engine.ports';
 import { AuditCore } from './audit-core';
@@ -16,6 +17,9 @@ export class AuditIntegrityService {
     private readonly storage: AuditEvidenceStoragePort,
   ) {}
   async checkpoint(access: AuditAccess): Promise<AuditObject> {
+    this.core.purpose(access);
+    if (!(await this.verify(access, access.actorId)).valid)
+      throw auditFailure('Cannot seal a compromised audit chain.', 409);
     const id = this.core.clock.id(),
       head = await this.core.repository.transaction(access, (tx) =>
         this.core.repository.head(access, tx),
@@ -65,13 +69,35 @@ export class AuditIntegrityService {
     failures: Array<{ sequence: number; code: string }>;
     verificationId: string;
   }> {
-    const head = await this.core.repository.transaction(scope, (tx) =>
-      this.core.repository.head(scope, tx),
-    );
+    const head = await this.core.repository.transaction(scope, async (tx) => {
+      await this.core.queueEvent(
+        scope,
+        'audit.integrity.verification-started',
+        { actorId: actor },
+        tx,
+      );
+      return this.core.repository.head(scope, tx);
+    });
     const failures: Array<{ sequence: number; code: string }> = [];
-    let sequence = 0,
-      previous = '0'.repeat(64);
-    const anchors = await this.storage.anchors(scope.scopeKey);
+    const batch = new AuditIntegrityBatch(head);
+    let anchors: Array<{ key: string; bytes: Buffer }> = [];
+    try {
+      anchors = await this.storage.anchors(scope.scopeKey);
+    } catch {
+      failures.push({ sequence: 0, code: 'EXTERNAL_ANCHOR_UNAVAILABLE' });
+    }
+    const preserved = new Set(anchors.map((anchor) => anchor.key));
+    for (const checkpoint of await this.core.list(scope, 'CHECKPOINT')) {
+      try {
+        if (checkpoint.status === 'SEALED' && !preserved.has(String(checkpoint.data.anchorKey)))
+          failures.push({
+            sequence: Number(auditData(checkpoint.data.statement).sequence || 0),
+            code: 'MISSING_EXTERNAL_CHECKPOINT',
+          });
+      } catch {
+        failures.push({ sequence: 0, code: 'INVALID_CHECKPOINT_METADATA' });
+      }
+    }
     const signed = new Map<number, string>();
     for (const anchor of anchors) {
       try {
@@ -87,6 +113,7 @@ export class AuditIntegrityService {
         const n = Number(statement.sequence);
         if (
           sig.algorithm !== 'Ed25519' ||
+          statement.schemaVersion !== 1 ||
           statement.scopeKey !== scope.scopeKey ||
           !Number.isSafeInteger(n) ||
           n < 0 ||
@@ -96,40 +123,37 @@ export class AuditIntegrityService {
           )
         )
           throw new Error('Invalid checkpoint signature.');
-        signed.set(n, auditText(statement.recordHash, 'checkpoint hash', 64));
+        const hash = auditText(statement.recordHash, 'checkpoint hash', 64);
+        if (signed.has(n) && signed.get(n) !== hash)
+          failures.push({ sequence: n, code: 'CHECKPOINT_CONFLICT' });
+        if (n === 0 && hash !== '0'.repeat(64))
+          failures.push({ sequence: n, code: 'INVALID_GENESIS_CHECKPOINT' });
+        signed.set(n, hash);
         if (n > head.sequence) failures.push({ sequence: n, code: 'HEAD_ROLLBACK' });
       } catch {
         failures.push({ sequence: 0, code: 'INVALID_EXTERNAL_CHECKPOINT' });
       }
     }
-    while (sequence < head.sequence) {
+    while (batch.sequence < head.sequence) {
       const rows = await this.core.repository.transaction(scope, (tx) =>
-        this.core.repository.records(scope, { cursor: sequence, limit: 1000 }, tx),
+        this.core.repository.records(
+          scope,
+          { cursor: batch.sequence, throughSequence: head.sequence, limit: 100 },
+          tx,
+        ),
       );
       const bounded = rows.filter((row) => row.sequence <= head.sequence);
       if (!bounded.length) {
-        failures.push({ sequence: sequence + 1, code: 'MISSING_RECORD' });
+        failures.push({ sequence: batch.sequence + 1, code: 'MISSING_RECORD' });
         break;
       }
       for (const row of bounded) {
-        if (row.sequence !== sequence + 1)
-          failures.push({ sequence: sequence + 1, code: 'SEQUENCE_GAP' });
-        if (row.previousHash !== previous)
-          failures.push({ sequence: row.sequence, code: 'PREVIOUS_HASH_MISMATCH' });
-        const payloadHash = this.core.crypto.hash(canonicalAudit(auditSeal(row)));
-        if (
-          payloadHash !== row.payloadHash ||
-          this.core.crypto.hash(`${row.previousHash}\n${payloadHash}`) !== row.recordHash
-        )
-          failures.push({ sequence: row.sequence, code: 'RECORD_HASH_MISMATCH' });
+        batch.observe(row, (value) => this.core.crypto.hash(value));
         if (signed.has(row.sequence) && signed.get(row.sequence) !== row.recordHash)
           failures.push({ sequence: row.sequence, code: 'CHECKPOINT_MISMATCH' });
-        sequence = row.sequence;
-        previous = row.recordHash;
       }
     }
-    if (sequence !== head.sequence || previous !== head.recordHash)
-      failures.push({ sequence: head.sequence, code: 'HEAD_MISMATCH' });
+    failures.push(...batch.finish());
     const valid = failures.length === 0;
     const result = await this.core.repository.transaction(scope, async (tx) => {
       const report = await this.core.createObject(
@@ -139,7 +163,7 @@ export class AuditIntegrityService {
         valid ? 'VALID' : 'VIOLATION',
         {
           throughSequence: head.sequence,
-          checked: sequence,
+          checked: batch.sequence,
           failures,
           assurance: anchors.length ? 'SIGNED_CHECKPOINTS' : 'HASH_CHAIN_ONLY',
           actorId: actor,

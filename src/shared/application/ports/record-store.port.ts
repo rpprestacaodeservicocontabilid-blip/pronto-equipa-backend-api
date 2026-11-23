@@ -1,6 +1,8 @@
 /** Portable persistence specifications used by document-oriented aggregates. */
 export const RecordFilter = {
   in: '$in',
+  or: '$or',
+  is: '$is',
   like: '$like',
   lt: '$lt',
   notIn: '$notIn',

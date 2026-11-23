@@ -17,7 +17,7 @@ export const sequelize = isSQLite
       password: ENV.DB.PASSWORD,
       database: ENV.DB.NAME,
       logging: false,
-
+      ...(ENV.DB.DIALECT==='postgres'&&ENV.DB.SSL?{dialectOptions:{ssl:{require:true,rejectUnauthorized:ENV.DB.SSL_REJECT_UNAUTHORIZED}}}:{}),
       pool: {
         max: 10,
         min: 2,

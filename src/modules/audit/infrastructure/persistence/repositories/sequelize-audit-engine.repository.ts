@@ -6,7 +6,10 @@ import {
   withRecordTransaction,
 } from '../../../../../shared/infrastructure/persistence/sequelize-record-store';
 import { RecordStoreContext } from '../../../../../shared/application/ports/record-store.port';
-import { AuditRepositoryPort } from '../../../application/ports/audit-engine.ports';
+import {
+  AuditRepositoryPort,
+  AuditObjectFilter,
+} from '../../../application/ports/audit-engine.ports';
 import {
   AuditAccess,
   AuditHead,
@@ -56,6 +59,27 @@ function objectView(model: InstanceType<(typeof auditObjectModels)['POLICY']>): 
   };
 }
 export class SequelizeAuditEngineRepository implements AuditRepositoryPort {
+  async statistics(
+    scope: AuditScope,
+    context: RecordStoreContext,
+  ): Promise<{ records: number; payloadBytes: number }> {
+    const size =
+      sequelize.getDialect() === 'postgres'
+        ? 'pg_column_size(payload)'
+        : 'length(CAST(payload AS BLOB))';
+    const rows = await sequelize.query<{ records: string | number; payloadBytes: string | number }>(
+      `SELECT COUNT(*) AS records,COALESCE(SUM(${size}),0) AS "payloadBytes" FROM audit_records WHERE "scopeKey"=:scopeKey AND ${scope.companyId === null ? '"companyId" IS NULL' : '"companyId"=:companyId'}`,
+      {
+        replacements: { scopeKey: scope.scopeKey, companyId: scope.companyId },
+        transaction: resolveRecordTransaction(context),
+        type: QueryTypes.SELECT,
+      },
+    );
+    return {
+      records: Number(rows[0]?.records || 0),
+      payloadBytes: Number(rows[0]?.payloadBytes || 0),
+    };
+  }
   async transaction<T>(
     scope: AuditScope,
     operation: (context: RecordStoreContext) => Promise<T>,
@@ -137,6 +161,8 @@ export class SequelizeAuditEngineRepository implements AuditRepositoryPort {
     const where: Record<string | symbol, unknown> = { ...auditScope(scope.companyId) };
     for (const field of [
       'eventType',
+      'module',
+      'action',
       'category',
       'severity',
       'outcome',
@@ -146,7 +172,11 @@ export class SequelizeAuditEngineRepository implements AuditRepositoryPort {
       'correlationId',
     ] as const)
       if (query[field]) where[field] = query[field];
-    if (query.cursor !== undefined) where.sequence = { [Op.gt]: query.cursor };
+    if (query.cursor !== undefined || query.throughSequence !== undefined)
+      where.sequence = {
+        ...(query.cursor !== undefined ? { [Op.gt]: query.cursor } : {}),
+        ...(query.throughSequence !== undefined ? { [Op.lte]: query.throughSequence } : {}),
+      };
     if (query.from || query.to)
       where.occurredAt = {
         ...(query.from ? { [Op.gte]: new Date(query.from) } : {}),
@@ -159,6 +189,11 @@ export class SequelizeAuditEngineRepository implements AuditRepositoryPort {
           [Op.or]: [
             { resourceType: { [Op.in]: ['USER', 'user'] }, resourceId: String(access.actorId) },
             { resourceType: { [Op.in]: ['AUTH_SESSION', 'session'] } },
+            {
+              resourceType: 'HTTP',
+              sourceId: 'http',
+              category: { [Op.in]: ['ACCESS', 'SECURITY'] },
+            },
           ],
         },
       ];
@@ -196,10 +231,21 @@ export class SequelizeAuditEngineRepository implements AuditRepositoryPort {
       });
     return row ? objectView(row) : null;
   }
-  async objects(scope: AuditScope, kind: AuditObjectKind, context: RecordStoreContext) {
+  async objects(
+    scope: AuditScope,
+    kind: AuditObjectKind,
+    context: RecordStoreContext,
+    filter?: AuditObjectFilter,
+  ) {
+    const where: Record<string | symbol, unknown> = { ...auditScope(scope.companyId), kind };
+    if (filter?.status) where.status = { [Op.in]: filter.status };
+    if (filter?.key) where.key = filter.key;
+    if (filter?.unnotified) where['data.notifiedAt'] = { [Op.is]: null };
+    if (filter?.beforeUpdatedAt) where.updatedAt = { [Op.lt]: new Date(filter.beforeUpdatedAt) };
     return (
       await auditObjectModels[kind].findAll({
-        where: { ...auditScope(scope.companyId), kind },
+        where: where as WhereOptions,
+        ...(filter?.limit ? { limit: Math.min(1000, Math.max(1, filter.limit)) } : {}),
         order: [
           ['createdAt', 'ASC'],
           ['id', 'ASC'],

@@ -7,10 +7,12 @@ import { PayrollEngineError } from '../../domain/errors/payroll-engine.error';
 import {
   PayrollEngineInput,
   PayrollLegalRuleSet,
+  PAYROLL_ENGINE_VERSION,
 } from '../../domain/contracts/payroll-engine.contract';
 
 import { PayrollCalculatorPort } from '../../domain/contracts/payroll-engine.contract';
 import { CalculatePayrollUseCase } from '../../application/use-cases/calculate-payroll.use-case';
+import { hashCalculationInput } from '../../domain/services/hash.service';
 
 const record = (value: unknown, name: string): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -27,7 +29,7 @@ const text = (value: unknown, name: string): string => {
 export class PayrollCalculatorAdapter implements PayrollWorkflowCalculatorPort {
   constructor(
     private readonly engine: PayrollCalculatorPort = new CalculatePayrollUseCase(),
-    private readonly engineVersion = '1.0.0',
+    private readonly engineVersion = PAYROLL_ENGINE_VERSION,
   ) {}
 
   async calculate(snapshot: PayrollInputSnapshot): Promise<PayrollCalculationResult> {
@@ -46,14 +48,18 @@ export class PayrollCalculatorAdapter implements PayrollWorkflowCalculatorPort {
         'Payroll engine only accepts AOA calculation snapshots.',
         'INVALID_CURRENCY',
       );
-    const input: PayrollEngineInput = {
+    if (engineData.engineVersion !== undefined && engineData.engineVersion !== this.engineVersion)
+      throw new PayrollEngineError(
+        'The engine version pinned to this snapshot differs from the available engine.',
+        'ENGINE_VERSION_MISMATCH',
+      );
+    const payload: Omit<PayrollEngineInput, 'inputHash' | 'calculationInputHash'> = {
       tenantId: snapshot.companyId,
       employeeId: snapshot.employeeId,
       payrollRunId: snapshot.payrollRunId,
       period: snapshot.period,
       currency: 'AOA',
-      engineVersion: String(engineData.engineVersion ?? this.engineVersion),
-      inputHash: snapshot.inputHash,
+      engineVersion: this.engineVersion,
       legalRules: legal,
       expectedLegalRuleSetVersion: snapshot.legalRuleSetVersion,
       segments,
@@ -68,7 +74,11 @@ export class PayrollCalculatorAdapter implements PayrollWorkflowCalculatorPort {
         ? { leave: engineData.leave as PayrollEngineInput['leave'] }
         : {}),
     };
-    const result = this.engine.calculate(input);
+    const result = this.engine.calculate({
+      ...payload,
+      inputHash: snapshot.inputHash,
+      calculationInputHash: hashCalculationInput(payload),
+    });
     return {
       employeeId: result.employeeId,
       grossAmount: result.grossAmount,

@@ -11,6 +11,8 @@ import { OnboardingService } from './onboarding.service';
 import { OnboardingPorts, fail } from '../../domain/onboarding';
 
 export interface OnboardingResourcePorts {
+  assigneeAvailable(id: number): Promise<boolean>;
+  companyTaxRegistry(): Promise<Array<{ id: number; name: string; taxId: string }>>;
   storage: DocumentUploadPort;
   scanner: DocumentScannerPort;
   inviteAddress(actor: number): Promise<string>;
@@ -47,6 +49,9 @@ export class OnboardingResourcesService extends OnboardingService {
         },
         { transaction: tx },
       );
+      await this.event(application, actor, 'onboarding.document.decision', tx, {
+        documentId, decision: row.status, reason,
+      });
       return { id: row.id, status: row.status };
     });
   }
@@ -54,6 +59,9 @@ export class OnboardingResourcesService extends OnboardingService {
     return this.persistence.applications.transaction(null, async (tx) => {
       const row = await this.access(id, actor, false, tx);
       if (row.companyId) throw fail('Empresa já provisionada.');
+      if (row.data.createdBy && !row.data.assistedClaimedAt) throw fail('Aceite o convite antes de confirmar os termos.', 409);
+      if (!['DRAFT', 'IN_PROGRESS', 'ADDITIONAL_INFO', 'REJECTED'].includes(row.status))
+        throw fail('Adesão não permite alterar a confirmação dos termos.', 409);
       await this.persistence.applications.update(
         row,
         {
@@ -71,8 +79,8 @@ export class OnboardingResourcesService extends OnboardingService {
       return { accepted: true };
     });
   }
-  async downloadDocument(id: string, actor: number, documentId: string) {
-    await this.get(id, actor);
+  async downloadDocument(id: string, actor: number, documentId: string, admin = false) {
+    await this.get(id, actor, admin);
     const row = await this.persistence.resources.findOne({
       where: {
         applicationId: id,
@@ -89,19 +97,30 @@ export class OnboardingResourcesService extends OnboardingService {
   }
   constructor(
     ports: OnboardingPorts,
-    private resources: OnboardingResourcePorts,
+    protected resources: OnboardingResourcePorts,
     persistence: OnboardingPersistencePort,
   ) {
     super(ports, persistence);
   }
   async assisted(actor: number, input: any) {
-    return this.start(actor, input);
+    return this.start(actor, input, true);
   }
   async invitation(id: string, actor: number, email: string) {
     const token = randomBytes(32).toString('hex'),
       hash = createHash('sha256').update(token).digest('hex');
-    await this.persistence.applications.transaction(null, async (tx) => {
-      await this.access(id, actor, true, tx);
+    const expiresInSeconds = await this.persistence.applications.transaction(null, async (tx) => {
+      const row = await this.access(id, actor, true, tx);
+      if (row.companyId || row.data.mode === 'SELF_SERVICE' || row.data.assistedClaimedAt ||
+        !['DRAFT', 'IN_PROGRESS', 'ADDITIONAL_INFO', 'REJECTED'].includes(row.status)) {
+        throw fail('Adesão indisponível para convite.', 409);
+      }
+      for (const pending of await this.persistence.resources.findAll({
+        where: { applicationId: id, kind: 'INVITATION', status: 'PENDING' }, transaction: tx,
+      })) {
+        if (Number(pending.data.expiresAt) > Date.now())
+          await this.persistence.resources.update(pending, { status: 'REVOKED' }, { transaction: tx });
+      }
+      const ttl = Number(row.data.policy?.invitationHours ?? 24) * 3600;
       await this.persistence.resources.create(
         {
           id: randomUUID(),
@@ -109,43 +128,49 @@ export class OnboardingResourcesService extends OnboardingService {
           kind: 'INVITATION',
           key: hash,
           status: 'PENDING',
-          data: { email: email.toLowerCase(), expiresAt: Date.now() + 86400000, issuedBy: actor },
+          data: { email: email.toLowerCase(), expiresAt: Date.now() + ttl * 1000, issuedBy: actor },
         },
         { transaction: tx },
       );
+      await this.event(row, actor, 'onboarding.invitation.created', tx);
+      return ttl;
     });
-    return { token, expiresInSeconds: 86400 };
+    return { token, expiresInSeconds };
   }
   async accept(actor: number, token: string) {
     const email = await this.resources.inviteAddress(actor);
+    const where = { kind: 'INVITATION', key: createHash('sha256').update(token).digest('hex'), status: 'PENDING' };
+    const candidate = await this.persistence.resources.findOne({ where });
+    if (!candidate) throw fail('Convite inválido ou expirado.', 403);
     return this.persistence.applications.transaction(null, async (tx) => {
+      const row = await this.access(candidate.applicationId, actor, true, tx);
       const invite = await this.persistence.resources.findOne({
-        where: {
-          kind: 'INVITATION',
-          key: createHash('sha256').update(token).digest('hex'),
-          status: 'PENDING',
-        },
+        where,
         transaction: tx,
         forUpdate: true,
       });
       if (
         !invite ||
-        invite.data.expiresAt < Date.now() ||
+        invite.data.expiresAt <= Date.now() ||
         invite.data.email !== email.toLowerCase()
       )
         throw fail('Convite inválido ou expirado.', 403);
-      const row = await this.access(invite.applicationId, actor, true, tx);
-      if (row.companyId) throw fail('Empresa já provisionada.');
+      if (row.companyId || row.data.assistedClaimedAt ||
+        !['DRAFT', 'IN_PROGRESS', 'ADDITIONAL_INFO', 'REJECTED'].includes(row.status)) {
+        throw fail('Adesão indisponível para convite.', 409);
+      }
       await this.persistence.applications.update(
         row,
         {
           ownerId: actor,
           status: 'IN_PROGRESS',
-          data: { ...row.data, termsAcceptedBy: null, approvedBy: null },
+          version: row.version + 1,
+          data: { ...row.data, assistedClaimedAt: new Date().toISOString(), termsAcceptedBy: null, termsAcceptedAt: null, approvedBy: null },
         },
         { transaction: tx },
       );
       await this.persistence.resources.update(invite, { status: 'ACCEPTED' }, { transaction: tx });
+      await this.event(row, actor, 'onboarding.invitation.accepted', tx);
       return { applicationId: row.id };
     });
   }
@@ -333,7 +358,7 @@ export class OnboardingResourcesService extends OnboardingService {
       limit: 100,
       order: [['updatedAt', 'DESC']],
     });
-    for (const row of rows)
+    for (const row of rows.filter((application) => !application.data.createdBy || application.data.assistedClaimedAt))
       await this.resources.notify(
         row.ownerId,
         `onboarding:${row.id}:${row.ownerId}:${row.status}`,
@@ -341,3 +366,4 @@ export class OnboardingResourcesService extends OnboardingService {
       );
   }
 }
+

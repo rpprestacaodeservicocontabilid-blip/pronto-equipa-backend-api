@@ -1,6 +1,7 @@
 import { auditEngine } from './audit-engine.bootstrap';
 import { RecordModuleAuditUseCase } from '../../application/use-cases/record-module-audit.use-case';
 import { auditRequestContext } from '../../../../shared/infrastructure/context/audit-request-context';
+import { auditScope } from '../../domain/audit-contracts';
 import { logger } from '../../../../config/logger';
 import { Router } from 'express';
 
@@ -42,7 +43,18 @@ export function createAuditRecorder(): AuditRecorderPort {
 export function createAuditRoutes(options: CreateAuditRoutesOptions): Router {
   const repository = new SequelizeAuditLogRepository();
 
-  const controller = new AuditLogController(new QueryAuditLogsUseCase(repository));
+  const controller = new AuditLogController(
+    new QueryAuditLogsUseCase(repository),
+    async (companyId, actorId) => {
+      await auditEngine().core.notice(
+        auditScope(companyId),
+        actorId,
+        'audit.legacy-records.queried',
+        String(companyId),
+        { purpose: 'Legacy company audit log query' },
+      );
+    },
+  );
 
   return buildAuditRoutes(controller, options.requirePermission);
 }

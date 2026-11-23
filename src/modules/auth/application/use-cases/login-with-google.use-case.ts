@@ -30,6 +30,7 @@ export interface LoginWithGoogleResult {
   accessToken: string;
 
   refreshToken: string;
+  refreshTokenExpiresAt: Date;
 }
 
 export class LoginWithGoogleUseCase {
@@ -114,6 +115,7 @@ export class LoginWithGoogleUseCase {
       sessionId: session.sessionId,
       accessToken: accessToken.token,
       refreshToken: refreshToken.token,
+      refreshTokenExpiresAt: refreshToken.expiresAt,
     };
   }
 }

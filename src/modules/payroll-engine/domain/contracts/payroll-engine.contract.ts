@@ -1,3 +1,5 @@
+export const PAYROLL_ENGINE_VERSION = '1.0.1';
+
 export type RoundingMode = 'HALF_UP' | 'HALF_EVEN' | 'DOWN' | 'UP';
 export type PayrollLineKind = 'EARNING' | 'DEDUCTION' | 'EMPLOYER_COST';
 
@@ -9,6 +11,7 @@ export interface PayrollEngineInput {
   currency: 'AOA';
   engineVersion: string;
   inputHash: string;
+  calculationInputHash?: string;
   legalRules: PayrollLegalRuleSet;
   segments: Array<{
     startDate: string;
@@ -148,6 +151,9 @@ export interface PayrollEngineResult {
     calculationTraceId: string;
     inputHash: string;
     resultHash: string;
+    hashVersion?: 2;
+    calculationInputHash?: string;
+    roundingPolicy?: PayrollLegalRuleSet['roundingPolicy'];
     engineVersion: string;
     legalRuleSetId: string;
     legalRuleSetVersion: string;

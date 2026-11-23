@@ -4,14 +4,50 @@ import {
   auditFailure,
   auditScope,
   auditText,
+  auditData,
 } from '../audit-contracts';
 const secret =
   /password|passwd|token|secret|authorization|cookie|apikey|credential|privatekey|otp|pincode|accountnumber|accountidentifier|accountciphertext|iban|beneficiarysnapshot/i;
 const sensitive =
   /salary|remuneration|gross|netamount|deduction|bank|taxid|nif|email|phone|birth|address|amount|fullname|firstname|lastname|identitynumber|documentnumber/i;
+export function auditModule(resource: string, eventType: string): string {
+  const groups: Array<[RegExp, string]> = [
+    [/^payroll_payment|^payment_/, 'payments'],
+    [/^employee_salary|^salary_/, 'salary-structure'],
+    [/^payroll_/, 'payroll'],
+    [/^payslip/, 'payslips'],
+    [/^platform_billing/, 'platform-billing'],
+    [/^subscription|^tenant_subscription/, 'subscriptions'],
+    [/^employment_contract|^contract/, 'contracts'],
+    [/^employee_loan|^loan_/, 'loans'],
+    [/^employee/, 'employees'],
+    [/^role|^user_role|^user_permission/, 'authorization'],
+    [/^compan/, 'tenancy'],
+    [/^auth_|^user$/, 'identity'],
+    [/^legal_/, 'legal-rules'],
+    [/^document/, 'documents'],
+    [/^simulation/, 'simulations'],
+    [/^report/, 'reports'],
+    [/^onboarding/, 'onboarding'],
+    [/^support/, 'support'],
+    [/^organization/, 'organization'],
+    [/^leave/, 'leave'],
+    [/^attendance/, 'attendance'],
+  ];
+  const match = groups.find(([pattern]) => pattern.test(resource.toLowerCase()));
+  return (
+    match?.[1] ||
+    eventType
+      .split('.')[0]
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .slice(0, 64) ||
+    'application'
+  );
+}
 export function canonicalAudit(value: unknown): string {
   if (value === null) return 'null';
-  if (Array.isArray(value)) return `[${value.map(canonicalAudit).join(',')}]`;
+  if (Array.isArray(value)) return `[${Array.from(value, canonicalAudit).join(',')}]`;
   if (typeof value === 'object' && value !== null) {
     const row = value as Record<string, unknown>;
     return `{${Object.keys(row)
@@ -56,7 +92,7 @@ export function redactAudit(
   try {
     if (Array.isArray(value)) {
       if (value.length > 2000) throw auditFailure('Audit list exceeds limit.');
-      return value.map((v) => redactAudit(v, protectSensitive, field, depth + 1, seen));
+      return Array.from(value, (v) => redactAudit(v, protectSensitive, field, depth + 1, seen));
     }
     const entries = Object.entries(value);
     if (entries.length > 1000) throw auditFailure('Audit object exceeds limit.');
@@ -71,6 +107,7 @@ export function redactAudit(
   }
 }
 export function normalizeAudit(input: AuditEventInput, now: Date): AuditEventInput {
+  if (input.metadata !== undefined) auditData(input.metadata);
   const companyId = input.scope === 'TENANT' ? Number(input.tenantId) : null;
   if (
     !['TENANT', 'PLATFORM'].includes(input.scope) ||
@@ -87,20 +124,27 @@ export function normalizeAudit(input: AuditEventInput, now: Date): AuditEventInp
     throw auditFailure('Invalid audit classification.');
   if (!['USER', 'SERVICE', 'SYSTEM', 'EXTERNAL'].includes(input.actor.actorType))
     throw auditFailure('Invalid audit actor.');
-  if(input.actor.actorType!=='EXTERNAL'&&!input.actor.actorId)throw auditFailure('Identified audit actor required.');
-  if(input.sensitivity!==undefined&&!['STANDARD','SENSITIVE'].includes(input.sensitivity))throw auditFailure('Invalid audit sensitivity.');
+  if (input.actor.actorType !== 'EXTERNAL' && !input.actor.actorId)
+    throw auditFailure('Identified audit actor required.');
+  if (input.sensitivity !== undefined && !['STANDARD', 'SENSITIVE'].includes(input.sensitivity))
+    throw auditFailure('Invalid audit sensitivity.');
   const occurredAt = new Date(input.occurredAt);
   if (Number.isNaN(occurredAt.getTime()) || occurredAt.getTime() > now.getTime() + 300000)
     throw auditFailure('Invalid audit occurrence time.');
   const normalized: AuditEventInput = {
-    category:input.category,
-    severity:input.severity,
-    outcome:input.outcome,
-    sensitivity:input.sensitivity,
-    correlationId:input.correlationId,
-    causationId:input.causationId,
-    requestId:input.requestId,
-    reason:input.reason,
+    module: auditText(
+      input.module || auditModule(input.resource.resourceType, input.eventType),
+      'module',
+      80,
+    ),
+    category: input.category,
+    severity: input.severity,
+    outcome: input.outcome,
+    sensitivity: input.sensitivity,
+    correlationId: input.correlationId,
+    causationId: input.causationId,
+    requestId: input.requestId,
+    reason: input.reason,
     eventId: auditText(input.eventId, 'event id'),
     sourceId: auditText(input.sourceId, 'source'),
     eventType: auditText(input.eventType, 'event type'),
@@ -121,11 +165,14 @@ export function normalizeAudit(input: AuditEventInput, now: Date): AuditEventInp
     },
     occurredAt: occurredAt.toISOString(),
     metadata: redactAudit(input.metadata || {}, true) as Record<string, unknown>,
-    changes: input.changes?.map((change) => ({
-      field: auditText(change.field, 'change path', 500),
-      before: redactAudit(change.before, true, change.field),
-      after: redactAudit(change.after, true, change.field),
-    })),
+    changes:
+      input.changes === undefined
+        ? undefined
+        : Array.from(input.changes, (change) => ({
+            field: auditText(change.field, 'change path', 500),
+            before: redactAudit(change.before, true, change.field),
+            after: redactAudit(change.after, true, change.field),
+          })),
   };
   for (const key of ['correlationId', 'causationId', 'requestId', 'reason'] as const)
     if (normalized[key] !== undefined)
@@ -133,4 +180,32 @@ export function normalizeAudit(input: AuditEventInput, now: Date): AuditEventInp
   if ((normalized.changes?.length || 0) > 500 || canonicalAudit(normalized).length > 262144)
     throw auditFailure('Audit payload exceeds limit.');
   return normalized;
+}
+
+/** Changed fields retain their names while protected values remain masked. */
+export function auditChanges(
+  before: unknown,
+  after: unknown,
+): NonNullable<AuditEventInput['changes']> {
+  const previous =
+    before && typeof before === 'object' && !Array.isArray(before)
+      ? (redactAudit(before) as Record<string, unknown>)
+      : {};
+  const next =
+    after && typeof after === 'object' && !Array.isArray(after)
+      ? (redactAudit(after) as Record<string, unknown>)
+      : {};
+  const changes: NonNullable<AuditEventInput['changes']> = [];
+  for (const field of new Set([...Object.keys(previous), ...Object.keys(next)])) {
+    const left = previous[field] ?? null,
+      right = next[field] ?? null;
+    if (canonicalAudit(left) !== canonicalAudit(right))
+      changes.push({
+        field,
+        before: redactAudit(left, true, field),
+        after: redactAudit(right, true, field),
+      });
+    if (changes.length > 500) throw auditFailure('Audit change list exceeds limit.');
+  }
+  return changes;
 }

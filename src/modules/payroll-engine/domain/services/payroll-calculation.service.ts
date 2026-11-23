@@ -9,7 +9,7 @@ import { Money, sumMoney } from '../value-objects/money.vo';
 import { validateInput } from '../rules/rule-validator';
 import { IncomeTaxCalculator } from '../calculators/income-tax.calculator';
 import { SocialSecurityCalculator } from '../calculators/social-security.calculator';
-import { sha256 } from './hash.service';
+import { hashCalculationInput, hashCalculationResult, sha256 } from './hash.service';
 
 const inclusiveDays = (from: string, to: string): number =>
   Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
@@ -77,7 +77,7 @@ export class PayrollCalculationService {
             periodicAmount = periodicAmount.multiplyFraction(26n, 12n);
             break;
           case 'ANNUAL':
-            periodicAmount = periodicAmount.divide(12n);
+            periodicAmount = periodicAmount.multiplyFraction(1n, 12n);
             break;
           case 'ONE_TIME':
             throw new PayrollEngineError(
@@ -273,11 +273,14 @@ export class PayrollCalculationService {
     const totalEmployerCost = gross.add(employerCosts).round(mode);
     this.reconcile(lines, gross, totalDeductions, net, employerCosts);
 
+    const { inputHash, calculationInputHash, ...payload } = input;
+    const normalizedInputHash = calculationInputHash ?? hashCalculationInput(payload);
     const calculationTraceId = sha256({
       tenantId: input.tenantId,
       payrollRunId: input.payrollRunId,
       employeeId: input.employeeId,
-      inputHash: input.inputHash,
+      inputHash,
+      normalizedInputHash,
       engineVersion: input.engineVersion,
     }).slice(0, 32);
     const baseResult = {
@@ -299,19 +302,19 @@ export class PayrollCalculationService {
       lines,
       issues,
     };
-    return {
-      ...baseResult,
-      trace: {
-        calculationTraceId,
-        inputHash: input.inputHash,
-        resultHash: sha256(baseResult),
-        engineVersion: input.engineVersion,
-        legalRuleSetId: rules.ruleSetId,
-        legalRuleSetVersion: rules.version,
-        legalSourceReference: rules.sourceReference,
-        steps,
-      },
+    const trace: Omit<PayrollEngineResult['trace'], 'resultHash'> = {
+      calculationTraceId,
+      inputHash,
+      calculationInputHash: normalizedInputHash,
+      hashVersion: 2,
+      roundingPolicy: { ...rules.roundingPolicy },
+      engineVersion: input.engineVersion,
+      legalRuleSetId: rules.ruleSetId,
+      legalRuleSetVersion: rules.version,
+      legalSourceReference: rules.sourceReference,
+      steps,
     };
+    return { ...baseResult, trace: { ...trace, resultHash: hashCalculationResult(baseResult, trace) } };
   }
 
   simulate(input: PayrollEngineInput): PayrollEngineResult {
@@ -336,7 +339,8 @@ export class PayrollCalculationService {
         'ORIGINAL_RESULT_MISMATCH',
       );
     const { trace: originalTrace, ...originalBase } = original;
-    if (!originalTrace?.resultHash || sha256(originalBase) !== originalTrace.resultHash)
+    const { resultHash: originalHash, ...originalEvidence } = originalTrace ?? {};
+    if (!originalHash || hashCalculationResult(originalBase, originalEvidence) !== originalHash)
       throw new PayrollEngineError(
         'Historical payroll result integrity check failed.',
         'ORIGINAL_RESULT_HASH_MISMATCH',
@@ -361,22 +365,21 @@ export class PayrollCalculationService {
       ]),
     );
     const deltaLines = this.diffLines(original.lines, recalculated.lines);
-    return {
-      ...recalculated,
-      ...differences,
-      lines: deltaLines,
-      trace: {
-        ...recalculated.trace,
-        steps: [
-          ...recalculated.trace.steps,
-          {
-            code: 'RETROACTIVE_DIFFERENCE',
-            description: 'Difference between recalculated and immutable historical payroll result.',
-            formula: `original ${original.trace.resultHash}; recalculated ${recalculated.trace.resultHash}`,
-          },
-        ],
-      },
+    const { trace: recalculatedTrace, ...recalculatedBase } = recalculated;
+    const { resultHash: recalculatedHash, ...evidence } = recalculatedTrace;
+    const delta = { ...recalculatedBase, ...differences, lines: deltaLines };
+    const trace = {
+      ...evidence,
+      steps: [
+        ...evidence.steps,
+        {
+          code: 'RETROACTIVE_DIFFERENCE',
+          description: 'Difference between recalculated and immutable historical payroll result.',
+          formula: `original ${originalHash}; recalculated ${recalculatedHash}`,
+        },
+      ],
     };
+    return { ...delta, trace: { ...trace, resultHash: hashCalculationResult(delta, trace) } };
   }
 
   explain(result: PayrollEngineResult): PayrollEngineResult['trace'] {

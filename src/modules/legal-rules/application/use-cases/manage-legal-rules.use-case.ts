@@ -15,6 +15,7 @@ export class ManageLegalRulesUseCase {
     actorUserId: number,
     action: string,
     operation: (repository: LegalRulesRepositoryPort) => Promise<T>,
+    entityType = 'legal_rule_set',
   ): Promise<T> {
     const result = await operation(this.repository);
     const record =
@@ -25,7 +26,7 @@ export class ManageLegalRulesUseCase {
       companyId: null,
       actorUserId,
       action: `legal-rules.${action}`,
-      entityType: 'legal_rule_set',
+      entityType,
       entityId: record.id ?? null,
       after: { status: record.status, ruleSetId: record.ruleSetId, version: record.version },
     });

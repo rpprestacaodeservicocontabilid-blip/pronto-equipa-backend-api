@@ -69,14 +69,16 @@ module.exports = {
         key: 'ONBOARDING_STATUS:1',
         status: 'PUBLISHED',
         userId: null,
-        data: {
+        data: JSON.stringify({
           code: 'ONBOARDING_STATUS',
           category: 'ONBOARDING',
           version: 1,
           mandatory: true,
+          actor: 0,
+          publishedBy: 0,
           subject: 'Actualização da adesão',
           body: 'O estado da sua adesão é {{status}}. Aceda à plataforma para consultar os detalhes.',
-        },
+        }),
         createdAt: now,
         updatedAt: now,
       },

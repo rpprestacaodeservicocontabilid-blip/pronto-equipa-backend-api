@@ -4,5 +4,7 @@ export * from './domain/rules/rule-evaluator';
 export * from './domain/rules/rule-dependency-graph';
 export * from './domain/services/payroll-calculation.service';
 export * from './domain/value-objects/money.vo';
+export * from './domain/value-objects/decimal-rate.vo';
+export * from './domain/value-objects/rounding-policy.vo';
 export * from './infrastructure/adapters/payroll-calculator.adapter';
 export * from './payroll-engine.module';

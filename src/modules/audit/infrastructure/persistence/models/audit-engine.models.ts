@@ -36,6 +36,8 @@ AuditRecordModel.init(
     sequence: { type: DataTypes.BIGINT, allowNull: false },
     schemaVersion: { type: DataTypes.INTEGER, allowNull: false },
     eventType: str(),
+    module: str(80),
+    action: str(),
     category: str(40),
     severity: str(20),
     outcome: str(20),
@@ -65,6 +67,7 @@ AuditRecordModel.init(
       { fields: ['scopeKey', 'resourceType', 'resourceId'] },
       { fields: ['scopeKey', 'correlationId'] },
       { fields: ['scopeKey', 'category', 'outcome'] },
+      { fields: ['scopeKey', 'module', 'action', 'sequence'] },
     ],
   },
 );

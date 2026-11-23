@@ -21,6 +21,19 @@ import {
 import { AuditRuntime } from '../jobs/audit-runtime';
 import { AuditNotificationPort } from '../../application/ports/audit-engine.ports';
 import { AuditAppendPort } from '../../application/ports/audit-engine.ports';
+import { TransactionalAuditPort } from '../../application/ports/audit-engine.ports';
+import { auditFailure } from '../../domain/audit-contracts';
+import { AuditEventPublisherPort } from '../../application/ports/audit-event-publisher.port';
+import { RedisAuditEventPublisher } from '../adapters/redis-audit-event-publisher';
+import { AuditEventRecorderPort } from '../../application/ports/audit-event-recorder.port';
+
+export function createAuditEventRecorder(sourceId = 'application'): AuditEventRecorderPort {
+  return {
+    record(input) {
+      return auditEngine().core.append({ ...input, sourceId });
+    },
+  };
+}
 
 export function createAuditAppendPort(): AuditAppendPort {
   return auditEngine().core;
@@ -59,7 +72,7 @@ export function auditEngine(): AuditServices {
     evidence,
     integrity,
     exports: new AuditExportService(core, evidence),
-    monitor: new AuditMonitorService(core, new DatabaseAuditEventSource()),
+    monitor: new AuditMonitorService(core, new DatabaseAuditEventSource(), storage),
     retention: new AuditRetentionService(core, evidence, integrity),
   };
   installAuditTransactionContext();
@@ -68,13 +81,29 @@ export function auditEngine(): AuditServices {
 export function createAuditModule(options: {
   authorize: AuditAuthorize;
   notifications?: AuditNotificationPort;
+  publisher?: AuditEventPublisherPort;
 }) {
   const services = auditEngine();
+  const transactionalAudit: TransactionalAuditPort = {
+    append(input, context) {
+      if (!context) throw auditFailure('Critical audit requires the business transaction context.');
+      return services.core.append(input, context);
+    },
+  };
   return {
     services,
-    transactionalAudit: services.core,
+    transactionalAudit,
     routes: createAuditEngineRoutes(services, options.authorize),
     platformRoutes: createAuditEngineRoutes(services, options.authorize, true),
-    runtime: new AuditRuntime(services, options.authorize, options.notifications),
+    personalRoutes: createAuditEngineRoutes(services, options.authorize, true, true),
+    runtime: new AuditRuntime(
+      services,
+      options.authorize,
+      options.notifications,
+      options.publisher ||
+        (process.env.NODE_ENV === 'production' || process.env.AUDIT_EVENTS_ENABLED === 'true'
+          ? new RedisAuditEventPublisher()
+          : undefined),
+    ),
   };
 }

@@ -1,4 +1,5 @@
 'use strict';
+const { createAuditMonth, secureAuditPartition } = require('../helpers/audit-partitioning.cjs');
 const objectTables = [
   'audit_investigations',
   'audit_evidence_packages',
@@ -17,8 +18,10 @@ const objectTables = [
   'audit_outbox',
 ];
 const captures = [
+  'communication_records',
   'users',
   'auth_accounts',
+  'auth_sessions',
   'user_roles',
   'user_permissions',
   'employees',
@@ -49,6 +52,9 @@ const captures = [
   'document_legal_holds',
   'document_deletion_requests',
   'payslip_documents',
+  'payslips',
+  'payslip_publications',
+  'payslip_corrections',
   'payslip_deliveries',
   'tenant_subscriptions',
   'subscription_change_requests',
@@ -86,6 +92,13 @@ const fields = [
   'permissionId',
   'approvedBy',
   'actorUserId',
+  'userId',
+  'createdBy',
+  'updatedBy',
+  'ownerId',
+  'applicationId',
+  'type',
+  'action',
   'amount',
   'currency',
   'grossAmount',
@@ -103,13 +116,42 @@ async function installCapture(q) {
     const columns = await q.describeTable(table);
     if (!columns.id && !(columns.roleId && columns.permissionId)) continue;
     const keys = fields.filter((key) => columns[key]);
-    const projection = (alias) =>
-      keys
-        .flatMap((key) => [
+    const projection = (alias) => {
+      const projected = keys.flatMap((key) => [
+        "'" + key + "'",
+        /amount|salary|gross/i.test(key) ? "'[REDACTED]'" : alias + '.' + quote(key),
+      ]);
+      if (columns.data) {
+        const links = [
+          'subscriptionId',
+          'invoiceId',
+          'paymentId',
+          'receiptId',
+          'transactionId',
+          'contractId',
+          'employeeId',
+          'runId',
+          'eventId',
+          'planId',
+          'parentId',
+          'requesterId',
+          'approverId',
+          'providerId',
+          'messageId',
+        ];
+        const values = links.flatMap((key) => [
           "'" + key + "'",
-          /amount|salary|gross/i.test(key) ? "'[REDACTED]'" : alias + '.' + quote(key),
-        ])
-        .join(',');
+          dialect === 'postgres'
+            ? `CASE WHEN jsonb_typeof(${alias}.${quote('data')}::jsonb->'${key}') IN ('string','number') THEN left(${alias}.${quote('data')}::jsonb->>'${key}',200) ELSE NULL END`
+            : `CASE WHEN json_type(${alias}.${quote('data')},'$.${key}') IN ('text','integer','real') THEN substr(json_extract(${alias}.${quote('data')},'$.${key}'),1,200) ELSE NULL END`,
+        ]);
+        projected.push(
+          "'links'",
+          `${dialect === 'postgres' ? 'jsonb_build_object' : 'json_object'}(${values.join(',')})`,
+        );
+      }
+      return projected.join(',');
+    };
     const company = (alias) =>
       columns.companyId
         ? alias + '.' + quote('companyId')
@@ -152,6 +194,15 @@ async function installCapture(q) {
       ') ON CONFLICT (' +
       quote('scopeKey') +
       ') DO NOTHING;';
+    // Audit alert delivery is excluded to prevent a notification/audit feedback loop.
+    const notificationCapture = (alias) => {
+      if (table !== 'communication_records') return 'TRUE';
+      const messageId =
+        dialect === 'postgres'
+          ? `${alias}.data::jsonb->>'messageId'`
+          : `json_extract(${alias}.data,'$.messageId')`;
+      return `(${alias}.kind IN ('MESSAGE','DELIVERY') AND ${alias}.${quote('key')} NOT LIKE 'audit-alert:%' AND NOT EXISTS (SELECT 1 FROM communication_records parent WHERE CAST(parent.id AS TEXT)=${messageId} AND parent.${quote('key')} LIKE 'audit-alert:%'))`;
+    };
     if (dialect === 'postgres') {
       const name = 'audit_capture_' + table;
       const roleMap =
@@ -178,6 +229,9 @@ async function installCapture(q) {
         'CREATE OR REPLACE FUNCTION ' +
           quote(name) +
           '() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$ BEGIN ' +
+          (table === 'communication_records'
+            ? `IF TG_OP='DELETE' THEN IF NOT ${notificationCapture('OLD')} THEN RETURN OLD; END IF; ELSE IF NOT ${notificationCapture('NEW')} THEN RETURN NEW; END IF; END IF; `
+            : '') +
           roleMap +
           catalog(tenant) +
           ' INSERT INTO audit_capture_events (id,' +
@@ -255,6 +309,7 @@ async function installCapture(q) {
             operation +
             ' ON ' +
             quote(table) +
+            (table === 'communication_records' ? ' WHEN ' + notificationCapture(ref) : '') +
             ' BEGIN ' +
             roleMap +
             catalog(company(ref)) +
@@ -270,7 +325,7 @@ async function installCapture(q) {
             table +
             "'," +
             resource(ref) +
-            ",NULL,NULL,strftime('%Y-%m-%dT%H:%M:%fZ','now'),json_object('operation','" +
+            ",NULL,NULL,strftime('%Y-%m-%d %H:%M:%f +00:00','now'),json_object('operation','" +
             operation +
             "','before'," +
             (operation === 'INSERT' ? 'NULL' : 'json_object(' + projection('OLD') + ')') +
@@ -296,6 +351,8 @@ module.exports = {
       sequence: { type: S.BIGINT, allowNull: false },
       schemaVersion: { type: S.INTEGER, allowNull: false },
       eventType: string(),
+      module: string(80),
+      action: string(),
       category: string(40),
       severity: string(20),
       outcome: string(20),
@@ -331,21 +388,35 @@ module.exports = {
         return `"${name}" ${type}${attribute.allowNull === true ? '' : ' NOT NULL'}`;
       });
       await q.sequelize.query(
-        `CREATE TABLE audit_records (${columns.join(',')},PRIMARY KEY ("scopeKey",id),CHECK ("scopeKey"=CASE WHEN "companyId" IS NULL THEN 'platform' ELSE 'tenant:'||"companyId"::text END)) PARTITION BY HASH ("scopeKey")`,
+        `CREATE TABLE audit_records (${columns.join(',')},PRIMARY KEY ("scopeKey",id,"receivedAt"),CHECK ("scopeKey"=CASE WHEN "companyId" IS NULL THEN 'platform' ELSE 'tenant:'||"companyId"::text END)) PARTITION BY RANGE ("receivedAt")`,
       );
-      for (let remainder = 0; remainder < 16; remainder++)
-        await q.sequelize.query(
-          `CREATE TABLE audit_records_p${remainder} PARTITION OF audit_records FOR VALUES WITH (MODULUS 16,REMAINDER ${remainder})`,
+      const now = new Date();
+      for (let offset = -1; offset <= 2; offset++)
+        await createAuditMonth(
+          q,
+          new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1)),
         );
+      await q.sequelize.query(
+        'CREATE TABLE audit_records_default PARTITION OF audit_records DEFAULT',
+      );
+      await secureAuditPartition(q, 'audit_records_default');
+      await q.sequelize
+        .query(`CREATE TABLE audit_record_identities ("scopeKey" varchar(200) NOT NULL,"companyId" integer,id uuid NOT NULL,"sourceId" varchar(200) NOT NULL,"eventId" varchar(200) NOT NULL,sequence bigint NOT NULL,"receivedAt" timestamptz NOT NULL,PRIMARY KEY("scopeKey","sourceId","eventId"),UNIQUE("scopeKey",sequence),UNIQUE(id));
+        CREATE FUNCTION audit_reserve_identity() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$ BEGIN INSERT INTO audit_record_identities VALUES(NEW."scopeKey",NEW."companyId",NEW.id,NEW."sourceId",NEW."eventId",NEW.sequence,NEW."receivedAt"); RETURN NEW; END; $$;
+        CREATE TRIGGER audit_reserve_identity BEFORE INSERT ON audit_records FOR EACH ROW EXECUTE FUNCTION audit_reserve_identity(); REVOKE ALL ON audit_record_identities FROM PUBLIC;`);
     } else await q.createTable('audit_records', record);
-    await q.addIndex('audit_records', ['scopeKey', 'sourceId', 'eventId'], { unique: true });
-    await q.addIndex('audit_records', ['scopeKey', 'sequence'], { unique: true });
+    const temporal = q.sequelize.getDialect() === 'postgres' ? ['receivedAt'] : [];
+    await q.addIndex('audit_records', ['scopeKey', 'sourceId', 'eventId', ...temporal], {
+      unique: true,
+    });
+    await q.addIndex('audit_records', ['scopeKey', 'sequence', ...temporal], { unique: true });
     for (const index of [
       ['companyId', 'occurredAt'],
       ['scopeKey', 'actorId', 'sequence'],
       ['scopeKey', 'resourceType', 'resourceId'],
       ['scopeKey', 'correlationId'],
       ['scopeKey', 'category', 'outcome'],
+      ['scopeKey', 'module', 'action', 'sequence'],
     ])
       await q.addIndex('audit_records', index);
     await q.createTable('audit_scope_catalog', {
@@ -400,7 +471,7 @@ module.exports = {
     if (q.sequelize.getDialect() === 'postgres') {
       for (const table of [
         'audit_records',
-        ...Array.from({ length: 16 }, (_, n) => `audit_records_p${n}`),
+        'audit_record_identities',
         'audit_chain_heads',
         ...objectTables,
       ]) {
@@ -414,10 +485,13 @@ module.exports = {
       await q.sequelize.query(
         `CREATE FUNCTION audit_reject_record_mutation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit records are append-only'; END; $$; CREATE TRIGGER audit_record_immutable BEFORE UPDATE OR DELETE ON audit_records FOR EACH ROW EXECUTE FUNCTION audit_reject_record_mutation(); CREATE TRIGGER audit_record_no_truncate BEFORE TRUNCATE ON audit_records FOR EACH STATEMENT EXECUTE FUNCTION audit_reject_record_mutation(); REVOKE UPDATE,DELETE,TRUNCATE ON audit_records FROM PUBLIC;`,
       );
-      for (let remainder = 0; remainder < 16; remainder++)
-        await q.sequelize.query(
-          `CREATE TRIGGER audit_record_no_truncate BEFORE TRUNCATE ON audit_records_p${remainder} FOR EACH STATEMENT EXECUTE FUNCTION audit_reject_record_mutation(); REVOKE ALL ON audit_records_p${remainder} FROM PUBLIC;`,
-        );
+      await q.sequelize.query(
+        'CREATE TRIGGER audit_identities_immutable BEFORE UPDATE OR DELETE ON audit_record_identities FOR EACH ROW EXECUTE FUNCTION audit_reject_record_mutation(); CREATE TRIGGER audit_identities_no_truncate BEFORE TRUNCATE ON audit_record_identities FOR EACH STATEMENT EXECUTE FUNCTION audit_reject_record_mutation();',
+      );
+      const [parts] = await q.sequelize.query(
+        "SELECT c.relname AS name FROM pg_inherits i JOIN pg_class c ON c.oid=i.inhrelid WHERE i.inhparent='audit_records'::regclass",
+      );
+      for (const part of parts) await secureAuditPartition(q, part.name);
     } else if (q.sequelize.getDialect() === 'sqlite')
       for (const op of ['UPDATE', 'DELETE'])
         await q.sequelize.query(

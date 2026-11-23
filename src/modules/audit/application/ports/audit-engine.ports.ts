@@ -1,4 +1,11 @@
 import { RecordStoreContext } from '../../../../shared/application/ports/record-store.port';
+export interface AuditObjectFilter {
+  status?: string[];
+  limit?: number;
+  key?: string;
+  unnotified?: boolean;
+  beforeUpdatedAt?: string;
+}
 import {
   AuditAccess,
   AuditEventInput,
@@ -12,6 +19,10 @@ import {
   AuditSignature,
 } from '../../domain/audit-contracts';
 export interface AuditRepositoryPort {
+  statistics(
+    scope: AuditScope,
+    context: RecordStoreContext,
+  ): Promise<{ records: number; payloadBytes: number }>;
   transaction<T>(
     scope: AuditScope,
     operation: (context: RecordStoreContext) => Promise<T>,
@@ -48,6 +59,7 @@ export interface AuditRepositoryPort {
     scope: AuditScope,
     kind: AuditObjectKind,
     context: RecordStoreContext,
+    filter?: AuditObjectFilter,
   ): Promise<AuditObject[]>;
   updateObject(
     object: AuditObject,
@@ -62,6 +74,12 @@ export interface AuditCryptoPort {
   verify(value: string, signature: AuditSignature): boolean;
 }
 export interface AuditEvidenceStoragePort {
+  statistics?(scopeKey: string): Promise<{
+    evidenceFiles: number;
+    evidenceBytes: number;
+    anchorFiles: number;
+    anchorBytes: number;
+  }>;
   put(scopeKey: string, id: string, bytes: Buffer): Promise<string>;
   read(key: string): Promise<Buffer>;
   anchor(scopeKey: string, id: string, bytes: Buffer): Promise<string>;

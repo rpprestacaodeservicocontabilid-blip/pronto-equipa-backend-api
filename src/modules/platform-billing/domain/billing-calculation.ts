@@ -1,5 +1,7 @@
+import { AppError } from '../../../shared/errors/app.error';
+
 export const billingError = (message: string, statusCode = 422) =>
-  Object.assign(new Error(message), { statusCode });
+  new AppError(message, statusCode, 'BILLING_RULE_VIOLATION');
 export function cents(value: string): bigint {
   if (!/^\d{1,12}(\.\d{1,2})?$/.test(value)) throw billingError('Valor monetário inválido.');
   const [whole, fraction = ''] = value.split('.');

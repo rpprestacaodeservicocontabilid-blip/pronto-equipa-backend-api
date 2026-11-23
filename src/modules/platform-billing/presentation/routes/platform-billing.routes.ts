@@ -14,7 +14,10 @@ const line = z.object({
 });
 export function createPlatformBillingRoutes(
   service: BillingService,
-  options: { requirePermission: (permission: string) => RequestHandler },
+  options: {
+    requirePermission: (permission: string) => RequestHandler;
+    requireAdmin: (permission: string) => RequestHandler;
+  },
 ) {
   const routes = Router(),
     adminRoutes = Router();
@@ -30,7 +33,7 @@ export function createPlatformBillingRoutes(
     async (req, res, next) => {
       try {
         const companyId = admin
-          ? z.coerce.number().int().positive().parse(req.params.companyId)
+          ? z.coerce.number().int().min(1).max(2147483647).parse(req.params.companyId)
           : req.tenant?.companyId;
         if (!companyId || !req.user?.userId) {
           res.status(400).json({ success: false, message: 'Contexto autenticado obrigatório.' });
@@ -63,6 +66,7 @@ export function createPlatformBillingRoutes(
       );
     adminRoutes.get(
       `/tenants/:companyId/${path}`,
+      options.requireAdmin('legacy:read'),
       handle((_r, c) => service.list(c, kind), true),
     );
   }
@@ -84,10 +88,12 @@ export function createPlatformBillingRoutes(
   );
   adminRoutes.put(
     '/tenants/:companyId/account',
+    options.requireAdmin('accounts:manage'),
     handle((r, c, a) => service.account(c, a, account.parse(r.body)), true),
   );
   adminRoutes.post(
     '/tenants/:companyId/series',
+    options.requireAdmin('document-series:manage'),
     handle(
       (r, c, a) =>
         service.configureSeries(
@@ -107,6 +113,7 @@ export function createPlatformBillingRoutes(
   );
   adminRoutes.post(
     '/tenants/:companyId/invoices',
+    options.requireAdmin('invoices:create'),
     handle(
       (r, c, a) =>
         service.draft(
@@ -114,7 +121,7 @@ export function createPlatformBillingRoutes(
           a,
           z
             .object({
-              operationKey: z.string().min(1).max(200),
+              operationKey: z.string().min(1).max(200).refine(value => !/^(debit|cycle):/.test(value)),
               currency: z.string().regex(/^[A-Z]{3}$/),
               dueAt: z.string().datetime(),
               lines: z.array(line).min(1).max(200),
@@ -128,10 +135,14 @@ export function createPlatformBillingRoutes(
   );
   adminRoutes.post(
     '/tenants/:companyId/invoices/:id/issue',
+    options.requireAdmin('invoices:issue'),
     handle((r, c, a) => service.issue(c, a, z.string().uuid().parse(r.params.id)), true),
   );
+  adminRoutes.post('/tenants/:companyId/invoices/:id/validate', options.requireAdmin('invoices:validate'),
+    handle((r, c) => service.validateInvoice(c, z.string().uuid().parse(r.params.id)), true));
   adminRoutes.post(
     '/tenants/:companyId/payments',
+    options.requireAdmin('payments:create'),
     handle(
       (r, c, a) =>
         service.payment(
@@ -139,7 +150,7 @@ export function createPlatformBillingRoutes(
           a,
           z
             .object({
-              invoiceId: z.string().uuid(),
+              invoiceId: z.string().uuid().optional(),
               amount: money.refine((v) => Number(v) > 0),
               currency: z.string().regex(/^[A-Z]{3}$/),
               provider: z.string().min(1).max(80),
@@ -152,20 +163,25 @@ export function createPlatformBillingRoutes(
   );
   adminRoutes.post(
     '/tenants/:companyId/payments/:id/confirm',
+    options.requireAdmin('payments:confirm'),
     handle(
       (r, c, a) =>
         service.confirm(
           c,
           a,
           z.string().uuid().parse(r.params.id),
-          z.object({ evidence: z.string().min(1).max(2000) }).parse(r.body).evidence,
+          z.object({ evidence: z.string().trim().min(1).max(2000) }).parse(r.body).evidence,
         ),
       true,
     ),
   );
   const identifier = z.string().uuid();
+  adminRoutes.post('/tenants/:companyId/payments/:id/allocations', options.requireAdmin('payments:allocate'),
+    handle((r, c, a) => service.allocate(c, a, identifier.parse(r.params.id),
+      z.object({ invoiceId: identifier, amount: money, operationKey: z.string().uuid() }).strict().parse(r.body)), true));
   adminRoutes.post(
     '/tenants/:companyId/credit-notes',
+    options.requireAdmin('credit-notes:issue'),
     handle(
       (r, c, a) =>
         service.credit(
@@ -185,6 +201,7 @@ export function createPlatformBillingRoutes(
   );
   adminRoutes.post(
     '/tenants/:companyId/refunds',
+    options.requireAdmin('refunds:create'),
     handle(
       (r, c, a) =>
         service.refund(
@@ -204,6 +221,7 @@ export function createPlatformBillingRoutes(
   );
   adminRoutes.post(
     '/tenants/:companyId/refunds/:id/decision',
+    options.requireAdmin('refunds:approve'),
     handle(
       (r, c, a) =>
         service.decideRefund(
@@ -217,6 +235,7 @@ export function createPlatformBillingRoutes(
   );
   adminRoutes.post(
     '/tenants/:companyId/refunds/:id/execute',
+    options.requireAdmin('refunds:execute'),
     handle(
       (r, c, a) =>
         service.executeRefund(
@@ -230,6 +249,7 @@ export function createPlatformBillingRoutes(
   );
   adminRoutes.post(
     '/tenants/:companyId/statements',
+    options.requireAdmin('reconciliation:execute'),
     handle(
       (r, c, a) =>
         service.importStatement(
@@ -257,13 +277,20 @@ export function createPlatformBillingRoutes(
   );
   adminRoutes.post(
     '/tenants/:companyId/reconciliation',
+    options.requireAdmin('reconciliation:execute'),
     handle((r, c, a) => {
       const b = z.object({ entryId: identifier, paymentId: identifier }).parse(r.body);
       return service.reconcile(c, a, b.entryId, b.paymentId);
     }, true),
   );
+  const reconciliationReason = z.object({ reason: z.string().trim().min(1).max(2000) }).strict();
+  adminRoutes.post('/tenants/:companyId/bank-entries/:id/review', options.requireAdmin('reconciliation:execute'),
+    handle((r, c, a) => service.reviewBankEntry(c, a, identifier.parse(r.params.id), reconciliationReason.parse(r.body).reason), true));
+  adminRoutes.post('/tenants/:companyId/reconciliation/:id/reverse', options.requireAdmin('reconciliation:reverse'),
+    handle((r, c, a) => service.reverseReconciliation(c, a, identifier.parse(r.params.id), reconciliationReason.parse(r.body).reason), true));
   adminRoutes.post(
     '/tenants/:companyId/tax-rules',
+    options.requireAdmin('tax-rules:manage'),
     handle(
       (r, c, a) =>
         service.fiscalRule(
@@ -284,6 +311,7 @@ export function createPlatformBillingRoutes(
   );
   adminRoutes.post(
     '/tenants/:companyId/schedules',
+    options.requireAdmin('schedules:manage'),
     handle(
       (r, c, a) =>
         service.schedule(
@@ -306,6 +334,7 @@ export function createPlatformBillingRoutes(
   );
   adminRoutes.post(
     '/tenants/:companyId/debit-notes',
+    options.requireAdmin('debit-notes:issue'),
     handle(
       (r, c, a) =>
         service.debit(
@@ -343,18 +372,22 @@ export function createPlatformBillingRoutes(
   );
   adminRoutes.post(
     '/tenants/:companyId/schedules/:id/cancel',
+    options.requireAdmin('schedules:manage'),
     handle((r, c, a) => service.cancelSchedule(c, a, identifier.parse(r.params.id)), true),
   );
   adminRoutes.post(
     '/tenants/:companyId/events/:id/retry',
+    options.requireAdmin('schedules:manage'),
     handle((r, c, a) => service.retryEvent(c, a, identifier.parse(r.params.id)), true),
   );
   adminRoutes.get(
     '/tenants/:companyId/balance',
+    options.requireAdmin('accounts:read'),
     handle((_r, c) => service.balance(c), true),
   );
   adminRoutes.get(
     '/tenants/:companyId/schedules',
+    options.requireAdmin('schedules:read'),
     handle((_r, c) => service.list(c, 'SCHEDULE'), true),
   );
   const integrationRoutes = Router();

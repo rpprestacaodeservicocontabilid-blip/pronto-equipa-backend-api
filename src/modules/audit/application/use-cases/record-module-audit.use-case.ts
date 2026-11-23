@@ -2,6 +2,7 @@ import { AuditRecorderPort, AuditRecordInput } from '../ports/audit-recorder.por
 import { AuditErrorReporterPort } from '../ports/audit-error-reporter.port';
 import { AuditCore } from './audit-core';
 import { AuditCategory } from '../../domain/audit-contracts';
+import { auditChanges } from '../../domain/services/audit-data.service';
 export interface AuditOrigin {
   requestId?: string;
   ipAddress?: string | null;
@@ -38,6 +39,7 @@ export class RecordModuleAuditUseCase implements AuditRecorderPort {
           ? { actorType: 'USER', actorId: String(input.actorUserId) }
           : { actorType: 'SYSTEM', actorId: 'module' },
         action: input.action,
+        changes: auditChanges(input.before, input.after),
         resource: {
           resourceType: input.entityType,
           resourceId: String(input.entityId ?? 'collection'),

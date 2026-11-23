@@ -1,4 +1,6 @@
 import { generateKeyPairSync, randomUUID } from 'crypto';
+import { auditRequestMiddleware } from '../../modules/audit/presentation/middlewares/audit-request.middleware';
+import { auditRequestContext } from '../../shared/infrastructure/context/audit-request-context';
 import express, { ErrorRequestHandler } from 'express';
 import request from 'supertest';
 import { Sequelize, DataTypes, QueryTypes } from 'sequelize';
@@ -140,7 +142,11 @@ test('persists immutable sequence, deduplicates concurrent retries, rejects conf
   await Promise.all(Array.from({ length: 15 }, () => services.core.append(event())));
   expect((await services.integrity.verify(auditScope(1))).valid).toBe(true);
   expect(await AuditRecordModel.count()).toBe(16);
-  expect(await services.core.list(auditScope(1), 'OUTBOX')).toHaveLength(16);
+  expect(
+    (await services.core.list(auditScope(1), 'OUTBOX')).filter(
+      (row) => row.data.eventType === 'audit.record.persisted',
+    ),
+  ).toHaveLength(16);
   await expect(AuditRecordModel.update({ action: 'bad' } as never, { where: {} })).rejects.toThrow(
     'append-only',
   );
@@ -357,6 +363,47 @@ test('HTTP guards require explicit permission and purpose, reject cross-tenant i
   expect((await request(app).delete(`/audit/records/${receipt.auditRecordId}`)).status).toBe(404);
 });
 
+test('platform audit lists evidence and checkpoints with explicit grants and strips technical payloads', async () => {
+  const scope = auditScope(null);
+  const admin: AuditAccess = { ...scope, actorId: 10, purpose: 'Initial investigation', sensitive: true };
+  const { tenantId: _tenantId, ...base } = event();
+  const receipt = await services.core.append({ ...base, scope: 'PLATFORM', occurredAt: new Date().toISOString() });
+  const pack = await services.evidence.create(admin, [receipt.auditRecordId]);
+  const checkpoint = await services.integrity.checkpoint(admin);
+  await services.core.repository.transaction(scope, (tx) =>
+    services.core.createObject(scope, 'INGESTION_FAILURE', randomUUID(), 'RETRY', {
+      eventId: 'sample', attempts: 1, sourceId: 'test', event: { metadata: { private: 'private payload' } },
+    }, tx),
+  );
+  const grants = new Set(['audit:records:read-platform', 'audit:integrity:read', 'audit:administration:read']);
+  const app = express();
+  app.use((req, _res, next) => {
+    req.user = { userId: 10, accountId: 1, sessionId: 1, roles: [], permissions: [] };
+    next();
+  });
+  app.use('/admin/audit', createAuditEngineRoutes(services, async (_actor, company, permission) =>
+    company === null && grants.has(permission), true));
+  const errors: ErrorRequestHandler = (error: unknown, _req, res, _next) => {
+    res.status((error as { statusCode?: number }).statusCode || 500).json({ error: true });
+  };
+  app.use(errors);
+  const header = 'utf8:' + encodeURIComponent('Revisão – nº 23');
+  await request(app).get('/admin/audit/evidence-packages').set('X-Audit-Purpose', header).expect(403);
+  grants.add('audit:evidence:read');
+  const packages = await request(app).get('/admin/audit/evidence-packages').set('X-Audit-Purpose', header).expect(200);
+  expect(packages.headers['cache-control']).toBe('no-store');
+  expect(packages.body.data.items[0]).toMatchObject({ id: pack.id });
+  expect(packages.body.data.items[0].data).not.toHaveProperty('storageKey');
+  const checkpoints = await request(app).get('/admin/audit/admin/integrity/checkpoints').set('X-Audit-Purpose', header).expect(200);
+  expect(checkpoints.body.data.items[0]).toMatchObject({ id: checkpoint.id, data: { sequence: expect.any(Number) } });
+  expect(checkpoints.body.data.items[0].data).not.toHaveProperty('anchorKey');
+  const failures = await request(app).get('/admin/audit/admin/ingestion-failures').set('X-Audit-Purpose', header).expect(200);
+  expect(failures.body.data.items[0].data).toEqual({ eventId: 'sample', attempts: 1, sourceId: 'test' });
+  const dashboard = await request(app).get('/admin/audit/dashboard').set('X-Audit-Purpose', header).expect(200);
+  expect(dashboard.body.data.daily[0]).toMatchObject({ date: expect.any(String), events: expect.any(Number) });
+  await request(app).get('/admin/audit/dashboard').set('X-Audit-Purpose', 'utf8:%ZZ').expect(422);
+});
+
 test('migration installs transactional capture and SQL append-only guards, and rolls business write back if capture fails', async () => {
   const db = new Sequelize({ dialect: 'sqlite', storage: ':memory:', logging: false }),
     q = db.getQueryInterface();
@@ -415,4 +462,105 @@ test('migration installs transactional capture and SQL append-only guards, and r
   } finally {
     await db.close();
   }
+});
+
+test('captures denied access with correlation and requires an explicit personal history grant', async () => {
+  const previous = process.env.AUDIT_HTTP_CAPTURE_ENABLED;
+  process.env.AUDIT_HTTP_CAPTURE_ENABLED = 'true';
+  let resolveCapture: () => void = () => {};
+  const captured = new Promise<void>((resolve) => {
+    resolveCapture = resolve;
+  });
+  const original = services.core.append.bind(services.core);
+  const spy = jest.spyOn(services.core, 'append').mockImplementation(async (input, context) => {
+    try {
+      return await original(input, context);
+    } finally {
+      resolveCapture();
+    }
+  });
+  try {
+    const app = express();
+    app.use(auditRequestMiddleware(services.core, auditRequestContext, () => {}));
+    app.get('/documents/:id', (req, res) => {
+      req.user = { userId: 10, accountId: 1, sessionId: 1, roles: [], permissions: [] };
+      req.tenant = { companyId: 1 } as Express.Request['tenant'];
+      res.sendStatus(403);
+    });
+    expect((await request(app).get('/documents/private-id')).status).toBe(403);
+    await captured;
+    const denied = await services.core.repository.transaction(auditScope(1), (tx) =>
+      services.core.repository.records(auditScope(1), { outcome: 'DENIED' }, tx),
+    );
+    expect(denied).toHaveLength(1);
+    expect(denied[0].correlationId).toMatch(/^[a-f0-9-]{36}$/);
+    expect(await services.core.list(auditScope(1), 'ALERT')).toHaveLength(1);
+  } finally {
+    spy.mockRestore();
+    if (previous === undefined) delete process.env.AUDIT_HTTP_CAPTURE_ENABLED;
+    else process.env.AUDIT_HTTP_CAPTURE_ENABLED = previous;
+  }
+  const app = express(),
+    grants = new Set<string>();
+  app.use((req, _res, next) => {
+    req.user = { userId: 10, accountId: 1, sessionId: 1, roles: [], permissions: [] };
+    next();
+  });
+  app.use(
+    '/personal',
+    createAuditEngineRoutes(
+      services,
+      async (_actor, _company, permission) => grants.has(permission),
+      true,
+      true,
+    ),
+  );
+  const errors: ErrorRequestHandler = (error: unknown, _req, res, _next) => {
+    res.status((error as { statusCode?: number }).statusCode || 500).end();
+  };
+  app.use(errors);
+  expect(
+    (await request(app).get('/personal/records').query({ purpose: 'Review my account' })).status,
+  ).toBe(403);
+  grants.add('audit:records:read-own');
+  expect(
+    (await request(app).get('/personal/records').query({ purpose: 'Review my account' })).status,
+  ).toBe(200);
+  expect(
+    (await request(app).get('/personal/admin/policies').query({ purpose: 'Review my account' }))
+      .status,
+  ).toBe(403);
+});
+
+test('versioned capture policies cannot downgrade critical events and cryptographic signing has no implicit development secret', async () => {
+  const first = await services.monitor.policy(access(), {
+    code: 'PAYMENT',
+    eventType: 'payment.confirmed',
+    severity: 'LOW',
+    sensitive: true,
+    reason: 'Approved policy',
+  });
+  const second = await services.monitor.policy(access(), {
+    code: 'PAYMENT',
+    eventType: 'payment.confirmed',
+    severity: 'MEDIUM',
+    sensitive: true,
+    reason: 'Reviewed policy',
+  });
+  expect(second.data.version).toBe(2);
+  expect((await services.core.objectData(access(), 'POLICY', first.id)).status).toBe('SUPERSEDED');
+  const receipt = await services.core.append(
+    event(1, { eventType: 'payment.confirmed', severity: 'CRITICAL' }),
+  );
+  const record = await services.core.repository.transaction(access(), (tx) =>
+    services.core.repository.record(access(), receipt.auditRecordId, tx),
+  );
+  expect(record).toMatchObject({
+    severity: 'CRITICAL',
+    sensitivity: 'SENSITIVE',
+    policyVersion: 2,
+  });
+  expect(() => new NodeAuditCrypto().sign('evidence')).toThrow('Configure');
+  const signed = new NodeAuditCrypto(privateKey).sign('evidence');
+  expect(new NodeAuditCrypto(privateKey).verify('tampered', signed)).toBe(false);
 });

@@ -1,5 +1,7 @@
+import { AppError } from '../../../shared/errors/app.error';
+
 export const fail = (message: string, statusCode = 422) =>
-  Object.assign(new Error(message), { statusCode });
+  new AppError(message, statusCode, 'ONBOARDING_RULE_VIOLATION');
 export const editable = ['DRAFT', 'IN_PROGRESS', 'ADDITIONAL_INFO', 'REJECTED'];
 export interface OnboardingPorts {
   verifiedUser(actor: number): Promise<boolean>;
@@ -18,3 +20,4 @@ export interface OnboardingPorts {
   configureOrganization(companyId: number, actor: number, configuration: any): Promise<void>;
   configurePayroll(companyId: number, actor: number, configuration: any): Promise<void>;
 }
+

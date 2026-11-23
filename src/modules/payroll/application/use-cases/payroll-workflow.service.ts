@@ -177,7 +177,9 @@ export class PayrollWorkflowService extends PayrollLifecycleService {
             runType: run.runType,
           };
         }
-        snapshots.push({ ...source, inputSnapshotId: randomUUID(), inputHash: hash(source) });
+        // Hash the JSON representation which is read back from persistence. Source records can contain Date instances.
+        const persistedSource = JSON.parse(JSON.stringify(source)) as typeof source;
+        snapshots.push({ ...persistedSource, inputSnapshotId: randomUUID(), inputHash: hash(persistedSource) });
       } catch (error) {
         issues.push({
           employeeId,

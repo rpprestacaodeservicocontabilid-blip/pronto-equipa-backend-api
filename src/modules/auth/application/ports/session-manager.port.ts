@@ -46,6 +46,13 @@ export interface SessionManagerPort {
     createToken: (tokenId: number) => Promise<{ token: string; expiresAt: Date }>;
   }): Promise<{ token: string; expiresAt: Date }>;
 
+  isRefreshTokenCurrent(input: {
+    userId: number;
+    sessionId: number;
+    tokenId: number;
+    token: string;
+  }): Promise<boolean>;
+
   rotateRefreshToken(input: {
     sessionId: number;
     tokenId: number;

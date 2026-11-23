@@ -60,6 +60,36 @@ export class SessionManagerService implements SessionManagerPort {
     });
   }
 
+  async isRefreshTokenCurrent(input: {
+    userId: number;
+    sessionId: number;
+    tokenId: number;
+    token: string;
+  }): Promise<boolean> {
+    const now = new Date();
+    const session = await SessionModel.findOne({
+      where: {
+        id: input.sessionId,
+        status: 'ACTIVE',
+        refreshTokenId: input.tokenId,
+        expiresAt: { [Op.gt]: now },
+      },
+    });
+    if (!session) return false;
+    const [account, refreshToken] = await Promise.all([
+      AuthAccountModel.findOne({ where: { id: session.authAccountId, userId: input.userId, status: 'ACTIVE' } }),
+      RefreshTokenModel.findOne({ where: {
+        id: input.tokenId,
+        sessionId: session.id,
+        authAccountId: session.authAccountId,
+        tokenHash: this.hashRefreshToken(input.token),
+        revokedAt: null,
+        expiresAt: { [Op.gt]: now },
+      } }),
+    ]);
+    return Boolean(account && refreshToken);
+  }
+
   async rotateRefreshToken(input: {
     sessionId: number;
     tokenId: number;

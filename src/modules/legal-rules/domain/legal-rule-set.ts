@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { z } from 'zod';
+import type { LegalGovernance } from './legal-governance';
 import { ValidationError } from '../../../shared/errors/app.error';
 
 const decimal = z.string().regex(/^(0|[1-9]\d{0,15})(\.\d{1,6})?$/);
@@ -90,6 +91,7 @@ export interface LegalRuleSetInput {
   effectiveTo: string | null;
   sourceReference: string;
   evidenceReference: string;
+  governance?: LegalGovernance | null;
   rules: LegalRuleDefinition;
 }
 

@@ -25,6 +25,12 @@ export class AuditExportService {
         access,
       );
       if (!rows.length) throw auditFailure('No records match the export criteria.', 422);
+      const next = await this.core.repository.records(
+        access,
+        { ...filter, cursor: rows[rows.length - 1].sequence, limit: 1 },
+        tx,
+        access,
+      );
       const row = await this.core.createObject(
         access,
         'EXPORT',
@@ -37,6 +43,8 @@ export class AuditExportService {
           sensitive: rows.some((r) => r.sensitivity === 'SENSITIVE'),
           filter,
           requestedAt: this.core.clock.now().toISOString(),
+          hasMore: next.length > 0,
+          nextCursor: next.length ? rows[rows.length - 1].sequence : null,
         },
         tx,
       );
@@ -88,6 +96,7 @@ export class AuditExportService {
     const claimed = await this.core.repository.transaction(access, async (tx) => {
       const row = await this.core.requireObject(access, 'EXPORT', id, tx);
       if (row.status === 'READY') return row;
+      new AuditExportRequest(row).assertApproval();
       if (
         row.status !== 'APPROVED' &&
         !(
@@ -142,16 +151,19 @@ export class AuditExportService {
         return updated;
       });
     } catch (error) {
+      const errorCode =
+        error instanceof Error && 'statusCode' in error ? Number(error.statusCode) : 500;
       await this.core.repository.transaction(access, async (tx) => {
         const row = await this.core.requireObject(access, 'EXPORT', id, tx);
         if (row.data.leaseToken !== leaseToken) return;
         await this.core.repository.updateObject(
           row,
           {
-            status: 'APPROVED',
+            status: errorCode === 413 || errorCode === 422 ? 'FAILED' : 'APPROVED',
             data: {
               ...row.data,
               errorType: error instanceof Error ? error.name : 'Unknown',
+              errorCode,
               leaseUntil: 0,
             },
           },

@@ -1,7 +1,9 @@
 import { PayrollEngineError } from '../errors/payroll-engine.error';
 import { PayrollEngineInput } from '../contracts/payroll-engine.contract';
 import { Money } from '../value-objects/money.vo';
-import { sha256 } from '../services/hash.service';
+import { hashCalculationInput, sha256 } from '../services/hash.service';
+import { DecimalRate, Percentage } from '../value-objects/decimal-rate.vo';
+import { RoundingPolicy } from '../value-objects/rounding-policy.vo';
 
 const date = (value: string) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -20,6 +22,11 @@ export function validateInput(input: PayrollEngineInput): void {
   requireText(input.payrollRunId, 'payroll run identifier');
   requireText(input.inputHash, 'input hash');
   requireText(input.engineVersion, 'engine version');
+  if (input.calculationInputHash !== undefined) {
+    const { inputHash: _sourceHash, calculationInputHash, ...payload } = input;
+    if (hashCalculationInput(payload) !== calculationInputHash)
+      throw new PayrollEngineError('Calculation input integrity check failed.', 'CALCULATION_INPUT_HASH_MISMATCH');
+  }
   if (
     !date(input.period?.startDate) ||
     !date(input.period?.endDate) ||
@@ -63,14 +70,7 @@ export function validateInput(input: PayrollEngineInput): void {
       'Resolved legal rules do not match the version frozen in the payroll snapshot.',
       'RULE_VERSION_MISMATCH',
     );
-  if (
-    !['HALF_UP', 'HALF_EVEN', 'DOWN', 'UP'].includes(rules.roundingPolicy?.mode) ||
-    rules.roundingPolicy.scale !== 2
-  )
-    throw new PayrollEngineError(
-      'Monetary rounding policy must be explicit and use two places.',
-      'INVALID_ROUNDING_POLICY',
-    );
+  RoundingPolicy.parse(rules.roundingPolicy);
   if (!['CALENDAR_DAYS', 'FIXED_PERIOD_DAYS'].includes(rules.laborRules?.prorationBasis))
     throw new PayrollEngineError('Salary proration basis is missing.', 'INVALID_LABOR_RULES');
   if (
@@ -92,17 +92,21 @@ export function validateInput(input: PayrollEngineInput): void {
       'Income tax and social security rules are mandatory.',
       'INCOMPLETE_RULE_SET',
     );
-  const decimal = (value: string, name: string, maximum = 1000) => {
-    const parsed = Money.parse(value);
-    if (parsed.isNegative() || parsed.compare(Money.parse(String(maximum))) > 0)
+  const nonnegative = (value: string, name: string) => {
+    if (Money.parse(value).isNegative())
       throw new PayrollEngineError(`Invalid ${name}.`, 'INVALID_RULE_VALUE');
   };
-  decimal(rules.socialSecurityRules.employeeRate, 'employee contribution rate', 1);
-  decimal(rules.socialSecurityRules.employerRate, 'employer contribution rate', 1);
+  const operationalRate = (value: string, name: string) => {
+    const rate = DecimalRate.parse(value);
+    if (rate.micros < 0n || rate.micros > DecimalRate.parse('1000').micros)
+      throw new PayrollEngineError(`Invalid ${name}.`, 'INVALID_RULE_VALUE');
+  };
+  Percentage.parse(rules.socialSecurityRules.employeeRate, 'employee contribution rate');
+  Percentage.parse(rules.socialSecurityRules.employerRate, 'employer contribution rate');
   if (rules.socialSecurityRules.minimumBase)
-    decimal(rules.socialSecurityRules.minimumBase, 'minimum contribution base');
+    nonnegative(rules.socialSecurityRules.minimumBase, 'minimum contribution base');
   if (rules.socialSecurityRules.maximumBase)
-    decimal(rules.socialSecurityRules.maximumBase, 'maximum contribution base');
+    nonnegative(rules.socialSecurityRules.maximumBase, 'maximum contribution base');
   if (
     rules.socialSecurityRules.minimumBase &&
     rules.socialSecurityRules.maximumBase &&
@@ -116,12 +120,12 @@ export function validateInput(input: PayrollEngineInput): void {
     );
   if (!['PROGRESSIVE', 'MARGINAL'].includes(rules.incomeTaxRules.calculation))
     throw new PayrollEngineError('Income tax calculation method is invalid.', 'INVALID_TAX_RULES');
-  decimal(rules.incomeTaxRules.exemptionAmount ?? '0', 'income tax exemption');
+  nonnegative(rules.incomeTaxRules.exemptionAmount ?? '0', 'income tax exemption');
   for (const bracket of rules.incomeTaxRules.brackets) {
     Money.parse(bracket.from);
     if (bracket.to) Money.parse(bracket.to);
-    decimal(bracket.rate, 'income tax rate', 1);
-    if (bracket.deduction) decimal(bracket.deduction, 'income tax deduction');
+    Percentage.parse(bracket.rate, 'income tax rate');
+    if (bracket.deduction) nonnegative(bracket.deduction, 'income tax deduction');
     if (bracket.to && Money.parse(bracket.to).compare(Money.parse(bracket.from)) <= 0)
       throw new PayrollEngineError(
         'Tax bracket upper bound must exceed its lower bound.',
@@ -147,14 +151,14 @@ export function validateInput(input: PayrollEngineInput): void {
         'INVALID_TAX_BRACKETS',
       );
   }
-  decimal(rules.deductionRules.maxPercentageOfGross ?? '1', 'maximum deduction percentage', 1);
-  decimal(rules.deductionRules.protectedNetAmount ?? '0', 'protected net amount');
+  Percentage.parse(rules.deductionRules.maxPercentageOfGross ?? '1', 'maximum deduction percentage');
+  nonnegative(rules.deductionRules.protectedNetAmount ?? '0', 'protected net amount');
   if (rules.laborRules.maximumDailyOvertimeHours)
-    decimal(rules.laborRules.maximumDailyOvertimeHours, 'maximum daily overtime hours');
+    operationalRate(rules.laborRules.maximumDailyOvertimeHours, 'maximum daily overtime hours');
   for (const multiplier of Object.values(rules.laborRules.overtimeMultipliers ?? {}))
-    decimal(multiplier, 'overtime multiplier');
+    operationalRate(multiplier, 'overtime multiplier');
   for (const multiplier of Object.values(rules.laborRules.nightWorkMultipliers ?? {}))
-    decimal(multiplier, 'night work multiplier');
+    operationalRate(multiplier, 'night work multiplier');
   for (const segment of input.segments ?? []) {
     if (
       !date(segment.startDate) ||

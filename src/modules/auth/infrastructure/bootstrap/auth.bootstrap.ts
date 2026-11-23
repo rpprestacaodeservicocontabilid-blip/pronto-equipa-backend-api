@@ -237,12 +237,14 @@ export function createAuthRoutes(): Router {
     passwordResetRepository,
     authAccountRepository,
     passwordHasher,
+    auditService,
   );
 
   const changePasswordUseCase = new ChangePasswordUseCase(
     authAccountRepository,
     passwordHasher,
     sessionManager,
+    auditService,
   );
 
   // ============================================================

@@ -68,7 +68,7 @@ export function createCorsConfig(
     origins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Company-Id', 'X-Request-Id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Company-Id', 'X-Request-Id', 'X-Pronto-Session', 'X-Audit-Purpose'],
   };
 }
 

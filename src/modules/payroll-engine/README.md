@@ -22,7 +22,7 @@ O adaptador lê o snapshot actualmente criado por `payroll`. Para assiduidade de
   payrollRunId: 'run-id',
   period: { startDate: 'YYYY-MM-DD', endDate: 'YYYY-MM-DD' },
   currency: 'AOA',
-  engineVersion: '1.0.0',
+  engineVersion: '1.0.1',
   inputHash: 'sha256 do snapshot imutável',
   legalRules: { /* PayrollLegalRuleSet */ },
   segments: [{
@@ -62,6 +62,12 @@ Em `PROGRESSIVE`, cada taxa é aplicada apenas ao valor no intervalo corresponde
 O resultado separa bruto, base tributável, base contributiva, IRT, INSS do trabalhador, INSS patronal, outros descontos, líquido e custo total da entidade. O trilho guarda referências de regras, versão do motor, hash do snapshot e hash do resultado. O motor não altera empréstimos nem grava resultados; o `payroll` continua responsável por reservas, persistência, auditoria, aprovação e fecho. O adaptador também compara a versão legal resolvida com a versão congelada no snapshot. As tabelas de IRT têm de começar em zero, ser contíguas e terminar sem limite superior; lacunas nunca são tratadas como taxa zero.
 
 O cálculo de descontos aplica limites depois das retenções estatutárias e percorre descontos autorizados por prioridade. Os parcialmente aplicados incluem montante pedido, aplicado e remanescente. Descontos não autorizados geram aviso e não são aplicados. INSS patronal não reduz o líquido. Uma regra fiscal ou contributiva ausente, inválida, fora de vigência ou incompatível bloqueia o cálculo.
+
+## Simulação administrativa
+
+`POST /api/v1/payroll/engine/simulate` recebe `month` (AAAA-MM), `baseSalary`, `allowance`, `annualAllowance`, `deduction`, `deductionAuthorized` e `rounding`. A rota exige autenticação, contexto da empresa e as permissões `payroll:read` e `payroll:runs:create`. O motor executa um cenário fictício determinístico, sem persistência. O conjunto `synthetic-1` pertence exclusivamente a esta operação.
+
+A evidência produzida pelo motor inclui o hash do snapshot original, o hash da entrada normalizada e o hash v2 do resultado. O hash v2 inclui metadados como versões e política de arredondamento. Resultados históricos continuam a ser verificados pelo formato original. Quando o conjunto de regras restringe `engineVersions`, deve incluir a versão 1.0.1 para novos processamentos.
 
 ## Integração
 

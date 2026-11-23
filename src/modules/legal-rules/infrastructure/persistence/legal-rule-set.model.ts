@@ -1,10 +1,11 @@
 import { DataTypes, Model, Optional } from 'sequelize';
 import { sequelize } from '../../../../infra/database';
 
+import type { LegalGovernance } from '../../domain/legal-governance';
 import { LegalRuleSetStatus } from '../../domain/legal-rule-set-status';
 export type { LegalRuleSetStatus } from '../../domain/legal-rule-set-status';
 
-interface LegalRuleSetAttributes {
+export interface LegalRuleSetAttributes {
   id: string;
   companyId: number | null;
   scopeKey: string;
@@ -16,6 +17,10 @@ interface LegalRuleSetAttributes {
   sourceReference: string;
   evidenceReference: string;
   rules: Record<string, unknown>;
+  governance: LegalGovernance | null;
+  rejectedBy: number | null;
+  rejectedAt: Date | null;
+  rejectionReason: string | null;
   integrityHash: string | null;
   status: LegalRuleSetStatus;
   createdBy: number;
@@ -40,6 +45,10 @@ export class LegalRuleSetModel
       | 'scopeKey'
       | 'effectiveTo'
       | 'integrityHash'
+      | 'governance'
+      | 'rejectedBy'
+      | 'rejectedAt'
+      | 'rejectionReason'
       | 'status'
       | 'submittedBy'
       | 'submittedAt'
@@ -66,6 +75,10 @@ export class LegalRuleSetModel
   declare sourceReference: string;
   declare evidenceReference: string;
   declare rules: Record<string, unknown>;
+  declare governance: LegalGovernance | null;
+  declare rejectedBy: number | null;
+  declare rejectedAt: Date | null;
+  declare rejectionReason: string | null;
   declare integrityHash: string | null;
   declare status: LegalRuleSetStatus;
   declare createdBy: number;
@@ -99,6 +112,10 @@ LegalRuleSetModel.init(
     sourceReference: { type: DataTypes.STRING(500), allowNull: false },
     evidenceReference: { type: DataTypes.STRING(1000), allowNull: false },
     rules: { type: DataTypes.JSON, allowNull: false },
+    governance: { type: DataTypes.JSON, allowNull: true },
+    rejectedBy: { type: DataTypes.INTEGER, allowNull: true },
+    rejectedAt: { type: DataTypes.DATE, allowNull: true },
+    rejectionReason: { type: DataTypes.STRING(1000), allowNull: true },
     integrityHash: { type: DataTypes.STRING(64), allowNull: true },
     status: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'DRAFT' },
     createdBy: { type: DataTypes.INTEGER, allowNull: false },

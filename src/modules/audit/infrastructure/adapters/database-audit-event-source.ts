@@ -9,7 +9,9 @@ import {
   auditData,
 } from '../../domain/audit-contracts';
 import { AuditCaptureModel } from '../persistence/models/audit-engine.models';
+import { auditChanges } from '../../domain/services/audit-data.service';
 const sourceCategories: Record<string, AuditCategory> = {
+  communication_records: 'INTEGRATION',
   payroll_runs: 'PAYROLL',
   payroll_employee_results: 'PAYROLL',
   employee_salary_assignments: 'PAYROLL',
@@ -71,13 +73,10 @@ export class DatabaseAuditEventSource implements AuditEventSourcePort {
     if (cursor && reconcile) {
       const parsed: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
       const position = auditData(parsed);
-      const at = new Date(String(position.occurredAt));
-      if (Number.isNaN(at.getTime()) || typeof position.id !== 'string')
+      if (typeof position.id !== 'string' || !/^[a-f0-9-]{36}$/i.test(position.id))
         throw new Error('Invalid audit source cursor.');
-      where[Op.or] = [
-        { occurredAt: { [Op.gt]: at } },
-        { occurredAt: at, id: { [Op.gt]: position.id } },
-      ];
+      // UUID ordering preserves an exact cursor without truncating PostgreSQL microseconds.
+      where.id = { [Op.gt]: position.id };
     }
     const rows = await sequelize.transaction(async (transaction) => {
       if (sequelize.getDialect() === 'postgres')
@@ -89,10 +88,12 @@ export class DatabaseAuditEventSource implements AuditEventSourcePort {
       return AuditCaptureModel.findAll({
         transaction,
         where: where as WhereOptions,
-        order: [
-          ['occurredAt', 'ASC'],
-          ['id', 'ASC'],
-        ],
+        order: reconcile
+          ? [['id', 'ASC']]
+          : [
+              ['occurredAt', 'ASC'],
+              ['id', 'ASC'],
+            ],
         limit,
       });
     });
@@ -118,17 +119,20 @@ export class DatabaseAuditEventSource implements AuditEventSourcePort {
                   ? 'SECURITY'
                   : 'DATA_CHANGE'),
         severity:
-          /payroll_runs|payroll_approvals|payment|billing|roles|permissions|legal_rule_sets/.test(
-            row.resourceType,
-          )
-            ? 'CRITICAL'
-            : 'HIGH',
+          row.resourceType === 'communication_records'
+            ? 'LOW'
+            : /payroll_runs|payroll_approvals|payment|billing|roles|permissions|legal_rule_sets/.test(
+                  row.resourceType,
+                )
+              ? 'CRITICAL'
+              : 'HIGH',
         scope: row.companyId === null ? 'PLATFORM' : 'TENANT',
         tenantId: row.companyId === null ? undefined : String(row.companyId),
         actor: row.actorId
           ? { actorType: 'USER', actorId: row.actorId }
           : { actorType: 'SYSTEM', actorId: 'database-capture' },
         action: row.eventType,
+        changes: auditChanges(row.payload.before, row.payload.after),
         resource: { resourceType: row.resourceType, resourceId: row.resourceId },
         outcome: 'SUCCESS',
         occurredAt,

@@ -17,8 +17,15 @@ import {
   AuditClockPort,
   AuditCryptoPort,
   AuditRepositoryPort,
+  AuditObjectFilter,
 } from '../ports/audit-engine.ports';
 import { AuditRecord, auditSeal } from '../../domain/aggregates/audit-record';
+import { AuditPolicy } from '../../domain/aggregates/audit-policy';
+import { AuditAlertRule } from '../../domain/aggregates/audit-alert-rule';
+import {
+  AuditDomainEventType,
+  auditDomainEventTypes,
+} from '../../domain/events/audit-domain-event';
 export class AuditCore implements AuditAppendPort {
   constructor(
     readonly repository: AuditRepositoryPort,
@@ -47,26 +54,14 @@ export class AuditCore implements AuditAppendPort {
         duplicate: true,
       };
     }
-    const policies = await this.repository.objects(scope, 'POLICY', tx),
-      policy = policies
-        .filter(
-          (p) =>
-            p.status === 'ACTIVE' && (!p.data.eventType || p.data.eventType === event.eventType),
-        )
-        .sort((a, b) => Number(b.data.version) - Number(a.data.version))[0];
-    const configuredSeverity = policy?.data.severity
-      ? auditText(policy.data.severity, 'policy severity')
-      : event.severity;
-    const priorities = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
-    if (!priorities.includes(configuredSeverity)) throw auditFailure('Invalid audit policy.');
-    const severity =
-      priorities[
-        Math.max(priorities.indexOf(event.severity), priorities.indexOf(configuredSeverity))
-      ];
-    const sensitive =
-      event.sensitivity === 'SENSITIVE' ||
-      policy?.data.sensitive === true ||
-      ['PAYROLL', 'FINANCIAL'].includes(event.category);
+    const policy = AuditPolicy.select(await this.repository.objects(scope, 'POLICY', tx), event);
+    const classification = policy?.classify(event) || {
+      severity: event.severity,
+      sensitivity:
+        event.sensitivity === 'SENSITIVE' || ['PAYROLL', 'FINANCIAL'].includes(event.category)
+          ? 'SENSITIVE'
+          : 'STANDARD',
+    };
     const head = await this.repository.head(scope, tx),
       sequence = head.sequence + 1;
     if (!Number.isSafeInteger(sequence)) throw auditFailure('Audit sequence exhausted.');
@@ -77,18 +72,20 @@ export class AuditCore implements AuditAppendPort {
       sourceId: event.sourceId,
       sequence,
       schemaVersion: 1,
+      module: auditText(event.module, 'module', 80),
+      action: event.action,
       eventType: event.eventType,
       category: event.category,
-      severity: severity as AuditRecordView['severity'],
+      severity: classification.severity,
       outcome: event.outcome,
       actorId: event.actor.actorId || null,
       resourceType: event.resource.resourceType,
       resourceId: event.resource.resourceId,
       correlationId: event.correlationId || null,
-      sensitivity: sensitive ? 'SENSITIVE' : 'STANDARD',
+      sensitivity: classification.sensitivity as AuditRecordView['sensitivity'],
       occurredAt: event.occurredAt,
       receivedAt: this.clock.now().toISOString(),
-      policyVersion: policy ? Number(policy.data.version) : 1,
+      policyVersion: policy?.version || 1,
       inputHash,
       previousHash: head.recordHash,
       payloadHash: '',
@@ -107,15 +104,20 @@ export class AuditCore implements AuditAppendPort {
       { eventType: 'audit.record.persisted', recordId: row.id, recordHash: row.recordHash },
       tx,
     );
+    if (
+      event.sourceId === 'audit' &&
+      auditDomainEventTypes.includes(event.eventType as AuditDomainEventType)
+    )
+      await this.queueEvent(
+        scope,
+        event.eventType as AuditDomainEventType,
+        { auditRecordId: row.id, resourceId: row.resourceId, recordHash: row.recordHash },
+        tx,
+      );
     const rules = await this.repository.objects(scope, 'ALERT_RULE', tx);
-    const matched = rules.filter(
-      (rule) =>
-        rule.status === 'ACTIVE' &&
-        Number(rule.data.threshold || 1) <= 1 &&
-        (!rule.data.eventType || rule.data.eventType === event.eventType) &&
-        (!rule.data.outcome || rule.data.outcome === event.outcome) &&
-        (!rule.data.severity || rule.data.severity === row.severity),
-    );
+    const matched = rules
+      .map((rule) => new AuditAlertRule(rule))
+      .filter((rule) => rule.configuration.threshold === 1 && rule.matches(row));
     if (row.severity === 'CRITICAL' || event.outcome === 'DENIED' || matched.length) {
       await this.createObject(
         scope,
@@ -125,7 +127,7 @@ export class AuditCore implements AuditAppendPort {
         {
           recordId: row.id,
           severity: row.severity,
-          ruleIds: matched.map((r) => r.id),
+          ruleIds: matched.map((r) => r.record.id),
           eventType: row.eventType,
           outcome: row.outcome,
         },
@@ -134,7 +136,7 @@ export class AuditCore implements AuditAppendPort {
     }
     return { auditRecordId: row.id, sequence, recordHash: row.recordHash, duplicate: false };
   }
-  createObject(
+  async createObject(
     scope: AuditScope,
     kind: AuditObjectKind,
     key: string,
@@ -143,7 +145,7 @@ export class AuditCore implements AuditAppendPort {
     tx: RecordStoreContext,
   ): Promise<AuditObject> {
     const now = this.clock.now().toISOString();
-    return this.repository.createObject(
+    const object = await this.repository.createObject(
       {
         ...auditScope(scope.companyId),
         id: this.clock.id(),
@@ -154,6 +156,39 @@ export class AuditCore implements AuditAppendPort {
         createdAt: now,
         updatedAt: now,
       },
+      tx,
+    );
+    const type: AuditDomainEventType | undefined =
+      kind === 'ALERT'
+        ? 'audit.alert.created'
+        : kind === 'INGESTION_FAILURE'
+          ? 'audit.ingestion.failed'
+          : kind === 'INTEGRITY_RUN'
+            ? status === 'VALID'
+              ? 'audit.integrity.verified'
+              : 'audit.integrity.violation-detected'
+            : kind === 'RECONCILIATION'
+              ? status === 'COMPLETED'
+                ? 'audit.reconciliation.completed'
+                : ['FAILED', 'DIFFERENCES'].includes(status)
+                  ? 'audit.reconciliation.failed'
+                  : undefined
+              : undefined;
+    if (type) await this.queueEvent(scope, type, { resourceId: object.id, status }, tx);
+    return object;
+  }
+  queueEvent(
+    scope: AuditScope,
+    type: AuditDomainEventType,
+    payload: Record<string, unknown>,
+    tx: RecordStoreContext,
+  ): Promise<AuditObject> {
+    return this.createObject(
+      scope,
+      'OUTBOX',
+      this.clock.id(),
+      'PENDING',
+      { eventType: type, payload, attempts: 0 },
       tx,
     );
   }
@@ -172,7 +207,12 @@ export class AuditCore implements AuditAppendPort {
       record.scopeKey !== access.scopeKey ||
       (access.ownOnly &&
         (record.actorId !== String(access.actorId) ||
-          !['USER', 'AUTH_SESSION', 'user', 'session'].includes(record.resourceType) ||
+          (!['USER', 'AUTH_SESSION', 'user', 'session'].includes(record.resourceType) &&
+            !(
+              record.resourceType === 'HTTP' &&
+              record.sourceId === 'http' &&
+              ['ACCESS', 'SECURITY'].includes(record.category)
+            )) ||
           (record.resourceType.toLowerCase() === 'user' &&
             record.resourceId !== String(access.actorId))))
     )
@@ -186,10 +226,14 @@ export class AuditCore implements AuditAppendPort {
     tx: RecordStoreContext,
   ): Promise<AuditRecordView[]> {
     const rows: AuditRecordView[] = [];
+    let bytes = 0;
     for (const id of [...new Set(ids)]) {
       const row = await this.repository.record(access, id, tx);
       if (!row) throw auditFailure('Audit record not found.', 404);
       this.assertRecordAccess(row, access);
+      bytes += Buffer.byteLength(canonicalAudit(row), 'utf8');
+      if (bytes > 16 * 1024 * 1024)
+        throw auditFailure('Evidence selection exceeds 16 MiB; split the selection.', 413);
       rows.push(row);
     }
     return rows;
@@ -226,6 +270,11 @@ export class AuditCore implements AuditAppendPort {
   }
   validateQuery(query: AuditQuery): AuditQuery {
     if (
+      query.throughSequence !== undefined &&
+      (!Number.isSafeInteger(query.throughSequence) || query.throughSequence < 0)
+    )
+      throw auditFailure('Invalid audit snapshot sequence.');
+    if (
       (query.from && Number.isNaN(new Date(query.from).getTime())) ||
       (query.to && Number.isNaN(new Date(query.to).getTime()))
     )
@@ -247,7 +296,13 @@ export class AuditCore implements AuditAppendPort {
   async objectData(scope: AuditScope, kind: AuditObjectKind, id: string): Promise<AuditObject> {
     return this.repository.transaction(scope, (tx) => this.requireObject(scope, kind, id, tx));
   }
-  list(scope: AuditScope, kind: AuditObjectKind): Promise<AuditObject[]> {
-    return this.repository.transaction(scope, (tx) => this.repository.objects(scope, kind, tx));
+  list(
+    scope: AuditScope,
+    kind: AuditObjectKind,
+    filter?: AuditObjectFilter,
+  ): Promise<AuditObject[]> {
+    return this.repository.transaction(scope, (tx) =>
+      this.repository.objects(scope, kind, tx, filter),
+    );
   }
 }

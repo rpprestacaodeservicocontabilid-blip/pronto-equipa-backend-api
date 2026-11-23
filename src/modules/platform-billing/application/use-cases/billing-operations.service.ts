@@ -1,7 +1,7 @@
 import { BillingService } from './billing.service';
 
 import { amount, cents, billingError } from '../../domain/billing-calculation';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 export class BillingOperationsService extends BillingService {
   credit(
     companyId: number,
@@ -70,19 +70,18 @@ export class BillingOperationsService extends BillingService {
         where: { companyId, kind: 'REFUND', key: input.operationKey },
         transaction: tx,
       });
-      if (old) return old;
+      if (old) {
+        if (old.data.paymentId !== input.paymentId || cents(old.data.amount) !== cents(input.amount) || old.data.reason !== input.reason)
+          throw billingError('Chave reutilizada.', 409);
+        return old;
+      }
       const payment = await this.get(companyId, input.paymentId, 'PAYMENT', tx);
       if (payment.status !== 'CONFIRMED') throw billingError('Pagamento não confirmado.');
-      const refunds = await this.store.findAll({
-        where: { companyId, kind: 'REFUND' },
-        transaction: tx,
-      });
-      const reserved = refunds
-        .filter((r) => r.data.paymentId === payment.id && r.status !== 'REJECTED')
-        .reduce((sum, r) => sum + cents(r.data.amount), BigInt(0));
+      const reserved = await this.refundReserved(companyId, payment.id, tx);
+      const applied = payment.data.invoiceId ? 0n : cents(payment.data.allocated ?? '0.00');
       if (
         cents(input.amount) <= BigInt(0) ||
-        reserved + cents(input.amount) > cents(payment.data.amount)
+        applied + reserved + cents(input.amount) > cents(payment.data.amount)
       )
         throw billingError('Reembolso excede o pagamento disponível.');
       const row = await this.create(
@@ -177,6 +176,8 @@ export class BillingOperationsService extends BillingService {
         if (entry.data.paymentId === paymentId) return entry;
         throw billingError('Movimento já reconciliado.', 409);
       }
+      if (!['UNMATCHED', 'DISPUTED'].includes(entry.status))
+        throw billingError('Movimento indisponível para reconciliação.', 409);
       if (
         payment.status !== 'CONFIRMED' ||
         entry.data.currency !== payment.data.currency ||
@@ -184,31 +185,65 @@ export class BillingOperationsService extends BillingService {
       )
         throw billingError('Pagamento e movimento incompatíveis.');
       const used = await this.store.findOne({
-        where: { companyId, kind: 'RECONCILIATION', key: paymentId },
+        where: { companyId, kind: 'RECONCILIATION', status: 'MATCHED', 'data.paymentId': paymentId },
         transaction: tx,
       });
       if (used) throw billingError('Pagamento já reconciliado.', 409);
-      await this.create(
+      const match = await this.create(
         companyId,
         'RECONCILIATION',
-        paymentId,
+        randomUUID(),
         'MATCHED',
-        { entryId, paymentId, actor },
+        { entryId, paymentId, actor, amount: entry.data.amount, currency: entry.data.currency },
         tx,
       );
       await this.store.update(
         entry,
-        { status: 'MATCHED', data: { ...entry.data, paymentId } },
+        { status: 'MATCHED', data: { ...entry.data, paymentId, reconciliationId: match.id } },
         { transaction: tx },
       );
       await this.event(
         companyId,
         actor,
         'platform-billing.reconciliation.completed',
-        { entryId, paymentId },
+        { id: match.id, entryId, paymentId },
         tx,
       );
       return entry;
+    });
+  }
+
+  reviewBankEntry(companyId: number, actor: number, entryId: string, reason: string) {
+    return this.transaction(companyId, async tx => {
+      const entry = await this.get(companyId, entryId, 'BANK_ENTRY', tx);
+      if (!['UNMATCHED', 'DISPUTED'].includes(entry.status)) throw billingError('O movimento já está reconciliado.', 409);
+      if (entry.status === 'DISPUTED' && entry.data.reviewReason === reason) return entry;
+      await this.store.update(entry, {
+        status: 'DISPUTED', data: { ...entry.data, reviewReason: reason, reviewedBy: actor, reviewedAt: new Date().toISOString() },
+      }, { transaction: tx });
+      await this.event(companyId, actor, 'platform-billing.reconciliation.disputed', { entryId, reason }, tx);
+      return entry;
+    });
+  }
+
+  reverseReconciliation(companyId: number, actor: number, id: string, reason: string) {
+    return this.transaction(companyId, async tx => {
+      const match = await this.get(companyId, id, 'RECONCILIATION', tx);
+      if (match.status === 'REVERSED') return match;
+      if (match.status !== 'MATCHED') throw billingError('Reconciliação indisponível para reversão.', 409);
+      const { entryId, paymentId } = match.data;
+      const entry = await this.get(companyId, entryId, 'BANK_ENTRY', tx);
+      if (entry.status !== 'MATCHED' || entry.data.paymentId !== paymentId ||
+        (entry.data.reconciliationId && entry.data.reconciliationId !== id))
+        throw billingError('O movimento já mudou de reconciliação.', 409);
+      await this.store.update(match, {
+        status: 'REVERSED', data: { ...match.data, reversalReason: reason, reversedBy: actor, reversedAt: new Date().toISOString() },
+      }, { transaction: tx });
+      await this.store.update(entry, {
+        status: 'UNMATCHED', data: { ...entry.data, paymentId: null, reconciliationId: null },
+      }, { transaction: tx });
+      await this.event(companyId, actor, 'platform-billing.reconciliation.reversed', { id, entryId, paymentId, reason }, tx);
+      return match;
     });
   }
 }

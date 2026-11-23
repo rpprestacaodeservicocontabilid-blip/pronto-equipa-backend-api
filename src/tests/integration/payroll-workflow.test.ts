@@ -40,7 +40,7 @@ describe('Payroll workflow with deterministic integration fixtures', () => {
       salarySnapshotId: 'salary-v1',
       contractSnapshotId: 'contract-v1',
       legalRuleSetVersion: 'fixture-legal-v1',
-      data: { currency: 'AOA' },
+      data: { currency: 'AOA', recordedAt: new Date('2026-01-01T08:00:00Z') },
     }),
   };
   const calculator: PayrollCalculatorPort = {
@@ -301,7 +301,7 @@ describe('Payroll workflow with deterministic integration fixtures', () => {
       service,
       audit: { record: async () => {} },
       requirePermission: (permission) => (req, res, next) => {
-        if (req.header('X-Permission') !== permission) {
+        if (!(req.header('X-Permission') ?? '').split(',').includes(permission)) {
           res.sendStatus(403);
           return;
         }
@@ -309,6 +309,20 @@ describe('Payroll workflow with deterministic integration fixtures', () => {
       },
     });
     app.use('/payroll', module.routes);
+    const simulation = {
+      month: '2026-11', baseSalary: '100000', allowance: '7500', annualAllowance: '30000',
+      deduction: '5000', deductionAuthorized: true, rounding: 'HALF_EVEN',
+    };
+    const runCount = await PayrollRunModel.count({ where: { companyId } });
+    expect((await request(app).post('/payroll/engine/simulate')
+      .set('X-Permission', 'payroll:read').send(simulation)).status).toBe(403);
+    const result = await request(app).post('/payroll/engine/simulate')
+      .set('X-Permission', 'payroll:read,payroll:runs:create').send(simulation);
+    expect(result.status).toBe(200);
+    expect(result.headers['cache-control']).toBe('no-store');
+    expect(result.body.data).toMatchObject({ tenantId: companyId, netAmount: '99500.00' });
+    expect(await PayrollRunModel.count({ where: { companyId } })).toBe(runCount);
+
     expect((await request(app).get('/payroll/periods')).status).toBe(403);
     expect(
       (await request(app).get('/payroll/periods').set('X-Permission', 'payroll:read')).status,

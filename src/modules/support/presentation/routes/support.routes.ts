@@ -23,17 +23,32 @@ const asyncRoute =
   (req, res, next) =>
     void fn(req, res).catch(next);
 
+const configText = z.string().trim().min(2).max(150);
+function platformResourceSchema(kind: string) {
+  if (kind === 'AGENT') return z.object({ code: z.string().regex(/^\d+$/), userId: z.number().int().positive(), name: configText,
+    status: z.enum(['AVAILABLE', 'BUSY', 'OFFLINE']).default('AVAILABLE') }).strict().refine(item => item.code === String(item.userId));
+  return z.object({ code: z.string().regex(/^[A-Za-z0-9_-]{2,80}$/), name: configText,
+    description: z.string().trim().max(1000).optional(), content: z.string().trim().max(12000).optional() }).strict();
+}
+
 export function createSupportRoutes(
   service: SupportApplicationService,
   requirePermission: (permission: string) => RequestHandler,
+  options: { company?: (req: Request) => number | undefined; platform?: boolean; guardTicket?: (req: Request) => Promise<void>; verifyAgent?: (agent: number) => Promise<boolean> } = {},
 ) {
-  const controller = new SupportController(service);
+  const controller = new SupportController(service, options.company, options.platform, options.verifyAgent);
   const routes = Router();
   const admin = Router();
   const handler = (name: keyof SupportController, ...args: unknown[]): RequestHandler =>
-    asyncRoute((req, res) =>
-      (controller[name] as (...values: any[]) => Promise<void>)(req, res, ...args),
-    );
+    asyncRoute(async (req, res) => {
+      if (req.params.id && req.path.startsWith('/tickets/')) await options.guardTicket?.(req);
+      if (options.verifyAgent && (name === 'assignTicket' || (name === 'createResource' && args[0] === 'AGENT'))) {
+        const agent = name === 'assignTicket' ? req.body.agentId : req.body.userId;
+        if (agent !== undefined && !await options.verifyAgent(agent))
+          throw Object.assign(new Error('Platform agent not authorized.'), { statusCode: 403 });
+      }
+      await (controller[name] as (...values: any[]) => Promise<void>)(req, res, ...args);
+    });
   const validateBody =
     (schema: z.ZodTypeAny): RequestHandler =>
     (req, _res, next) => {
@@ -194,6 +209,11 @@ export function createSupportRoutes(
     validateId,
     handler('transition', 'CANCELLED'),
   );
+  admin.post('/tickets/:id/status', requirePermission('support:tickets:update'), validateId,
+    validateBody(z.object({ status: z.enum(['TRIAGED', 'IN_PROGRESS', 'WAITING_CUSTOMER', 'WAITING_INTERNAL', 'WAITING_EXTERNAL']) }).strict()),
+    handler('transition'));
+  admin.post('/tickets/:id/messages', requirePermission('support:messages:create'), validateId,
+    validateBody(messageSchema.extend({ visibility: z.literal('PUBLIC').default('PUBLIC') })), handler('messages', true));
   admin.post(
     '/tickets/:id/internal-notes',
     requirePermission('support:internal-notes:create'),
@@ -260,7 +280,7 @@ export function createSupportRoutes(
     admin.post(
       `/${path}`,
       requirePermission(`${permission}:manage`),
-      validateBody(supportResourceSchema),
+      validateBody(options.platform ? platformResourceSchema(kind) : supportResourceSchema),
       handler('createResource', kind),
     );
   }
@@ -319,8 +339,15 @@ export function createSupportRoutes(
     requirePermission('support:knowledge:read'),
     handler('searchArticles', true),
   );
+  admin.patch('/agents/:id/status', requirePermission('support:agents:manage'), validateId,
+    validateBody(z.object({ status: z.enum(['AVAILABLE', 'BUSY', 'OFFLINE']) }).strict()), handler('updateAgent'));
+  admin.get('/escalations', requirePermission('support:escalations:manage'), handler('listResource', 'ESCALATION'));
+  admin.post('/escalations/:id/complete', requirePermission('support:escalations:manage'), validateId,
+    validateBody(z.object({ resolution: z.string().trim().min(3).max(4000) }).strict()), handler('completeEscalation'));
+  admin.get('/ratings', requirePermission('support:surveys:read'), handler('listResource', 'SURVEY'));
   admin.get('/dashboard', requirePermission('support:reports:read'), handler('dashboard'));
   admin.get('/reports', requirePermission('support:reports:read'), handler('dashboard'));
+  admin.get('/reports/export', requirePermission('support:reports:export'), handler('dashboard'));
   admin.get('/audit', requirePermission('support:audit:read'), handler('audit'));
 
   return { routes, admin };

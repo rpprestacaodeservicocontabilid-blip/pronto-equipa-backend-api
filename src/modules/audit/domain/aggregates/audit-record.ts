@@ -6,6 +6,8 @@ export function auditSeal(
     id: row.id,
     eventId: row.eventId,
     sourceId: row.sourceId,
+    module: row.module,
+    action: row.action,
     scopeKey: row.scopeKey,
     companyId: row.companyId,
     sequence: row.sequence,

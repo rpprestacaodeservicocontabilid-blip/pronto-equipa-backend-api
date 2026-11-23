@@ -16,6 +16,16 @@ export class AuditExportRequest {
       decidedAt: at,
     };
   }
+  assertApproval(): void {
+    const approver = Number(this.record.data.approverId);
+    if (
+      !Number.isSafeInteger(approver) ||
+      approver <= 0 ||
+      approver === this.record.data.requesterId ||
+      this.record.data.decision !== 'APPROVED'
+    )
+      throw auditFailure('A valid independent export approval is required.', 403);
+  }
   assertDownload(actor: number) {
     if (this.record.status !== 'READY' || this.record.data.requesterId !== actor)
       throw auditFailure('Export unavailable.', 404);

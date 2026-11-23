@@ -3,6 +3,7 @@ import { Password } from '../../domain/value-objects/password.vo';
 
 import { PasswordHasherPort } from '../ports/password-hasher.port';
 import { SessionManagerPort } from '../ports/session-manager.port';
+import { AuditServicePort } from '../ports/audit-service.port';
 
 export interface ChangePasswordInput {
   userId: number;
@@ -19,6 +20,7 @@ export class ChangePasswordUseCase {
     private readonly passwordHasher: PasswordHasherPort,
 
     private readonly sessionManager: SessionManagerPort,
+    private readonly audit?: AuditServicePort,
   ) {}
 
   async execute(input: ChangePasswordInput): Promise<void> {
@@ -49,5 +51,13 @@ export class ChangePasswordUseCase {
     // Boa prática: invalidar sessões após alteração
     // da password.
     await this.sessionManager.revokeAllSessions(input.userId);
+    await this.audit?.record({
+      userId: input.userId,
+      action: 'PASSWORD_CHANGED',
+      resource: 'USER',
+      resourceId: String(input.userId),
+      ipAddress: null,
+      userAgent: null,
+    });
   }
 }

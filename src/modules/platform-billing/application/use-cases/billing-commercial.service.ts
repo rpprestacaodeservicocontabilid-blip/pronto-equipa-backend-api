@@ -163,27 +163,6 @@ export class BillingCommercialService extends BillingOperationsService {
       );
     });
   }
-  async issue(companyId: number, actor: number, id: string) {
-    await this.transaction(companyId, async (tx) => {
-      const invoice = await this.get(companyId, id, 'INVOICE', tx);
-      if (invoice.status !== 'DRAFT') return;
-      for (const line of invoice.data.lines) {
-        const rule = await this.store.findOne({
-          where: { companyId, kind: 'TAX_RULE', key: line.taxRuleVersion, status: 'ACTIVE' },
-          transaction: tx,
-        });
-        const now = new Date().toISOString();
-        if (
-          !rule ||
-          rule.data.basisPoints !== line.taxBasisPoints ||
-          rule.data.validFrom > now ||
-          rule.data.validUntil < now
-        )
-          throw billingError('Regra fiscal inexistente, expirada ou incompatível.');
-      }
-    });
-    return super.issue(companyId, actor, id);
-  }
   async pdf(companyId: number, id: string, kind: string) {
     return this.transaction(companyId, async (tx) => {
       const row = await this.get(companyId, id, kind, tx);
@@ -264,34 +243,16 @@ export class BillingCommercialService extends BillingOperationsService {
     actor: number,
     input: { invoiceId: string; operationKey: string; reason: string; lines: BillingLine[] },
   ) {
-    const original = await this.transaction(companyId, (tx) =>
-      this.get(companyId, input.invoiceId, 'INVOICE', tx),
-    );
-    if (original.status === 'DRAFT') throw billingError('Factura não emitida.');
-    const draft = await this.draft(companyId, actor, {
-      operationKey: `debit:${input.operationKey}`,
-      currency: original.data.currency,
-      dueAt: original.data.dueAt,
-      lines: input.lines,
-      subscriptionId: original.data.subscriptionId,
+    return this.transaction(companyId, async tx => {
+      const original = await this.get(companyId, input.invoiceId, 'INVOICE', tx);
+      if (!['ISSUED', 'PARTIALLY_PAID', 'PAID', 'CREDITED'].includes(original.status))
+        throw billingError('Factura não emitida ou indisponível.');
+      const draft = await this.draftInTransaction(companyId, actor, {
+        operationKey: `debit:${input.operationKey}`, currency: original.data.currency,
+        dueAt: original.data.dueAt, lines: input.lines, subscriptionId: original.data.subscriptionId,
+      }, tx, { documentType: 'DEBIT_NOTE', originalInvoiceId: input.invoiceId, reason: input.reason });
+      return this.issueInTransaction(companyId, actor, draft, tx);
     });
-    await this.transaction(companyId, async (tx) => {
-      const row = await this.get(companyId, draft.id, 'INVOICE', tx);
-      if (row.status === 'DRAFT')
-        await this.store.update(
-          row,
-          {
-            data: {
-              ...row.data,
-              documentType: 'DEBIT_NOTE',
-              originalInvoiceId: input.invoiceId,
-              reason: input.reason,
-            },
-          },
-          { transaction: tx },
-        );
-    });
-    return this.issue(companyId, actor, draft.id);
   }
   async overdue(companyId: number) {
     return this.transaction(companyId, async (tx) => {

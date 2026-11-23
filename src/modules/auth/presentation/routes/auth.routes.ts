@@ -22,6 +22,8 @@ export const authRoutes = (
   const router = Router();
 
   router.use(securityMiddleware);
+  router.post('/browser/refresh', controller.refreshBrowser);
+  router.post('/browser/logout', controller.logoutBrowser);
 
   /**
    * @swagger

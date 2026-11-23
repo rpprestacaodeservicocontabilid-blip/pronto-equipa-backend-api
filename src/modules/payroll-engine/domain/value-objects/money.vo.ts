@@ -1,7 +1,7 @@
+import { RoundingMode } from '../contracts/payroll-engine.contract';
 import { PayrollEngineError } from '../errors/payroll-engine.error';
-
-const AMOUNT = /^-?(0|[1-9]\d{0,15})(?:\.(\d{1,6}))?$/;
-const SCALE = 1_000_000n;
+import { DECIMAL_SCALE as SCALE, DecimalRate, decimalMicros } from './decimal-rate.vo';
+import { RoundingPolicy } from './rounding-policy.vo';
 
 export class Money {
   private constructor(readonly micros: bigint) {}
@@ -11,13 +11,7 @@ export class Money {
   }
 
   static parse(value: string | number | bigint): Money {
-    const source = typeof value === 'number' ? String(value) : String(value);
-    const match = AMOUNT.exec(source);
-    if (!match) throw new PayrollEngineError('Invalid monetary decimal.', 'INVALID_MONEY');
-    const negative = source.startsWith('-');
-    const [whole, fraction = ''] = source.replace('-', '').split('.');
-    const micros = BigInt(whole) * SCALE + BigInt(fraction.padEnd(6, '0'));
-    return new Money(negative ? -micros : micros);
+    return new Money(decimalMicros(value));
   }
 
   add(other: Money): Money {
@@ -42,8 +36,8 @@ export class Money {
     return this.micros < other.micros ? -1 : this.micros > other.micros ? 1 : 0;
   }
 
-  multiplyRate(rate: string): Money {
-    const normalized = Money.parse(rate);
+  multiplyRate(rate: string | DecimalRate): Money {
+    const normalized = typeof rate === 'string' ? DecimalRate.parse(rate) : rate;
     return new Money((this.micros * normalized.micros) / SCALE);
   }
 
@@ -58,18 +52,8 @@ export class Money {
     return new Money((this.micros * SCALE) / divisor);
   }
 
-  round(mode: 'HALF_UP' | 'HALF_EVEN' | 'DOWN' | 'UP' = 'HALF_UP'): Money {
-    const unit = 10_000n;
-    const abs = this.micros < 0n ? -this.micros : this.micros;
-    const quotient = abs / unit;
-    const remainder = abs % unit;
-    let increment = false;
-    if (mode === 'UP') increment = remainder > 0n;
-    if (mode === 'HALF_UP') increment = remainder * 2n >= unit;
-    if (mode === 'HALF_EVEN')
-      increment = remainder * 2n > unit || (remainder * 2n === unit && quotient % 2n === 1n);
-    const rounded = (quotient + (increment ? 1n : 0n)) * unit;
-    return new Money(this.micros < 0n ? -rounded : rounded);
+  round(mode: RoundingMode = 'HALF_UP'): Money {
+    return new Money(RoundingPolicy.parse({ mode, scale: 2 }).roundMicros(this.micros));
   }
 
   toString(): string {

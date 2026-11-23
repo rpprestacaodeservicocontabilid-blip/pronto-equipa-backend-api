@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { AuditServices } from '../../application/use-cases/audit-services';
 import {
   AuditAccess,
+  AuditObject,
   AuditObjectKind,
   auditCategories,
   auditFailure,
@@ -19,6 +20,9 @@ const text = z.string().trim().min(1).max(200);
 const reason = z.string().trim().min(3).max(2000);
 const identifiers = z.array(z.string().uuid()).min(1).max(1000);
 const querySchema = z.object({
+  module: text.optional(),
+  action: text.optional(),
+  throughSequence: z.coerce.number().int().min(0).optional(),
   eventType: text.optional(),
   category: z.enum(auditCategories).optional(),
   severity: z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']).optional(),
@@ -34,25 +38,65 @@ const querySchema = z.object({
 });
 const id = (req: Request) => z.string().uuid().parse(req.params.id);
 
+const technicalFields: Readonly<Record<string, readonly string[]>> = {
+  OUTBOX: ['eventType', 'recordId', 'attempts', 'nextAttemptAt', 'publishedAt'],
+  INGESTION_FAILURE: ['eventId', 'sourceId', 'attempts', 'nextAttemptAt', 'errorType', 'recoveredAt', 'recordId'],
+};
+function presentAuditObject(row: AuditObject): AuditObject {
+  const fields = technicalFields[row.kind];
+  if (fields) {
+    return {
+      ...row,
+      data: Object.fromEntries(fields.filter(key => row.data[key] !== undefined).map(key => [key, row.data[key]])),
+    };
+  }
+  if (row.kind === 'CHECKPOINT') {
+    const { anchorKey: _anchorKey, ...data } = row.data;
+    const statement = data.statement as { sequence?: number; recordHash?: string } | undefined;
+    return { ...row, data: { ...data, sequence: statement?.sequence, recordHash: statement?.recordHash } };
+  }
+  if (row.kind === 'EVIDENCE') {
+    const { storageKey: _storageKey, ...data } = row.data;
+    return { ...row, data };
+  }
+  return row;
+}
+
+function auditPurposeHeader(header?: string): string | undefined {
+  if (!header?.startsWith('utf8:')) return header;
+  if (header.length > 24005) throw auditFailure('Invalid audit purpose.');
+  try {
+    return decodeURIComponent(header.slice(5));
+  } catch {
+    throw auditFailure('Invalid audit purpose.');
+  }
+}
+
 /** The router receives authenticated identity and resolved tenant from the composition root. */
 export function createAuditEngineRoutes(
   services: AuditServices,
   authorize: AuditAuthorize,
   platform = false,
+  personal = false,
 ): Router {
   const router = Router();
+  router.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   async function access(req: Request, permission: string, allowOwn = false): Promise<AuditAccess> {
     const actorId = Number(req.user?.userId),
       companyId = platform ? null : req.tenant?.companyId;
     if (!Number.isSafeInteger(actorId) || actorId <= 0)
       throw auditFailure('Authentication required.', 401);
     if (companyId === undefined) throw auditFailure('Resolved tenant required.', 403);
+    if (personal && !allowOwn)
+      throw auditFailure('Personal audit only permits account history.', 403);
     const permitted = await authorize(actorId, companyId, permission);
+    if (personal && !permitted) throw auditFailure('Personal audit permission denied.', 403);
     const ownOnly =
-      !permitted &&
-      allowOwn &&
-      !platform &&
-      (await authorize(actorId, companyId, 'audit:records:read-own'));
+      personal ||
+      (!permitted &&
+        allowOwn &&
+        !platform &&
+        (await authorize(actorId, companyId, 'audit:records:read-own')));
     if (!permitted && !ownOnly) throw auditFailure('Audit permission denied.', 403);
     if (
       permission === 'audit:reports:export' &&
@@ -60,13 +104,15 @@ export function createAuditEngineRoutes(
     )
       throw auditFailure('Audit export permission required.', 403);
     const purpose = auditText(
-      req.get('X-Audit-Purpose') ||
+      auditPurposeHeader(req.get('X-Audit-Purpose')) ||
         req.query.purpose ||
         (req.body as Record<string, unknown> | undefined)?.purpose,
       'audit purpose',
       2000,
     );
-    const sensitive = await authorize(actorId, companyId, 'audit:records:read-sensitive');
+    const sensitive = personal
+      ? false
+      : await authorize(actorId, companyId, 'audit:records:read-sensitive');
     return { ...auditScope(companyId), actorId, purpose, sensitive, ownOnly };
   }
   const route = (
@@ -90,7 +136,11 @@ export function createAuditEngineRoutes(
       }
     });
   };
-  const read = platform ? 'audit:records:read-platform' : 'audit:records:read-tenant';
+  const read = personal
+    ? 'audit:records:read-own'
+    : platform
+      ? 'audit:records:read-platform'
+      : 'audit:records:read-tenant';
   route(
     'get',
     '/records',
@@ -128,6 +178,9 @@ export function createAuditEngineRoutes(
     ['security', 'SECURITY'],
     ['payroll', 'PAYROLL'],
     ['financial', 'FINANCIAL'],
+    ['access', 'ACCESS'],
+    ['permissions', 'AUTHORIZATION'],
+    ['activity', 'ACTIVITY'],
   ] as const) {
     route('get', `/reports/${name}`, 'audit:reports:read', (a, req) =>
       services.query.dashboard(a, { ...querySchema.parse(req.query), category }),
@@ -150,26 +203,12 @@ export function createAuditEngineRoutes(
     route('get', path, permission, async (a, req) => {
       const limit = z.coerce.number().int().min(1).max(200).default(50).parse(req.query.limit);
       const offset = z.coerce.number().int().min(0).default(0).parse(req.query.offset);
-      const rows = (await services.core.list(a, kind)).filter(
-        (row) => a.sensitive || row.data.sensitive !== true,
-      );
-      await services.core.notice(a, a.actorId, 'audit.management.queried', kind, {
-        purpose: a.purpose,
-        offset,
-        limit,
-      });
-      return { items: rows.slice(offset, offset + limit), total: rows.length };
+      const result = await services.query.listManaged(a, kind, offset, limit);
+      return { ...result, items: result.items.map(presentAuditObject) };
     });
   const objectGet = (path: string, kind: AuditObjectKind, permission: string) =>
     route('get', path, permission, async (a, req) => {
-      const row = await services.core.objectData(a, kind, id(req));
-      if (row.data.sensitive === true && !a.sensitive)
-        throw auditFailure('Sensitive audit permission required.', 403);
-      await services.core.notice(a, a.actorId, 'audit.management.read', row.id, {
-        purpose: a.purpose,
-        kind,
-      });
-      return row;
+      return presentAuditObject(await services.query.getManaged(a, kind, id(req)));
     });
   objectList('/investigations', 'INVESTIGATION', 'audit:investigations:read');
   objectGet('/investigations/:id', 'INVESTIGATION', 'audit:investigations:read');
@@ -187,11 +226,12 @@ export function createAuditEngineRoutes(
   route('post', '/investigations/:id/close', 'audit:investigations:close', (a, req) =>
     services.investigations.close(a, id(req), z.object({ reason }).parse(req.body).reason),
   );
-  route('post', '/evidence-packages', 'audit:evidence:create', (a, req) => {
+  objectList('/evidence-packages', 'EVIDENCE', 'audit:evidence:read');
+  route('post', '/evidence-packages', 'audit:evidence:create', async (a, req) => {
     const v = z
       .object({ recordIds: identifiers, investigationId: z.string().uuid().optional() })
       .parse(req.body);
-    return services.evidence.create(a, v.recordIds, v.investigationId);
+    return presentAuditObject(await services.evidence.create(a, v.recordIds, v.investigationId));
   });
   objectGet('/evidence-packages/:id', 'EVIDENCE', 'audit:evidence:read');
   route('post', '/evidence-packages/:id/verify', 'audit:evidence:verify', (a, req) =>
@@ -244,6 +284,7 @@ export function createAuditEngineRoutes(
     ),
   );
   objectList('/admin/integrity', 'INTEGRITY_RUN', 'audit:integrity:read');
+  objectList('/admin/integrity/checkpoints', 'CHECKPOINT', 'audit:integrity:read');
   route('post', '/admin/integrity/verify', 'audit:integrity:verify', (a) =>
     services.integrity.verify(a, a.actorId),
   );
@@ -251,13 +292,20 @@ export function createAuditEngineRoutes(
     services.integrity.checkpoint(a),
   );
   objectList('/admin/ingestion-failures', 'INGESTION_FAILURE', 'audit:administration:read');
-  route('post', '/admin/ingestion-failures/:id/retry', 'audit:administration:manage', (a, req) =>
-    services.monitor.retry(a, id(req), true),
+  objectList('/admin/outbox', 'OUTBOX', 'audit:administration:read');
+  route('post', '/admin/outbox/:id/retry', 'audit:administration:manage', async (a, req) =>
+    presentAuditObject(await services.monitor.replayOutbox(a, id(req), z.object({ reason }).parse(req.body).reason)),
   );
+  route('post', '/admin/ingestion-failures/:id/retry', 'audit:administration:manage', async (a, req) => {
+    const failureId = id(req);
+    await services.core.notice(a, a.actorId, 'audit.ingestion.retry-requested', failureId, { purpose: a.purpose });
+    return presentAuditObject(await services.monitor.retry(a, failureId, true));
+  });
   objectList('/admin/reconciliation', 'RECONCILIATION', 'audit:administration:read');
-  route('post', '/admin/reconciliation', 'audit:administration:manage', (a) =>
-    services.monitor.drain(a, true),
-  );
+  route('post', '/admin/reconciliation', 'audit:administration:manage', async (a) => {
+    await services.core.notice(a, a.actorId, 'audit.reconciliation.requested', a.scopeKey, { purpose: a.purpose });
+    return services.monitor.drain(a, true);
+  });
   objectList('/admin/retention', 'RETENTION', 'audit:retention:read');
   objectList('/admin/retention/executions', 'RETENTION_RUN', 'audit:retention:read');
   route('post', '/admin/retention', 'audit:retention:manage', (a, req) =>
@@ -313,27 +361,7 @@ export function createAuditEngineRoutes(
     ),
   );
   route('post', '/admin/alerts/:id/acknowledge', 'audit:alerts:manage', (a, req) =>
-    services.core.repository.transaction(a, async (tx) => {
-      const row = await services.core.requireObject(a, 'ALERT', id(req), tx);
-      const data = z.object({ reason }).parse(req.body);
-      const result = await services.core.repository.updateObject(
-        row,
-        {
-          status: 'ACKNOWLEDGED',
-          data: { ...row.data, acknowledgedBy: a.actorId, reason: data.reason },
-        },
-        tx,
-      );
-      await services.core.notice(
-        a,
-        a.actorId,
-        'audit.alert.acknowledged',
-        row.id,
-        { reason: data.reason },
-        tx,
-      );
-      return result;
-    }),
+    services.monitor.acknowledge(a, id(req), z.object({ reason }).parse(req.body).reason),
   );
   return router;
 }

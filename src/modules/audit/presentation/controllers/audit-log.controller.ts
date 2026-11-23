@@ -10,7 +10,10 @@ import { QueryAuditLogsDto } from '../schemas/audit-log.schema';
  * middleware — nunca do body nem da query string do cliente.
  */
 export class AuditLogController {
-  constructor(private readonly queryAuditLogsUseCase: QueryAuditLogsUseCase) {}
+  constructor(
+    private readonly queryAuditLogsUseCase: QueryAuditLogsUseCase,
+    private readonly onRead?: (companyId: number, actorId: number) => Promise<void>,
+  ) {}
 
   async list(req: Request, res: Response): Promise<void> {
     const companyId = req.tenant?.companyId;
@@ -41,6 +44,7 @@ export class AuditLogController {
       from: query.from,
       to: query.to,
     });
+    await this.onRead?.(companyId, req.user?.userId ?? 0);
 
     res.status(200).json({
       success: true,

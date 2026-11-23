@@ -6,10 +6,17 @@ import { createComponentSchema } from '../../../salary-structure/presentation/sc
 import { Router, Request, RequestHandler } from 'express';
 import { z } from 'zod';
 
-import { OnboardingResourcesService as OnboardingService } from '../../application/use-cases/onboarding-resources.service';
+import { OnboardingAdminService } from '../../application/use-cases/onboarding-admin.service';
+const textReason = z.string().trim().min(1).max(2000);
+const modes = z.enum(['SELF_SERVICE', 'ADMIN_ASSISTED', 'SALES_ASSISTED', 'MIGRATION', 'ENTERPRISE', 'INVITATION']);
+const date = z.string().date().optional();
+const page = z.object({
+  page: z.coerce.number().int().min(1).max(100000).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
 const company = z.object({
   name: z.string().trim().min(2).max(150),
-  taxId: z.string().trim().min(5).max(50),
+  taxId: z.string().trim().min(5).max(50).refine(value => value.toUpperCase().replace(/[^A-Z0-9]/g, '').length >= 5),
   email: z.string().email(),
   address: z.string().min(1).max(500),
   phone: z.string().max(30).optional(),
@@ -19,7 +26,7 @@ const plan = z.object({
   interval: z.enum(['MONTHLY', 'QUARTERLY', 'SEMIANNUAL', 'ANNUAL']),
   trialDays: z.number().int().min(0).max(30).default(0),
 });
-export function createOnboardingRoutes(service: OnboardingService) {
+export function createOnboardingRoutes(service: OnboardingAdminService) {
   const routes = Router(),
     adminRoutes = Router();
   const handle =
@@ -142,14 +149,10 @@ export function createOnboardingRoutes(service: OnboardingService) {
   }))
     adminRoutes.post(
       `/applications/:id/${path}`,
-      handle((r, a) =>
-        service.decision(
-          r.params.id,
-          a,
-          status,
-          z.object({ reason: z.string().min(1).max(2000) }).parse(r.body).reason,
-        ),
-      ),
+      handle((r, a) => {
+        const { reason, version } = z.object({ reason: textReason, version: z.number().int().positive().optional() }).parse(r.body);
+        return service.decision(r.params.id, a, status, reason, version);
+      }),
     );
   routes.post(
     '/applications/:id/consent',
@@ -300,7 +303,7 @@ export function createOnboardingRoutes(service: OnboardingService) {
     '/applications/:id/documents/:documentId/decision',
     handle((r, a) => {
       const body = z
-        .object({ approved: z.boolean(), reason: z.string().min(1).max(2000) })
+        .object({ approved: z.boolean(), reason: textReason })
         .parse(r.body);
       return service.validateDocument(
         r.params.id,
@@ -353,5 +356,76 @@ export function createOnboardingRoutes(service: OnboardingService) {
       };
     }),
   );
+  adminRoutes.get('/overview', handle((r) => {
+    const { from, to } = z.object({ from: date, to: date }).parse(r.query);
+    return service.overview(from, to);
+  }));
+  adminRoutes.get('/directory', handle((r) => service.directory(page.extend({
+    search: z.string().trim().max(150).optional(),
+    mode: modes.optional(), from: date, to: date,
+    owner: z.coerce.number().int().positive().optional(),
+    assignee: z.coerce.number().int().positive().optional(),
+    flag: z.enum(['nif', 'duplicates', 'stalled', 'company', 'recoverable', 'assisted']).optional(),
+    status: z.string().max(250).transform((value) => value.split(',')).optional(),
+  }).parse(r.query))));
+  adminRoutes.get('/applications/:id/workspace', handle((r, a) => service.workspace(r.params.id, a)));
+  adminRoutes.post('/assisted', handle((r, a) => service.createAssisted(a, z.object({
+    operationKey: z.string().uuid(), mode: modes.exclude(['SELF_SERVICE']),
+    source: z.string().trim().min(1).max(100), company: company.optional(),
+  }).parse(r.body))));
+  adminRoutes.post('/applications/:id/assignment', handle(async (r, a) => {
+    const body = z.object({ assigneeId: z.number().int().positive().nullable(), reason: textReason }).parse(r.body);
+    await service.assign(r.params.id, a, body.assigneeId, body.reason);
+    return { ok: true };
+  }));
+  adminRoutes.post('/applications/:id/notes', handle(async (r, a) => {
+    await service.note(r.params.id, a, z.object({ reason: textReason }).parse(r.body).reason);
+    return { ok: true };
+  }));
+  adminRoutes.post('/applications/:id/retry', handle((r, a) =>
+    service.retry(r.params.id, a, z.object({ reason: textReason }).parse(r.body).reason)));
+  adminRoutes.post('/applications/:id/activate', handle((r, a) =>
+    service.activateFromAdmin(r.params.id, a, z.object({ reason: textReason }).strict().parse(r.body).reason)));
+  adminRoutes.post('/applications/:id/invitations/:invitationId/revoke', handle((r, a) =>
+    service.revokeInvitation(r.params.id, a, z.string().uuid().parse(r.params.invitationId),
+      z.object({ reason: textReason }).strict().parse(r.body).reason)));
+  adminRoutes.post('/applications/:id/close', handle((r, a) =>
+    service.close(r.params.id, a, z.object({ reason: textReason }).parse(r.body).reason)));
+  adminRoutes.post('/applications/:id/remind', handle((r, a) =>
+    service.remind(r.params.id, a, z.object({ reason: textReason }).parse(r.body).reason)));
+  adminRoutes.get('/applications/:id/documents/:documentId/download', handle((r, a) =>
+    service.downloadDocument(r.params.id, a, z.string().uuid().parse(r.params.documentId), true)));
+  adminRoutes.get('/resources/:kind', handle((r) => {
+    const { limit, page: index, status, importKind } = page.extend({
+      status: z.string().max(40).optional(),
+      importKind: z.enum(['EMPLOYEES', 'CONTRACTS', 'SALARIES']).optional(),
+    }).parse(r.query);
+    return service.resourceDirectory(z.enum(['DOCUMENT', 'INVITATION', 'IMPORT']).parse(r.params.kind), index, limit, status, importKind);
+  }));
+  for (const path of ['audit', 'communications']) adminRoutes.get('/' + path, handle((r) => {
+    const { limit, page: index, applicationId } = page.extend({
+      applicationId: z.string().uuid().optional(),
+    }).parse(r.query);
+    return service.audit(index, limit, applicationId, path === 'communications');
+  }));
+  adminRoutes.post('/applications/:id/company-verification', handle((r, a) => {
+    const body = z.object({
+      approved: z.boolean(), reason: textReason, version: z.number().int().positive(),
+    }).parse(r.body);
+    return service.verifyCompany(r.params.id, a, body.approved, body.reason, body.version);
+  }));
+  adminRoutes.get('/policy', handle(async () => service.policy()));
+  adminRoutes.post('/policy', handle((r, a) => {
+    const { expectedVersion, reason, ...data } = z.object({
+      expectedVersion: z.number().int().positive(), reason: textReason,
+      requiredDocuments: z.number().int().min(0).max(20),
+      invitationHours: z.number().int().min(1).max(168),
+      inactivityDays: z.number().int().min(1).max(90),
+      companyVerificationModes: z.array(modes).max(modes.options.length).transform(value => [...new Set(value)]).optional(),
+      organizationRequiredModes: z.array(modes).max(modes.options.length).transform(value => [...new Set(value)]).optional(),
+    }).parse(r.body);
+    return service.publishPolicy(a, expectedVersion, data, reason);
+  }));
   return { routes, adminRoutes, service };
 }
+

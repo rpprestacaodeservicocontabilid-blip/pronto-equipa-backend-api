@@ -12,6 +12,7 @@ export class AuditService implements AuditServicePort {
         eventId: randomUUID(),
         eventType: input.action,
         sourceId: 'identity',
+        module: 'identity',
         category: 'SECURITY',
         severity: /FAIL|DENIED|BLOCK|REVOK|PASSWORD/.test(input.action) ? 'HIGH' : 'MEDIUM',
         scope: 'PLATFORM',

@@ -70,17 +70,18 @@ export class BillingRuntime {
                 'platform-billing.invoice.overdue',
                 'platform-billing.payment.failed',
                 'platform-billing.payment.confirmed',
+                'platform-billing.payment.allocated',
               ].includes(event.data.event);
               if (
                 this.applySubscriptionEvent &&
                 supported &&
                 event.data.subscriptionId &&
-                (event.data.event !== 'platform-billing.payment.confirmed' ||
+                (!['platform-billing.payment.confirmed', 'platform-billing.payment.allocated'].includes(event.data.event) ||
                   event.data.settled === true)
               )
                 await this.applySubscriptionEvent({
                   eventId: event.id,
-                  type: event.data.event,
+                  type: event.data.event === 'platform-billing.payment.allocated' ? 'platform-billing.payment.confirmed' : event.data.event,
                   companyId: Number(company.id),
                   subscriptionId: event.data.subscriptionId,
                   invoiceId: event.data.invoiceId,

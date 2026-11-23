@@ -93,9 +93,15 @@ describe('Onboarding ownership and recovery', () => {
     const id = await approved();
     (ports.subscribe as jest.Mock).mockRejectedValueOnce(new Error('temporary'));
     await expect(service.provision(id, 1)).rejects.toThrow('temporary');
-    expect((await service.get(id, 1)).companyId).toBe(10);
+    const failed = await service.get(id, 1);
+    expect(failed.companyId).toBe(10);
+    expect(failed.data.executions.subscription).toMatchObject({ status: 'FAILED', attempts: 1 });
     expect((await service.provision(id, 1)).status).toBe('COMPLETED');
     expect(ports.provision).toHaveBeenCalledTimes(1);
+    expect(ports.configureOrganization).toHaveBeenCalledTimes(1);
+    expect(ports.configurePayroll).toHaveBeenCalledTimes(1);
+    expect(ports.billingAccount).toHaveBeenCalledTimes(1);
     expect(ports.activate).toHaveBeenCalledTimes(1);
+    expect((await service.get(id, 1)).data.executions.subscription).toMatchObject({ status: 'COMPLETED', attempts: 2 });
   });
 });

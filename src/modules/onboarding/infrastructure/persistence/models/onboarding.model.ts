@@ -61,3 +61,16 @@ OnboardingResource.init(
     indexes: [{ unique: true, fields: ['applicationId', 'kind', 'key'] }],
   },
 );
+
+export class OnboardingPolicy extends Model {}
+OnboardingPolicy.init(
+  {
+    id: { type: DataTypes.UUID, primaryKey: true },
+    version: { type: DataTypes.INTEGER, allowNull: false, unique: true },
+    actorId: { type: DataTypes.INTEGER, allowNull: false },
+    reason: { type: DataTypes.TEXT, allowNull: false },
+    data: { type: DataTypes.JSON, allowNull: false },
+  },
+  { sequelize, tableName: 'onboarding_policies', updatedAt: false },
+);
+

@@ -10,6 +10,7 @@ import {
   payrollRunSchema as run,
 } from '../schemas/payroll.schema';
 import { PayrollWorkflowService } from '../../application/use-cases/payroll-workflow.service';
+import { simulateSamplePayroll } from '../../../payroll-engine/presentation/internal/payroll-simulation.operation';
 
 export function createPayrollRoutes(options: {
   requirePermission: (permission: string) => RequestHandler;
@@ -19,6 +20,12 @@ export function createPayrollRoutes(options: {
   const routes = Router();
   const repository = options.service;
   const handler = new PayrollController(options.audit).handle;
+  routes.post(
+    '/engine/simulate',
+    options.requirePermission('payroll:read'),
+    options.requirePermission('payroll:runs:create'),
+    handler(simulateSamplePayroll),
+  );
   for (const entity of ['periods', 'runs'] as const) {
     routes.get(
       `/${entity}`,

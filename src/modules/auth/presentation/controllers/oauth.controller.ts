@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { isBrowserSession, permitsBrowserSession, sendSession } from '../browser-session';
 
 import { LoginWithGoogleUseCase } from '../../application/use-cases/login-with-google.use-case';
 import { LinkGoogleAccountUseCase } from '../../application/use-cases/link-google-account.use-case';
@@ -31,6 +32,9 @@ export class OAuthController {
 
   public loginWithGoogle = async (req: Request, res: Response): Promise<Response> => {
     try {
+      if (isBrowserSession(req) && !permitsBrowserSession(req)) {
+        return res.status(403).json({ message: 'Browser session requires a same-site request.' });
+      }
       if (!req.body?.code) {
         return res.status(400).json({
           success: false,
@@ -44,7 +48,9 @@ export class OAuthController {
         userAgent: req.get('user-agent'),
       });
 
-      return res.status(200).json(result);
+      if (isBrowserSession(req)) return sendSession(req, res, result);
+      const { refreshTokenExpiresAt: _refreshTokenExpiresAt, ...legacyResult } = result;
+      return res.set('Cache-Control', 'no-store').status(200).json(legacyResult);
     } catch (error) {
       return handleControllerError(res, error, 401);
     }

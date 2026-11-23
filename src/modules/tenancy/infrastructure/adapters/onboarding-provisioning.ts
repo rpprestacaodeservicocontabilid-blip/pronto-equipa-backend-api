@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { col, fn, where } from 'sequelize';
 
 import { sequelize } from '../../../../infra/database/index';
 import { CompanyModel } from '../persistence/models/company.model';
@@ -21,20 +22,27 @@ export class OnboardingTenantProvisioning {
     settings: unknown;
   }) {
     const companyInput = onboardingCompanySchema.parse(input.company);
+    const normalizeTaxId = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const taxId = normalizeTaxId(companyInput.taxId);
+    if (!taxId) throw Object.assign(new Error('NIF inválido.'), { statusCode: 422 });
     const settings = z.record(z.string(), z.unknown()).default({}).parse(input.settings);
     return sequelize.transaction(async (tx) => {
-      if (sequelize.getDialect() === 'postgres')
+      const postgres = sequelize.getDialect() === 'postgres';
+      if (postgres)
         await sequelize.query('SELECT pg_advisory_xact_lock(hashtext(:taxId))', {
-          replacements: { taxId: companyInput.taxId },
+          replacements: { taxId },
           transaction: tx,
         });
       const slug = `onboarding-${input.applicationId}`;
       const existing = await CompanyModel.findOne({ where: { slug }, transaction: tx });
       if (existing) return existing.id;
-      const duplicate = await CompanyModel.findOne({
-        where: { nif: companyInput.taxId },
-        transaction: tx,
-      });
+      const duplicate = postgres
+        ? await CompanyModel.findOne({
+          where: where(fn('regexp_replace', fn('upper', col('nif')), '[^A-Z0-9]', '', 'g'), taxId),
+          attributes: ['id'], transaction: tx,
+        })
+        : (await CompanyModel.findAll({ attributes: ['id', 'nif'], transaction: tx }))
+          .some((row) => row.nif && normalizeTaxId(row.nif) === taxId);
       if (duplicate)
         throw Object.assign(new Error('NIF já associado a uma empresa; revisão necessária.'), {
           statusCode: 409,

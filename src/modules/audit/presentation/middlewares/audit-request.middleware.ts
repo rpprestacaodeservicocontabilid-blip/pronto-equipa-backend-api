@@ -55,6 +55,11 @@ export function auditRequestMiddleware(
                     ? 'sensitive-resource.accessed'
                     : 'authentication.request',
               sourceId: 'http',
+              module: security
+                ? 'identity'
+                : sensitiveRead
+                  ? req.path.split('/')[1] || 'security'
+                  : 'security',
               category: denied || security ? 'SECURITY' : 'ACCESS',
               severity: denied || failed ? 'HIGH' : 'MEDIUM',
               scope: companyId === null ? 'PLATFORM' : 'TENANT',

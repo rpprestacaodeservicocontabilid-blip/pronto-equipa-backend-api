@@ -61,6 +61,40 @@ describe('Notifications persistence and scope', () => {
     await service.mark(1, 2, delivery.id, 'READ');
     expect(await service.unread(1, 2)).toEqual({ count: 0 });
   });
+  it('filters external and archived deliveries before paginating the inbox', async () => {
+    await service.send(1, 1, { ...input(), channels: ['IN_APP', 'EMAIL'] });
+    await service.process(1);
+    const external = (await service.list(1, 'DELIVERY')).find(row => row.data.channel === 'EMAIL')!;
+    await service.callback(1, external.id, 'provider-1', 'DELIVERED');
+    const [own] = await service.inbox(1, 2);
+    expect(own.data.channel).toBe('IN_APP');
+    await expect(service.inboxItem(1, 2, external.id)).rejects.toThrow();
+    await expect(service.inboxItem(null, 2, own.id)).rejects.toThrow();
+    await service.mark(1, 2, own.id, 'ARCHIVED');
+    expect(await service.inbox(1, 2)).toEqual([]);
+    expect((await service.inbox(1, 2, 1, 'ARCHIVED')).map(row => row.id)).toEqual([own.id]);
+    expect(await service.unread(1, 2)).toEqual({ count: 0 });
+  });
+  it('processes due deliveries past a batch of future deliveries and reports consistent totals', async () => {
+    const scheduledAt = new Date(Date.now() + 86400000).toISOString();
+    const future = await service.send(1, 1, { ...input(), scheduledAt, recipients: Array.from({ length: 24 }, (_, i) => i + 10) }, 'CAMPAIGN');
+    const now = await service.send(1, 1, { ...input(), key: 'immediate-campaign' }, 'CAMPAIGN');
+    await service.process(1);
+    expect(await service.unread(1, 2)).toEqual({ count: 1 });
+    const completed = await service.adminList(1, 'MESSAGE', { page: 1, limit: 10, origin: 'CAMPAIGN', status: 'COMPLETED' });
+    expect(completed.items.map(row => row.id)).toEqual([now.id]);
+    expect(await service.adminReport(1)).toMatchObject({ messages: 2, totalDeliveries: 25, byChannel: { IN_APP: 25 }, byStatus: { DELIVERED: 1, QUEUED: 24 } });
+    await service.cancel(1, future.id, 1);
+    expect((await service.adminReport(1)).byStatus).toEqual({ DELIVERED: 1, CANCELLED: 24 });
+  });
+  it('reserves mandatory template codes for system events', async () => {
+    const input = { code: 'REQUIRED', category: 'SYSTEM', subject: 'Required', body: 'Action required', mandatory: true };
+    const draft = await service.template(1, 1, input);
+    await expect(service.template(1, 1, { ...input, mandatory: false }, true)).rejects.toThrow();
+    await expect(service.editTemplate(1, draft.id, { subject: 'New subject', body: 'New body' }, 1)).rejects.toThrow();
+    await expect(service.publish(1, 1, draft.id, true)).rejects.toThrow();
+    await service.publish(1, 1, draft.id);
+  });
   it('enforces preferences without contacting the provider', async () => {
     await service.preference(1, 2, { category: 'SYSTEM', channel: 'EMAIL', enabled: false });
     await service.send(1, 1, { ...input(), channels: ['EMAIL'] });

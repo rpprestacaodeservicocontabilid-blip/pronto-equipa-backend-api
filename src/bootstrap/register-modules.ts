@@ -34,6 +34,7 @@ import {
   subscriptions,
   platformBilling,
   onboarding,
+  platformReports,
   notifications,
   support,
   audit,
@@ -172,6 +173,11 @@ export function defaultModules(): ModuleDefinition[] {
       async shutdown() {
         support.runtime.stop();
       },
+    },
+    {
+      name: 'platform-reports-runtime',
+      init() { platformReports.start(); },
+      async shutdown() { await platformReports.stop(); },
     },
     {
       name: 'onboarding-runtime',

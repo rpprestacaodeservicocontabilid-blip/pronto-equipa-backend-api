@@ -63,6 +63,8 @@ export class SequelizeRecordStore<R extends { id: string }> implements RecordSto
     if (Array.isArray(value)) return value.map((item) => this.filter(item));
     const operators: Record<string, symbol> = {
       $in: Op.in,
+      $or: Op.or,
+      $is: Op.is,
       $like: Op.like,
       $lt: Op.lt,
       $notIn: Op.notIn,

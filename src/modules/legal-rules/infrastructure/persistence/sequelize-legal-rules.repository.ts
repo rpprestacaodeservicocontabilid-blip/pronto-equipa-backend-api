@@ -8,7 +8,9 @@ import {
   LegalRuleSetInput,
   validateLegalRuleSet,
 } from '../../domain/legal-rule-set';
-import { LegalRuleSetModel, LegalRuleSetStatus } from './legal-rule-set.model';
+import { LegalRuleSetAttributes, LegalRuleSetModel, LegalRuleSetStatus } from './legal-rule-set.model';
+import { LegalSourceModel } from './legal-source.model';
+import type { LegalGovernance, LegalSourceInput } from '../../domain/legal-governance';
 
 type ListOptions = {
   status?: LegalRuleSetStatus;
@@ -19,6 +21,34 @@ type ListOptions = {
 };
 
 export class SequelizeLegalRulesRepository {
+  async listSources(page: number, limit: number) {
+    const result = await LegalSourceModel.findAndCountAll({
+      order: [['createdAt', 'DESC'], ['id', 'ASC']], offset: (page - 1) * limit, limit,
+    });
+    return { items: result.rows.map(row => this.sourceView(row)), total: result.count, page, limit };
+  }
+
+  async registerSource(input: LegalSourceInput, actorId: number) {
+    try {
+      const row = await LegalSourceModel.create({
+        id: randomUUID(), reference: input.reference, data: input, createdAt: new Date(), createdBy: actorId,
+      });
+      return this.sourceView(row);
+    } catch (error) {
+      this.mapUnique(error, 'This legal source reference is already registered.');
+    }
+  }
+
+  private sourceView(row: LegalSourceModel) {
+    return { ...row.data, id: row.id, createdAt: row.createdAt, createdBy: row.createdBy };
+  }
+
+  private async validateSources(governance: LegalGovernance | null | undefined) {
+    const ids = governance?.sourceIds ?? [];
+    if (ids.length && await LegalSourceModel.count({ where: { id: { [Op.in]: ids } } }) !== ids.length)
+      throw new ValidationError('One or more selected legal sources do not exist.');
+  }
+
   async getView(id: string): Promise<unknown> {
     return (await this.get(id)).toJSON();
   }
@@ -52,6 +82,7 @@ export class SequelizeLegalRulesRepository {
 
   async create(input: LegalRuleSetInput, actorId: number) {
     const rules = validateLegalRuleSet(input);
+    await this.validateSources(input.governance);
     const companyId = input.companyId ?? null;
     const now = new Date();
     try {
@@ -67,6 +98,7 @@ export class SequelizeLegalRulesRepository {
         sourceReference: input.sourceReference.trim(),
         evidenceReference: input.evidenceReference.trim(),
         rules: rules as unknown as Record<string, unknown>,
+        governance: input.governance ?? null,
         integrityHash: null,
         status: 'DRAFT',
         createdBy: actorId,
@@ -92,9 +124,9 @@ export class SequelizeLegalRulesRepository {
     patch: Partial<
       Pick<
         LegalRuleSetInput,
-        'effectiveFrom' | 'effectiveTo' | 'sourceReference' | 'evidenceReference' | 'rules'
+        'effectiveFrom' | 'effectiveTo' | 'sourceReference' | 'evidenceReference' | 'rules' | 'governance'
       >
-    >,
+    > & { expectedUpdatedAt?: string },
     _actorId: number,
   ) {
     const row = await this.get(id);
@@ -102,6 +134,7 @@ export class SequelizeLegalRulesRepository {
       throw new ConflictError(
         'Only draft legal rule sets can be edited. Create a new version after submission.',
       );
+    this.checkVersion(row, patch.expectedUpdatedAt);
     const candidate: LegalRuleSetInput = {
       companyId: row.companyId,
       ruleSetId: row.ruleSetId,
@@ -111,50 +144,58 @@ export class SequelizeLegalRulesRepository {
       effectiveTo: patch.effectiveTo === undefined ? row.effectiveTo : patch.effectiveTo,
       sourceReference: patch.sourceReference ?? row.sourceReference,
       evidenceReference: patch.evidenceReference ?? row.evidenceReference,
+      governance: patch.governance === undefined ? row.governance : patch.governance,
       rules: (patch.rules ?? row.rules) as unknown as LegalRuleDefinition,
     };
     const rules = validateLegalRuleSet(candidate);
-    await row.update({
+    await this.validateSources(candidate.governance);
+    return this.change(row, {
       effectiveFrom: candidate.effectiveFrom,
       effectiveTo: candidate.effectiveTo,
       sourceReference: candidate.sourceReference.trim(),
       evidenceReference: candidate.evidenceReference.trim(),
+      governance: candidate.governance ?? null,
       rules: rules as unknown as Record<string, unknown>,
-      updatedAt: new Date(),
     });
-    return row.toJSON();
   }
 
-  async submit(id: string, actorId: number) {
+  async submit(id: string, actorId: number, expectedUpdatedAt?: string) {
     const row = await this.get(id);
     if (row.status !== 'DRAFT')
       throw new ConflictError('Only draft legal rule sets can be submitted.');
+    this.checkVersion(row, expectedUpdatedAt);
     validateLegalRuleSet(this.inputFrom(row));
-    await row.update({
+    return this.change(row, {
       status: 'IN_REVIEW',
       submittedBy: actorId,
       submittedAt: new Date(),
-      updatedAt: new Date(),
     });
-    return row.toJSON();
   }
 
-  async approve(id: string, actorId: number) {
+  async approve(id: string, actorId: number, expectedUpdatedAt?: string) {
     const row = await this.get(id);
     if (row.status !== 'IN_REVIEW')
       throw new ConflictError('Only legal rule sets in review can be approved.');
     if (row.createdBy === actorId || row.submittedBy === actorId)
       throw new ConflictError('The creator or submitter cannot approve this legal rule set.');
-    await row.update({
+    this.checkVersion(row, expectedUpdatedAt);
+    return this.change(row, {
       status: 'APPROVED',
       approvedBy: actorId,
       approvedAt: new Date(),
-      updatedAt: new Date(),
     });
-    return row.toJSON();
   }
 
-  async publish(id: string, actorId: number) {
+  async reject(id: string, actorId: number, reason: string, expectedUpdatedAt?: string) {
+    const row = await this.get(id);
+    if (row.status !== 'IN_REVIEW') throw new ConflictError('Only legal rule sets in review can be rejected.');
+    if (row.createdBy === actorId || row.submittedBy === actorId)
+      throw new ConflictError('The creator or submitter cannot reject this legal rule set.');
+    this.checkVersion(row, expectedUpdatedAt);
+    return this.change(row, { status: 'REJECTED', rejectedBy: actorId, rejectedAt: new Date(), rejectionReason: reason });
+  }
+
+  async publish(id: string, actorId: number, expectedUpdatedAt?: string) {
     return sequelize.transaction(
       { isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE },
       async (transaction) => {
@@ -165,6 +206,7 @@ export class SequelizeLegalRulesRepository {
         if (!row) throw new NotFoundError('Legal rule set');
         if (row.status !== 'APPROVED')
           throw new ConflictError('Only approved legal rule sets can be published.');
+        this.checkVersion(row, expectedUpdatedAt);
         const overlap = await LegalRuleSetModel.findOne({
           where: {
             id: { [Op.ne]: row.id },
@@ -197,17 +239,30 @@ export class SequelizeLegalRulesRepository {
     );
   }
 
-  async retire(id: string, actorId: number) {
+  async retire(id: string, actorId: number, expectedUpdatedAt?: string) {
     const row = await this.get(id);
     if (row.status !== 'PUBLISHED')
       throw new ConflictError('Only published legal rule sets can be retired.');
-    await row.update({
+    this.checkVersion(row, expectedUpdatedAt);
+    return this.change(row, {
       status: 'RETIRED',
       retiredBy: actorId,
       retiredAt: new Date(),
-      updatedAt: new Date(),
     });
-    return row.toJSON();
+  }
+
+  private checkVersion(row: LegalRuleSetModel, expectedUpdatedAt?: string) {
+    if (expectedUpdatedAt && new Date(expectedUpdatedAt).getTime() !== row.updatedAt.getTime())
+      throw new ConflictError('This version changed. Reload it and review the current contents.');
+  }
+
+  private async change(row: LegalRuleSetModel, patch: Partial<LegalRuleSetAttributes>) {
+    const values = { ...patch, updatedAt: new Date(Math.max(Date.now(), row.updatedAt.getTime() + 1)) };
+    const [count] = await LegalRuleSetModel.update(values, {
+      where: { id: row.id, status: row.status, updatedAt: row.updatedAt },
+    });
+    if (count !== 1) throw new ConflictError('This version changed. Reload it and review the current contents.');
+    return { ...row.toJSON(), ...values };
   }
 
   async resolve(companyId: number, startDate: string, endDate: string) {
@@ -270,6 +325,7 @@ export class SequelizeLegalRulesRepository {
       effectiveTo: row.effectiveTo,
       sourceReference: row.sourceReference,
       evidenceReference: row.evidenceReference,
+      governance: row.governance,
       rules: row.rules as unknown as LegalRuleDefinition,
     };
   }
@@ -295,14 +351,14 @@ export class SequelizeLegalRulesRepository {
     const date = new Date(`${value}T00:00:00Z`);
     return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
   }
-  private mapUnique(error: unknown): never {
+  private mapUnique(error: unknown, message = 'A rule set with this scope, identifier and version already exists.'): never {
     if (
       error &&
       typeof error === 'object' &&
       'name' in error &&
       error.name === 'SequelizeUniqueConstraintError'
     )
-      throw new ConflictError('A rule set with this scope, identifier and version already exists.');
+      throw new ConflictError(message);
     throw error;
   }
 }

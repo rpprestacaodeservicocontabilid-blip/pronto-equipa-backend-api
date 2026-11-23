@@ -15,6 +15,7 @@ export const supportTicketSchema = z
     attachments: z.array(z.string().uuid()).max(10).optional(),
     idempotencyKey: z.string().trim().min(8).max(160),
     priority: z.enum(supportPriorities).optional(),
+    audience: z.enum(['COMPANY', 'PLATFORM']).optional(),
   })
   .strict();
 export const supportMessageSchema = z
@@ -29,6 +30,8 @@ export const supportPageSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   status: z.enum(supportStatuses).optional(),
+  type: z.enum(supportTicketTypes).optional(),
+  queue: z.enum(['active', 'pending', 'assigned', 'resolved']).optional(),
   priority: z.enum(supportPriorities).optional(),
 });
 export const supportUpdateTicketSchema = z

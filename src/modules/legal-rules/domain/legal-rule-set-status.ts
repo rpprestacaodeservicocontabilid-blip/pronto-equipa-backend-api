@@ -1,1 +1,1 @@
-export type LegalRuleSetStatus = 'DRAFT' | 'IN_REVIEW' | 'APPROVED' | 'PUBLISHED' | 'RETIRED';
+export type LegalRuleSetStatus = 'DRAFT' | 'IN_REVIEW' | 'APPROVED' | 'PUBLISHED' | 'RETIRED' | 'REJECTED';

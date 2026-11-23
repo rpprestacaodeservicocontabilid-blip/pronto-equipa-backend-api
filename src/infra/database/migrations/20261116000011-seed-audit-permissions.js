@@ -43,6 +43,7 @@ module.exports = {
     const definitions = [
       ...tenantPermissions.map((name) => ({ name, scope: 'TENANT' })),
       { name: 'audit:records:read-platform', scope: 'PLATFORM' },
+      { name: 'platform:audit:records:read-own', scope: 'PLATFORM' },
       ...tenantPermissions
         .filter((n) => n !== 'audit:records:read-own' && n !== 'audit:records:read-tenant')
         .map((n) => ({ name: 'platform:' + n, scope: 'PLATFORM' })),

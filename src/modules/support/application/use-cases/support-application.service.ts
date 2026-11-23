@@ -123,12 +123,17 @@ export class SupportApplicationService {
       attachments?: string[];
       idempotencyKey: string;
       priority?: SupportPriority;
+      audience?: 'COMPANY' | 'PLATFORM';
     },
   ) {
     const entitlement = await this.entitlements.getSupportEntitlements({
       tenantId: String(companyId),
       at: new Date(),
     });
+    const audience = input.audience ?? 'COMPANY';
+    const policyPrefix = audience === 'PLATFORM' ? 'platform:' : '';
+    if (audience === 'PLATFORM' && input.attachments?.length)
+      throw fail('Use authorized document sharing for platform support.', 403);
     if (!entitlement.supportEnabled) throw fail('O plano não inclui suporte activo.', 403);
     for (const documentId of input.attachments || [])
       await this.documents.assertAvailable({ tenantId: String(companyId), documentId });
@@ -183,7 +188,7 @@ export class SupportApplicationService {
           where: {
             companyId,
             kind: 'SLA_POLICY',
-            key: { [Op.like]: `${entitlement.slaPolicyCode}:%` },
+            key: { [Op.like]: `${policyPrefix}${entitlement.slaPolicyCode}:%` },
             status: 'ACTIVE',
           },
           transaction: tx,
@@ -192,7 +197,7 @@ export class SupportApplicationService {
           where: {
             companyId,
             kind: 'SLA_POLICY',
-            key: { [Op.like]: 'DEFAULT:%' },
+            key: { [Op.like]: `${policyPrefix}DEFAULT:%` },
             status: 'ACTIVE',
           },
           transaction: tx,
@@ -221,7 +226,7 @@ export class SupportApplicationService {
         'OPEN',
         {
           ticketNumber: ticketNumber(sequence),
-          requesterId,
+          requesterId, audience,
           type: input.type,
           categoryCode: input.categoryCode,
           subject: input.subject.trim(),
@@ -270,7 +275,7 @@ export class SupportApplicationService {
         {
           ticketId: row.id,
           actorId: requesterId,
-          action: 'CREATED',
+          action: 'CREATED', audience,
           to: 'OPEN',
           at: now.toISOString(),
         },
@@ -305,34 +310,41 @@ export class SupportApplicationService {
   async listTickets(
     companyId: number,
     actor: number,
-    options: { ownOnly: boolean; status?: string; priority?: string; page: number; limit: number },
+    options: { ownOnly: boolean; platform?: boolean; status?: string; priority?: string; type?: string; queue?: string; page: number; limit: number },
   ) {
     return this.tx(companyId, async (tx) => {
-      const rows = await this.store.findAll({
-        where: {
-          companyId,
-          kind: 'TICKET',
-          ...(options.ownOnly ? { userId: actor } : {}),
-          ...(options.status ? { status: options.status } : {}),
-        },
-        order: [['createdAt', 'DESC']],
-        limit: 500,
-        transaction: tx,
-      });
-      const filtered = rows.filter(
-        (row) => !options.priority || row.data.priority === options.priority,
-      );
-      const offset = (options.page - 1) * options.limit;
-      return {
-        page: options.page,
-        limit: options.limit,
-        total: filtered.length,
-        data: filtered.slice(offset, offset + options.limit).map((row) => this.present(row)),
+      const queues: Record<string, string[]> = {
+        active: ['OPEN', 'TRIAGED', 'ASSIGNED', 'IN_PROGRESS', 'WAITING_CUSTOMER', 'WAITING_INTERNAL', 'WAITING_EXTERNAL', 'ESCALATED'],
+        pending: ['WAITING_CUSTOMER', 'WAITING_INTERNAL', 'WAITING_EXTERNAL'],
+        assigned: ['ASSIGNED', 'IN_PROGRESS', 'ESCALATED'],
+        resolved: ['RESOLVED', 'CLOSED'],
       };
+      const queue = options.queue ? queues[options.queue] : undefined;
+      const statuses = options.status && queue ? queue.filter(status => status === options.status) : queue;
+      if (statuses?.length === 0) return { page: options.page, limit: options.limit, total: 0, data: [] };
+      const where = {
+        companyId, kind: 'TICKET',
+        ...(options.ownOnly ? { userId: actor } : {}),
+        ...(options.platform ? { 'data.audience': 'PLATFORM' } : {}),
+        ...(options.priority ? { 'data.priority': options.priority } : {}),
+        ...(options.type ? { 'data.type': options.type } : {}),
+        ...(statuses ? { status: { [Op.in]: statuses } } : options.status ? { status: options.status } : {}),
+      };
+      const total = Number(await this.store.count({ where, transaction: tx }));
+      const rows = await this.store.findAll({
+        where, order: [['createdAt', 'DESC'], ['id', 'DESC']],
+        limit: options.limit, offset: (options.page - 1) * options.limit, transaction: tx,
+      });
+      return { page: options.page, limit: options.limit, total, data: rows.map(row => this.present(row)) };
     });
   }
 
-  async getTicket(companyId: number, actor: number, id: string, agent = false) {
+  async assertPlatformTicket(companyId: number, id: string) {
+    const ticket = await this.tx(companyId, tx => this.one(companyId, 'TICKET', id, tx));
+    if (ticket.data.audience !== 'PLATFORM') throw fail('Ticket não encontrado.', 404);
+  }
+
+  async getTicket(companyId: number, actor: number, id: string, agent = false, includeInternal = agent, platform = false) {
     return this.tx(companyId, async (tx) => {
       const ticket = await this.one(companyId, 'TICKET', id, tx);
       this.assertTicketAccess(ticket, actor, agent);
@@ -345,7 +357,7 @@ export class SupportApplicationService {
       return {
         ...this.present(ticket),
         messages: messages
-          .filter((message) => agent || message.data.visibility === 'PUBLIC')
+          .filter(message => message.data.visibility === 'PUBLIC' || (includeInternal && this.isWorkspace(message, platform)))
           .map((message) => this.present(message)),
       };
     });
@@ -383,7 +395,10 @@ export class SupportApplicationService {
     actor: number,
     id: string,
     input: { agentId?: number; teamId?: string; automatic?: boolean },
+    platform = false,
+    eligibleAgent?: (agent: number) => Promise<boolean>,
   ) {
+    if (!input.automatic && !input.teamId && input.agentId === undefined) throw fail('Seleccione agente ou equipa.');
     return this.tx(companyId, async (tx) => {
       const ticket = await this.one(companyId, 'TICKET', id, tx);
       if (terminal.includes(ticket.status))
@@ -395,7 +410,8 @@ export class SupportApplicationService {
           limit: 500,
           transaction: tx,
         });
-        if (!agents.length) throw fail('Não existem agentes disponíveis.', 409);
+        const eligible = agents.filter(agent => this.isWorkspace(agent, platform));
+        if (!eligible.length) throw fail('Não existem agentes disponíveis.', 409);
         const tickets = await this.store.findAll({
           where: {
             companyId,
@@ -405,27 +421,31 @@ export class SupportApplicationService {
           limit: 2000,
           transaction: tx,
         });
-        const workloads = agents.map((agent) => ({
+        const workloads = eligible.map((agent) => ({
           id: Number(agent.data.userId),
           load: tickets.filter(
             (ticket) => Number(ticket.data.agentId) === Number(agent.data.userId),
           ).length,
         }));
-        agentId = workloads.sort((a, b) => a.load - b.load)[0].id;
+        const ranked = workloads.sort((a, b) => a.load - b.load || a.id - b.id);
+        for (const candidate of ranked) {
+          if (!eligibleAgent || await eligibleAgent(candidate.id)) { agentId = candidate.id; break; }
+        }
+        if (agentId === undefined) throw fail('Não existem agentes autorizados disponíveis.', 409);
       }
       if (agentId !== undefined) {
         const agent = await this.store.findOne({
-          where: { companyId, kind: 'AGENT', key: String(agentId), status: 'AVAILABLE' },
+          where: { companyId, kind: 'AGENT', key: (platform ? 'platform:' : '') + agentId, status: 'AVAILABLE' },
           transaction: tx,
         });
-        if (!agent) throw fail('Agente indisponível ou não autorizado.', 403);
+        if (!agent || !this.isWorkspace(agent, platform)) throw fail('Agente indisponível ou não autorizado.', 403);
       }
       if (input.teamId) {
         const team = await this.store.findOne({
           where: { companyId, kind: 'TEAM', id: input.teamId, status: 'ACTIVE' },
           transaction: tx,
         });
-        if (!team) throw fail('Equipa não encontrada ou inactiva.', 404);
+        if (!team || !this.isWorkspace(team, platform)) throw fail('Equipa não encontrada ou inactiva.', 404);
       }
       const before = { agentId: ticket.data.agentId, teamId: ticket.data.teamId };
       const status = ticket.status === 'OPEN' ? 'ASSIGNED' : ticket.status;
@@ -450,7 +470,7 @@ export class SupportApplicationService {
     });
   }
 
-  async transferTicket(companyId: number, actor: number, id: string, teamId: string) {
+  async transferTicket(companyId: number, actor: number, id: string, teamId: string, platform = false) {
     const result = await this.tx(companyId, async (tx) => {
       const ticket = await this.one(companyId, 'TICKET', id, tx);
       if (terminal.includes(ticket.status))
@@ -459,7 +479,7 @@ export class SupportApplicationService {
         where: { companyId, kind: 'TEAM', id: teamId, status: 'ACTIVE' },
         transaction: tx,
       });
-      if (!team) throw fail('Equipa não encontrada ou inactiva.', 404);
+      if (!team || !this.isWorkspace(team, platform)) throw fail('Equipa não encontrada ou inactiva.', 404);
       const previous = { teamId: ticket.data.teamId, agentId: ticket.data.agentId };
       await this.store.update(
         ticket,
@@ -613,6 +633,7 @@ export class SupportApplicationService {
       idempotencyKey: string;
     },
     agent: boolean,
+    platform = false,
   ) {
     if (input.visibility === 'INTERNAL' && !agent)
       throw fail('Apenas agentes podem criar notas internas.', 403);
@@ -629,7 +650,7 @@ export class SupportApplicationService {
         transaction: tx,
       });
       if (old) {
-        if (old.data.fingerprint !== this.fingerprint(input))
+        if (old.data.authorId !== actor || old.data.fingerprint !== this.fingerprint(input))
           throw fail('Chave idempotente reutilizada com conteúdo diferente.', 409);
         return old;
       }
@@ -643,6 +664,7 @@ export class SupportApplicationService {
           ticketId: id,
           authorId: actor,
           visibility: input.visibility,
+          workspace: platform ? 'PLATFORM' : 'COMPANY',
           body: input.body.trim(),
           attachmentIds: input.attachmentIds || [],
           createdAt: now,
@@ -673,6 +695,7 @@ export class SupportApplicationService {
         input.visibility === 'INTERNAL' ? 'INTERNAL_NOTE' : 'MESSAGE',
         {},
         { messageId: message.id },
+        platform,
       );
       return message;
     });
@@ -695,7 +718,7 @@ export class SupportApplicationService {
     return this.present(result);
   }
 
-  async historyForTicket(companyId: number, actor: number, id: string, agent: boolean) {
+  async historyForTicket(companyId: number, actor: number, id: string, agent: boolean, platform = false, includeInternal = agent) {
     return this.tx(companyId, async (tx) => {
       const ticket = await this.one(companyId, 'TICKET', id, tx);
       this.assertTicketAccess(ticket, actor, agent);
@@ -706,7 +729,7 @@ export class SupportApplicationService {
         transaction: tx,
       });
       return rows
-        .filter((row) => agent || row.data.action !== 'INTERNAL_NOTE')
+        .filter(row => row.data.action !== 'INTERNAL_NOTE' || (includeInternal && this.isWorkspace(row, platform)))
         .map((row) => this.present(row));
     });
   }
@@ -730,20 +753,23 @@ export class SupportApplicationService {
       businessEndHour?: number;
       priorityResolutionHours?: Partial<Record<SupportPriority, number>>;
     },
+    platform = false,
   ) {
+    const code = (platform ? 'platform:' : '') + input.code;
     const version = await this.tx(companyId, async (tx) => {
       const rows = await this.store.findAll({
-        where: { companyId, kind: 'SLA_POLICY', key: { [Op.like]: `${input.code}:%` } },
+        where: { companyId, kind: 'SLA_POLICY', key: { [Op.like]: `${code}:%` } },
         transaction: tx,
       });
       const next = Math.max(0, ...rows.map((row) => Number(row.data.version || 0))) + 1;
       const policy = await this.create(
         companyId,
         'SLA_POLICY',
-        `${input.code}:${next}`,
+        `${code}:${next}`,
         'ACTIVE',
         {
           ...input,
+          workspace: platform ? 'PLATFORM' : 'COMPANY',
           version: next,
           createdBy: actor,
         },
@@ -759,8 +785,28 @@ export class SupportApplicationService {
     return this.present(version);
   }
 
-  async listPolicies(companyId: number) {
-    return this.listKind(companyId, 'SLA_POLICY');
+  async listPolicies(companyId: number, platform = false) {
+    return this.listKind(companyId, 'SLA_POLICY', platform);
+  }
+
+  async slaSnapshot(companyId: number, platform = false) {
+    return this.tx(companyId, async tx => {
+      const rows = await this.store.findAll({ where: { companyId, kind: 'TICKET', ...(platform ? { 'data.audience': 'PLATFORM' } : {}) },
+        order: [['createdAt', 'DESC']], limit: 2000, transaction: tx });
+      const atRisk: SupportRecordView[] = [], breached: SupportRecordView[] = [];
+      const now = Date.now();
+      for (const row of rows) {
+        const sla = row.data.sla as Record<string, unknown> | undefined;
+        if (!sla) continue;
+        const active = !['RESOLVED', ...terminal].includes(row.status);
+        const deadlines = [!sla.firstRespondedAt && sla.firstResponseDeadline, sla.resolutionDeadline]
+          .filter(Boolean).map(value => Date.parse(String(value)));
+        if (sla.firstResponseBreachedAt || sla.resolutionBreachedAt || (active && deadlines.some(value => value <= now)))
+          breached.push(this.present(row));
+        else if (active && deadlines.some(value => value <= now + 3600000)) atRisk.push(this.present(row));
+      }
+      return { atRisk, breached };
+    });
   }
 
   async slaMonitor(companyId: number, actor: number) {
@@ -856,7 +902,7 @@ export class SupportApplicationService {
           : input.code || input.name;
     if (typeof identifier !== 'string' || !identifier.trim())
       throw fail('Código ou nome obrigatório.');
-    const code = identifier.trim();
+    const code = (companyId && input.workspace === 'PLATFORM' ? 'platform:' : '') + identifier.trim();
     const row = await this.tx(companyId, async (tx) => {
       const old = await this.store.findOne({
         where: { companyId, kind, key: code },
@@ -883,17 +929,20 @@ export class SupportApplicationService {
     return this.present(row);
   }
 
-  async listKind(companyId: number | null, kind: string) {
-    return this.tx(companyId, async (tx) =>
-      (
-        await this.store.findAll({
-          where: { companyId, kind },
-          order: [['createdAt', 'DESC']],
-          limit: 500,
-          transaction: tx,
-        })
-      ).map((row) => this.present(row)),
-    );
+  private isWorkspace(row: SupportRecord, platform: boolean) {
+    return (row.data.workspace === 'PLATFORM') === platform;
+  }
+
+  async listKind(companyId: number | null, kind: string, platform = false, includePublished = false) {
+    const operational = ['HISTORY', 'ESCALATION', 'SURVEY'].includes(kind);
+    const scope = !companyId || !platform ? {} : operational ? { 'data.audience': 'PLATFORM' } : { 'data.workspace': 'PLATFORM' };
+    return this.tx(companyId, async tx => {
+      const rows = await this.store.findAll({ where: { companyId, kind, ...scope },
+        order: [['createdAt', 'DESC'], ['id', 'DESC']], limit: 500, transaction: tx });
+      return rows.filter(row => !companyId ||
+        (operational ? row.data.action !== 'INTERNAL_NOTE' || this.isWorkspace(row, platform)
+          : includePublished || this.isWorkspace(row, platform))).map(row => this.present(row));
+    });
   }
 
   async createIncident(companyId: number | null, actor: number, input: Record<string, unknown>) {
@@ -922,7 +971,7 @@ export class SupportApplicationService {
         `${id}:${level}`,
         'ACTIVE',
         {
-          ticketId: id,
+          ticketId: id, audience: ticket.data.audience,
           level,
           reason,
           createdBy: actor,
@@ -970,9 +1019,11 @@ export class SupportApplicationService {
     actor: number,
     id: string,
     input: Record<string, unknown>,
+    platform = false,
   ) {
     const row = await this.tx(companyId, async (tx) => {
       const incident = await this.one(companyId, 'INCIDENT', id, tx);
+      if (companyId && !this.isWorkspace(incident, platform)) throw fail('Incidente não encontrado.', 404);
       const updates: unknown[] = Array.isArray(incident.data.updates) ? incident.data.updates : [];
       await this.store.update(
         incident,
@@ -995,11 +1046,11 @@ export class SupportApplicationService {
     return this.present(row);
   }
 
-  async linkTicketIncident(companyId: number, actor: number, ticketId: string, incidentId: string) {
+  async linkTicketIncident(companyId: number, actor: number, ticketId: string, incidentId: string, platform = false) {
     return this.tx(companyId, async (tx) => {
       const ticket = await this.one(companyId, 'TICKET', ticketId, tx);
       const incident = await this.one(companyId, 'INCIDENT', incidentId, tx);
-      if (ticket.companyId !== incident.companyId)
+      if (ticket.companyId !== incident.companyId || !this.isWorkspace(incident, platform))
         throw fail('Âmbitos do incidente e ticket incompatíveis.', 403);
       const linked: unknown[] = [
         ...(Array.isArray(incident.data.ticketIds) ? (incident.data.ticketIds as unknown[]) : []),
@@ -1024,6 +1075,7 @@ export class SupportApplicationService {
       content: string;
       visibility: 'PUBLIC' | 'TENANT' | 'INTERNAL';
       category?: string;
+      workspace?: string;
     },
   ) {
     return this.createResource(companyId, actor, 'ARTICLE', {
@@ -1039,15 +1091,18 @@ export class SupportApplicationService {
     actor: number,
     id: string,
     patch: { title?: string; content?: string; visibility?: string; category?: string },
+    platform = false,
   ) {
     return this.tx(companyId, async (tx) => {
       const article = await this.one(companyId, 'ARTICLE', id, tx);
+      if (companyId && !this.isWorkspace(article, platform)) throw fail('Artigo não encontrado.', 404);
       if (article.status === 'ARCHIVED') throw fail('Artigo arquivado.', 409);
       const version = Number(article.data.version || 1) + 1;
       const versions: unknown[] = Array.isArray(article.data.versions) ? article.data.versions : [];
       await this.store.update(
         article,
         {
+          status: platform ? 'DRAFT' : article.status,
           data: {
             ...article.data,
             ...patch,
@@ -1069,15 +1124,18 @@ export class SupportApplicationService {
     });
   }
 
-  async publishArticle(companyId: number | null, actor: number, id: string) {
+  async publishArticle(companyId: number | null, actor: number, id: string, platform = false) {
     const article = await this.tx(companyId, async (tx) => {
       const row = await this.one(companyId, 'ARTICLE', id, tx);
+      if (companyId && !this.isWorkspace(row, platform)) throw fail('Artigo não encontrado.', 404);
       if (row.status !== 'DRAFT') throw fail('Apenas rascunhos podem ser publicados.', 409);
       await this.store.update(
         row,
         {
           status: 'PUBLISHED',
-          data: { ...row.data, publishedAt: new Date().toISOString(), publishedBy: actor },
+          data: { ...row.data, publishedAt: new Date().toISOString(), publishedBy: actor,
+            publishedSnapshot: { title: row.data.title, content: row.data.content, visibility: row.data.visibility,
+              category: row.data.category, version: row.data.version } },
         },
         { transaction: tx },
       );
@@ -1087,12 +1145,21 @@ export class SupportApplicationService {
     return this.present(article);
   }
 
-  async searchArticles(companyId: number, query: string, internal = false) {
-    const rows = await this.listKind(companyId, 'ARTICLE');
+  async searchArticles(companyId: number | null, query: string, internal = false, platform = false, drafts = false) {
+    const own = await this.listKind(companyId, 'ARTICLE', platform, !internal);
+    const shared = companyId && !internal ? await this.listKind(null, 'ARTICLE') : [];
+    const rows = [...own, ...shared].flatMap(row => {
+      if (internal) return [row];
+      const snapshot = row.publishedSnapshot;
+      const visible = row.status === 'DRAFT' && snapshot && typeof snapshot === 'object' ? { ...row, ...snapshot, status: 'PUBLISHED' } : row;
+      if (visible.status !== 'PUBLISHED' || visible.visibility === 'INTERNAL' || (row.companyId === null && visible.visibility !== 'PUBLIC')) return [];
+      const { versions: _versions, publishedSnapshot: _snapshot, ...result } = visible;
+      return [result];
+    });
     const needle = query.trim().toLocaleLowerCase();
     return rows.filter(
       (row) =>
-        row.status === 'PUBLISHED' &&
+        (drafts || row.status === 'PUBLISHED') &&
         (internal || row.visibility !== 'INTERNAL') &&
         `${String(row.title ?? '')} ${String(row.content ?? '')} ${String(row.category ?? '')}`
           .toLocaleLowerCase()
@@ -1123,7 +1190,7 @@ export class SupportApplicationService {
         ticketId,
         'SUBMITTED',
         {
-          ticketId,
+          ticketId, audience: ticket.data.audience,
           requesterId: actor,
           rating,
           comment: comment || null,
@@ -1136,12 +1203,26 @@ export class SupportApplicationService {
     });
   }
 
-  async dashboard(companyId: number | null) {
+  async dashboard(companyId: number | null, platform = false) {
     const tickets = await this.tx(companyId, (tx) =>
-      this.store.findAll({ where: { companyId, kind: 'TICKET' }, limit: 2000, transaction: tx }),
+      this.store.findAll({ where: { companyId, kind: 'TICKET', ...(platform ? { 'data.audience': 'PLATFORM' } : {}) },
+        order: [['createdAt', 'DESC']], limit: 2000, transaction: tx }),
     );
     const today = new Date().toISOString().slice(0, 10);
+    let responseTotal = 0, responseCount = 0, resolutionTotal = 0, resolutionCount = 0, breached = 0;
+    for (const ticket of tickets) {
+      const start = new Date(ticket.createdAt ?? '').getTime();
+      const sla = ticket.data.sla as Record<string, unknown> | undefined;
+      const response = Date.parse(String(sla?.firstRespondedAt ?? '')) - start;
+      const resolution = Date.parse(String(ticket.data.resolvedAt ?? '')) - start;
+      if (Number.isFinite(response) && response >= 0) { responseCount++; responseTotal += response; }
+      if (Number.isFinite(resolution) && resolution >= 0) { resolutionCount++; resolutionTotal += resolution; }
+      if (sla?.firstResponseBreachedAt || sla?.resolutionBreachedAt) breached++;
+    }
     return {
+      breached,
+      averageResponseMinutes: responseCount ? Math.round(responseTotal / responseCount / 60000) : null,
+      averageResolutionMinutes: resolutionCount ? Math.round(resolutionTotal / resolutionCount / 60000) : null,
       open: tickets.filter(
         (ticket) => !terminal.includes(ticket.status) && ticket.status !== 'RESOLVED',
       ).length,
@@ -1150,7 +1231,7 @@ export class SupportApplicationService {
       ).length,
       resolvedToday: tickets.filter(
         (ticket) =>
-          ticket.status === 'RESOLVED' && String(ticket.data.resolvedAt || '').startsWith(today),
+          ['RESOLVED', 'CLOSED'].includes(ticket.status) && String(ticket.data.resolvedAt || '').startsWith(today),
       ).length,
       byPriority: Object.fromEntries(
         ['CRITICAL', 'HIGH', 'NORMAL', 'LOW'].map((priority) => [
@@ -1166,14 +1247,15 @@ export class SupportApplicationService {
           tickets.filter((ticket) => ticket.status === status).length,
         ]),
       ),
-      satisfaction: await this.satisfaction(companyId),
+      satisfaction: await this.satisfaction(companyId, platform),
+      sampled: tickets.length === 2000,
     };
   }
 
-  async satisfaction(companyId: number | null) {
+  async satisfaction(companyId: number | null, platform = false) {
     return this.tx(companyId, async (tx) => {
       const rows = await this.store.findAll({
-        where: { companyId, kind: 'SURVEY' },
+        where: { companyId, kind: 'SURVEY', ...(platform ? { 'data.audience': 'PLATFORM' } : {}) },
         limit: 2000,
         transaction: tx,
       });
@@ -1185,8 +1267,31 @@ export class SupportApplicationService {
     });
   }
 
-  async auditEntries(companyId: number | null) {
-    return this.listKind(companyId, 'HISTORY');
+  async auditEntries(companyId: number | null, platform = false) {
+    return this.listKind(companyId, 'HISTORY', platform);
+  }
+
+  async updateAgent(companyId: number, actor: number, id: string, status: string, platform = false) {
+    const row = await this.tx(companyId, async tx => {
+      const agent = await this.one(companyId, 'AGENT', id, tx);
+      if (!this.isWorkspace(agent, platform)) throw fail('Agente não encontrado.', 404);
+      return this.store.update(agent, { status }, { transaction: tx });
+    });
+    await this.auditEvent(companyId, actor, 'agent.status-updated', 'support_agent', id, undefined, { status });
+    return this.present(row);
+  }
+
+  async completeEscalation(companyId: number, actor: number, id: string, resolution: string, platform = false) {
+    const row = await this.tx(companyId, async tx => {
+      const escalation = await this.one(companyId, 'ESCALATION', id, tx);
+      const ticket = await this.one(companyId, 'TICKET', String(escalation.data.ticketId), tx);
+      if (platform && ticket.data.audience !== 'PLATFORM') throw fail('Escalonamento não encontrado.', 404);
+      if (escalation.status !== 'ACTIVE') throw fail('Escalonamento já concluído.', 409);
+      await this.history(companyId, tx, ticket, actor, 'ESCALATION_COMPLETED', {}, { escalationId: id }, platform);
+      return this.store.update(escalation, { status: 'COMPLETED', data: { ...escalation.data, resolution, completedBy: actor } }, { transaction: tx });
+    });
+    await this.auditEvent(companyId, actor, 'escalation.completed', 'support_escalation', id);
+    return this.present(row);
   }
 
   async sweep(companyId: number) {
@@ -1205,6 +1310,7 @@ export class SupportApplicationService {
     action: string,
     before: Record<string, unknown>,
     after: Record<string, unknown>,
+    platform = false,
   ) {
     return this.create(
       companyId,
@@ -1213,6 +1319,8 @@ export class SupportApplicationService {
       'RECORDED',
       {
         ticketId: ticket.id,
+        audience: ticket.data.audience,
+        workspace: platform ? 'PLATFORM' : 'COMPANY',
         actorId: actor,
         action,
         before,
@@ -1227,6 +1335,7 @@ export class SupportApplicationService {
   private present(row: SupportRecord): SupportRecordView {
     return {
       ...row.data,
+      ...(row.kind === 'AGENT' ? { agentUserId: row.data.userId } : {}),
       id: row.id,
       companyId: row.companyId,
       kind: row.kind,

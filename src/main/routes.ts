@@ -4,6 +4,10 @@ import { logger } from '../config/logger';
 import { SessionManagerService } from '../modules/auth/infrastructure/service/session-manager.service';
 import { createNotificationsModule } from '../modules/notifications/notifications.module';
 import { createSupportModule } from '../modules/support/support.module';
+import { createPlatformNotificationsRoutes } from '../modules/notifications/presentation/routes/platform-notifications.routes';
+import { createPlatformSupportRoutes } from '../modules/support/presentation/routes/platform-support.routes';
+import { CompanyModel } from '../modules/tenancy/infrastructure/persistence/models/company.model';
+import { SequelizePlatformRoleChecker } from '../modules/authorization/infrastructure/persistence/sequelize-platform-role-checker';
 import { CompanyMemberModel } from '../modules/tenancy/infrastructure/persistence/models/company-member.model';
 import { createOnboardingModule } from '../modules/onboarding/onboarding.module';
 import { OnboardingTenantProvisioning } from '../modules/tenancy/infrastructure/adapters/onboarding-provisioning';
@@ -50,10 +54,14 @@ import { createLoansModule } from '../modules/loans/loans.module';
 import { createSalaryStructureModule } from '../modules/salary-structure/salary-structure.module';
 import { createPayrollModule } from '../modules/payroll/payroll.module';
 import { createPaymentsModule } from '../modules/payments/payments.module';
+import { createPlatformPaymentsRoutes } from '../modules/payments/presentation/routes/platform-payments.routes';
 import { createPayslipsModule } from '../modules/payslips/payslips.module';
+import { createPlatformPayslipsRoutes } from '../modules/payslips/presentation/routes/platform-payslips.routes';
 import { createLegalRulesModule } from '../modules/legal-rules/legal-rules.module';
 import { createSimulationsModule } from '../modules/simulations/simulations.module';
 import { createReportsModule } from '../modules/reports/reports.module';
+import { createPlatformReportsModule } from '../modules/reports/platform-reports.module';
+import { createPlatformAiRoutes } from '../modules/ai-assistant/presentation/routes/platform-ai.routes';
 import { createDocumentsModule } from '../modules/documents/documents.module';
 import { createSubscriptionsModule } from '../modules/subscriptions/subscriptions.module';
 
@@ -117,6 +125,7 @@ router.use(
   ),
 );
 router.use('/admin/audit', authenticate, audit.platformRoutes);
+router.use('/audit/personal', authenticate, audit.personalRoutes);
 router.use('/audit', authenticate, authz.tenantContext, audit.routes);
 const employees = createEmployeesModule({
   requirePermission: authz.requirePermission,
@@ -166,6 +175,9 @@ export const simulations = createSimulationsModule({
   requirePermission: authz.requirePermission,
   audit: tenancy.auditRecorder,
 });
+export const platformReports = createPlatformReportsModule(tenancy.auditRecorder, async (from, to) =>
+  (await onboarding.service.overview(from, to)).daily,
+);
 const reports = createReportsModule({
   requirePermission: authz.requirePermission,
   audit: tenancy.auditRecorder,
@@ -299,7 +311,25 @@ router.use('/loans', authenticate, authz.tenantContext, loans.routes);
 router.use('/salary-structure', authenticate, authz.tenantContext, salaryStructure.routes);
 router.use('/payroll', authenticate, authz.tenantContext, payroll.routes);
 router.use('/payments', authenticate, authz.tenantContext, payments.routes);
+router.use(
+  '/platform/payments',
+  authenticate,
+  createPlatformPaymentsRoutes(
+    payments.service,
+    (principalId, permission) =>
+      authz.authorizationService.authorize({ principalId, context: { type: 'platform' }, permission }),
+    tenancy.auditRecorder,
+  ),
+);
+router.use(
+  '/platform/payslips',
+  authenticate,
+  authz.requirePlatformRole('SUPER_ADMIN'),
+  createPlatformPayslipsRoutes(tenancy.auditRecorder),
+);
 router.use('/payslips', authenticate, authz.tenantContext, payslips.routes);
+router.use('/platform/reports', authenticate, authz.requirePlatformRole('SUPER_ADMIN'), platformReports.routes);
+router.use('/ai-assistant/admin', authenticate, authz.requirePlatformRole('SUPER_ADMIN'), createPlatformAiRoutes(tenancy.auditRecorder));
 router.use('/reports', authenticate, authz.tenantContext, reports.routes);
 router.use('/simulations', authenticate, authz.tenantContext, simulations.routes);
 router.use('/documents', authenticate, authz.tenantContext, documents.routes);
@@ -335,8 +365,13 @@ router.use(
   tenancy.platformCompanyRoutes,
 );
 
+const billingRoleChecker = new SequelizePlatformRoleChecker();
 export const platformBilling = createPlatformBillingModule({
   requirePermission: authz.requirePermission,
+  isPlatformAdmin: actor => billingRoleChecker.hasAnyRole(actor, ['SUPER_ADMIN']),
+  authorizePlatform: (principalId, permission) => authz.authorizationService.authorize({
+    principalId, context: { type: 'platform' }, permission,
+  }),
   readSubscription: (companyId) => subscriptions.service.billingContract(companyId),
   applySubscriptionEvent: (event) => subscriptions.service.applyBillingEvent(event),
 });
@@ -344,7 +379,6 @@ router.use('/platform-billing/internal', platformBilling.integrationRoutes);
 router.use(
   '/platform-billing/admin',
   authenticate,
-  authz.requirePlatformRole('SUPER_ADMIN'),
   platformBilling.adminRoutes,
 );
 router.use('/platform-billing', authenticate, authz.tenantContext, platformBilling.routes);
@@ -398,6 +432,10 @@ audit.runtime.setNotifications({
     });
   },
 });
+router.use('/platform/notifications', authenticate, createPlatformNotificationsRoutes(notifications.service, {
+  audit: tenancy.auditRecorder,
+  authorize: (principalId, permission) => authz.authorizationService.authorize({ principalId, context: { type: 'platform' }, permission }),
+}));
 router.use('/notifications/internal', notifications.integrationRoutes);
 router.use('/notifications/personal', authenticate, notifications.personalRoutes);
 router.use(
@@ -414,9 +452,14 @@ export const support = createSupportModule({
   subscriptions: subscriptions.service,
   documents: documents.service,
 });
+router.use('/platform/support', authenticate, createPlatformSupportRoutes(support.service, {
+  audit: tenancy.auditRecorder,
+  authorize: (principalId, permission) => authz.authorizationService.authorize({ principalId, context: { type: 'platform' }, permission }),
+}));
 router.use('/support/admin', authenticate, authz.tenantContext, support.admin);
 router.use('/support', authenticate, authz.tenantContext, support.routes);
 const onboardingTenant = new OnboardingTenantProvisioning();
+const onboardingRoleChecker = new SequelizePlatformRoleChecker();
 export const onboarding = createOnboardingModule(
   {
     validateLegal: (id) => legalRules.isPublished(id),
@@ -475,6 +518,11 @@ export const onboarding = createOnboardingModule(
       platformBilling.service.account(companyId, actor, company),
   },
   {
+    assigneeAvailable: (id) => onboardingRoleChecker.hasAnyRole(id, ['SUPER_ADMIN']),
+    companyTaxRegistry: async () => {
+      const rows = await CompanyModel.findAll({ attributes: ['id', 'name', 'nif'] });
+      return rows.flatMap((row) => row.nif ? [{ id: row.id, name: row.name, taxId: row.nif }] : []);
+    },
     inviteAddress: async (actor) => {
       const user = await UserModel.findByPk(actor);
       if (!user?.emailVerifiedAt) throw new Error('Verifique o e-mail antes de aceitar o convite.');
@@ -543,3 +591,4 @@ router.use(
 );
 router.use('/onboarding', authenticate, onboarding.routes);
 export default router;
+

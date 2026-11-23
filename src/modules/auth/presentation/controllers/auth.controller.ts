@@ -5,7 +5,14 @@ import { StartLoginUseCase } from '../../application/use-cases/start-login.use-c
 import { VerifyLoginOtpUseCase } from '../../application/use-cases/verify-login-otp.use-case';
 import { ResendLoginOtpUseCase } from '../../application/use-cases/resend-login-otp.use-case';
 import { LogoutUseCase } from '../../application/use-cases/logout.use-case';
-import { RefreshTokenUseCase } from '../../application/use-cases/refresh-token.use-case';
+import { InvalidRefreshTokenError, RefreshTokenUseCase } from '../../application/use-cases/refresh-token.use-case';
+import {
+  browserRefreshToken,
+  clearBrowserSession,
+  isBrowserSession,
+  permitsBrowserSession,
+  sendSession,
+} from '../browser-session';
 
 import { VerifyEmailUseCase } from '../../application/use-cases/verify-email.use-case';
 import { ResendEmailVerificationUseCase } from '../../application/use-cases/resend-email-verification.use-case';
@@ -96,6 +103,9 @@ export class AuthController {
 
   public verifyLoginOtp = async (req: Request, res: Response): Promise<Response> => {
     try {
+      if (isBrowserSession(req) && !permitsBrowserSession(req)) {
+        return res.status(403).json({ message: 'Browser session requires a same-site request.' });
+      }
       if (!req.body?.challengeId || !req.body?.code) {
         return res.status(400).json({
           success: false,
@@ -111,7 +121,7 @@ export class AuthController {
         deviceId: req.body.deviceId,
       });
 
-      return res.status(200).json(result);
+      return sendSession(req, res, result);
     } catch (error) {
       return handleControllerError(res, error, 401);
     }
@@ -176,6 +186,51 @@ export class AuthController {
       return res.status(200).json(result);
     } catch (error) {
       return handleControllerError(res, error, 401);
+    }
+  };
+
+  public refreshBrowser = async (req: Request, res: Response): Promise<Response> => {
+    res.set('Cache-Control', 'no-store');
+    if (!permitsBrowserSession(req)) return res.status(403).json({ message: 'Browser session request required.' });
+    const refreshToken = browserRefreshToken(req);
+    if (!refreshToken) return res.sendStatus(204);
+    try {
+      // Resuming a browser session is read-only, so simultaneous tabs and repeated reloads can safely retry.
+      return res.json(await this.refreshTokenUseCase.resumeBrowserSession(refreshToken));
+    } catch (error) {
+      if (error instanceof InvalidRefreshTokenError) {
+        return res.sendStatus(204);
+      }
+      return handleControllerError(res, error);
+    }
+  };
+
+  public logoutBrowser = async (req: Request, res: Response): Promise<Response> => {
+    res.set('Cache-Control', 'no-store');
+    if (!permitsBrowserSession(req)) return res.status(403).json({ message: 'Browser session request required.' });
+    const token = browserRefreshToken(req);
+    if (!token) {
+      clearBrowserSession(req, res);
+      return res.sendStatus(204);
+    }
+    try {
+      const identity = await this.refreshTokenUseCase.identifyBrowserSession(token);
+      // A tab from a previous sign-in cannot close the newer browser session.
+      if (req.body?.sessionId !== String(identity.sessionId)) return res.sendStatus(409);
+      await this.logoutUseCase.execute({
+        userId: identity.userId,
+        sessionId: identity.sessionId,
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+      clearBrowserSession(req, res);
+      return res.sendStatus(204);
+    } catch (error) {
+      if (error instanceof InvalidRefreshTokenError) {
+        clearBrowserSession(req, res);
+        return res.sendStatus(204);
+      }
+      return handleControllerError(res, error);
     }
   };
 

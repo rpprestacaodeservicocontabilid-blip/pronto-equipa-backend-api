@@ -49,6 +49,8 @@ export const ENV = {
     USER: process.env.DB_USER || '',
     PASSWORD: process.env.DB_PASSWORD || '',
     STORAGE: process.env.DB_STORAGE || './dev.sqlite',
+    SSL:process.env.DB_SSL==='true',
+    SSL_REJECT_UNAUTHORIZED:process.env.DB_SSL_REJECT_UNAUTHORIZED!=='false',
   },
 
   REDIS: {
