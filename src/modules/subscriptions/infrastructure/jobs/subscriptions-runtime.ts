@@ -12,6 +12,10 @@ export class SubscriptionsRuntime {
   private dispatching = false;
   private queue?: Queue;
   private worker?: Worker;
+
+  operationalHandles() {
+    return { queue: this.queue, worker: this.worker };
+  }
   constructor(private readonly service: SubscriptionsApplicationService) {}
   start() {
     if (process.env.SUBSCRIPTIONS_WORKER_ENABLED === 'true') {

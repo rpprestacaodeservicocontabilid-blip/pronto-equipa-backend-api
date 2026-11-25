@@ -28,6 +28,7 @@ export interface UserModelAttributes {
   updatedAt: Date;
 
   deletedAt: Date | null;
+  identityDisabledAt: Date | null;
 }
 
 export interface UserCreationAttributes extends Optional<
@@ -42,6 +43,7 @@ export interface UserCreationAttributes extends Optional<
   | 'createdAt'
   | 'updatedAt'
   | 'deletedAt'
+  | 'identityDisabledAt'
 > {}
 
 export class UserModel
@@ -73,6 +75,7 @@ export class UserModel
   declare updatedAt: Date;
 
   declare deletedAt: Date | null;
+  declare identityDisabledAt: Date | null;
 }
 
 UserModel.init(
@@ -147,6 +150,7 @@ UserModel.init(
       type: DataTypes.DATE,
       allowNull: true,
     },
+    identityDisabledAt: { type: DataTypes.DATE, allowNull: true },
   },
 
   {

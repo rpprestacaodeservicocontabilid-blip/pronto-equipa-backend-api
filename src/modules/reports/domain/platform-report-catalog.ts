@@ -1,4 +1,4 @@
-export const reportCodes = ['REPORT_ACTIVITY', 'DOMAIN_USAGE', 'PAYSLIP_ACTIVITY', 'ONBOARDING_ACTIVITY', 'PAYROLL_ACTIVITY', 'PAYMENT_ACTIVITY'] as const;
+export const reportCodes = ['REPORT_ACTIVITY', 'DOMAIN_USAGE', 'PAYSLIP_ACTIVITY', 'ONBOARDING_ACTIVITY', 'PAYROLL_ACTIVITY', 'PAYMENT_ACTIVITY', 'SIMULATION_ACTIVITY'] as const;
 export type PlatformReportCode = typeof reportCodes[number];
 export const groupings = ['day', 'month'] as const;
 export const formats = ['CSV', 'XLSX', 'PDF'] as const;
@@ -15,6 +15,7 @@ export const platformReportCatalog = {
   ONBOARDING_ACTIVITY: { title: 'Company onboarding', category: 'Company operations', companyFilter: false, source: 'Onboarding activity', description: 'Counts new applications by registration period across the platform.' },
   PAYROLL_ACTIVITY: { title: 'Payroll operations', category: 'Payroll operations', companyFilter: true, source: 'Payroll audit trail', description: 'Counts recorded payroll workflow events by operation.' },
   PAYMENT_ACTIVITY: { title: 'Payment operations', category: 'Payroll operations', companyFilter: true, source: 'Payments audit trail', description: 'Counts recorded payment workflow events by operation.' },
+  SIMULATION_ACTIVITY: { title: 'Simulation operations', category: 'Payroll operations', companyFilter: true, source: 'Simulations audit trail', description: 'Counts requests, completions, cancellations, proposals and exports recorded by the simulation module.' },
 } satisfies Record<PlatformReportCode, { title: string; category: string; companyFilter: boolean; source: string; description: string }>;
 
 export const catalogue = () => reportCodes.map(code => ({ code, ...platformReportCatalog[code], version: 1 }));

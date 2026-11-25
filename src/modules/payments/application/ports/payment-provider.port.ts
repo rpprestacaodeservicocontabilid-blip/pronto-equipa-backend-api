@@ -10,6 +10,7 @@ export interface PaymentTransferRequest {
   idempotencyKey: string;
   amount: string;
   currency: string;
+  sourceAccount: { id: string; bankCode: string; accountNumber: string };
   beneficiary: { name: string; accountNumber: string; bankCode: string };
 }
 

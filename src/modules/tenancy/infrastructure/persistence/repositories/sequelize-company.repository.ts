@@ -1,4 +1,4 @@
-import { Op, WhereOptions } from 'sequelize';
+import { Op, WhereOptions, col, fn, where as matches } from 'sequelize';
 
 import { Company } from '../../../domain/entities/company';
 import {
@@ -72,6 +72,28 @@ export class SequelizeCompanyRepository implements CompanyRepository {
     });
   }
 
+  async mutate(id: number, apply: (company: Company) => void) {
+    return CompanyModel.sequelize!.transaction(async (transaction) => {
+      const model = await CompanyModel.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
+      if (!model) return null;
+
+      const before = this.toDomain(model);
+      const company = this.toDomain(model);
+      apply(company);
+      model.set(company.toPrimitives());
+      await model.save({ transaction });
+      return { before, after: this.toDomain(model) };
+    });
+  }
+
+  async countByStatus() {
+    const counts = await CompanyModel.count({ group: ['status'] });
+    return {
+      ACTIVE: counts.find(row => row.status === 'ACTIVE')?.count ?? 0,
+      SUSPENDED: counts.find(row => row.status === 'SUSPENDED')?.count ?? 0,
+    };
+  }
+
   async findById(id: number): Promise<Company | null> {
     const model = await CompanyModel.findByPk(id);
 
@@ -95,23 +117,22 @@ export class SequelizeCompanyRepository implements CompanyRepository {
   }
 
   async findAll(params: ListCompaniesParams): Promise<Paginated<Company>> {
-    const where: WhereOptions<CompanyModel> = {};
+    const where: WhereOptions<CompanyModel> = params.status ? { status: params.status } : {};
 
     if (params.search?.trim()) {
-      const term = `%${params.search.trim()}%`;
-
-      where[Op.or as never] = [
-        { name: { [Op.like]: term } },
-        { slug: { [Op.like]: term } },
-        { nif: { [Op.like]: term } },
-      ] as never;
+      const term = '%' + params.search.trim().toLowerCase() + '%';
+      Object.assign(where, {
+        [Op.or]: ['name', 'slug', 'nif'].map(field =>
+          matches(fn('lower', col(field)), { [Op.like]: term }),
+        ),
+      });
     }
 
     const offset = (params.page - 1) * params.limit;
 
     const { rows, count } = await CompanyModel.findAndCountAll({
       where,
-      order: [['name', 'ASC']],
+      order: [['name', 'ASC'], ['id', 'ASC']],
       limit: params.limit,
       offset,
     });

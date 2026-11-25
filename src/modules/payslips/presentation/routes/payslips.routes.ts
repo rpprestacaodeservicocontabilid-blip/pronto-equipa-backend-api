@@ -1,4 +1,4 @@
-import { NextFunction, Request, Response, Router } from 'express';
+import { NextFunction, Request, RequestHandler, Response, Router } from 'express';
 import { z } from 'zod';
 import { PayslipsController } from '../controllers/payslips.controller';
 import {
@@ -32,12 +32,14 @@ const validate =
 
 const validateId = (req: Request, _res: Response, next: NextFunction) => {
   try {
-    req.params.id = z.string().trim().min(1).parse(req.params.id);
+    req.params.id = z.string().uuid().parse(req.params.id);
     next();
   } catch (error) {
     next(error);
   }
 };
+const endpoint = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHandler =>
+  (req, res, next) => { void fn(req, res).catch(next); };
 
 export const createPayslipsRoutes = (
   controller: PayslipsController,
@@ -46,18 +48,21 @@ export const createPayslipsRoutes = (
   ) => (req: Request, res: Response, next: NextFunction) => void,
 ): Router => {
   const router = Router();
+  router.use((_req, res, next) => { res.set('Cache-Control', 'private, no-store'); next(); });
+  const issuanceRead = [requirePermission('payslips:read'), requirePermission('payslips:read-sensitive')];
+  router.get('/issuance/runs', ...issuanceRead, endpoint(controller.issuanceRuns.bind(controller)));
+  router.get('/issuance/runs/:id/results', ...issuanceRead, validateId, endpoint(controller.issuanceResults.bind(controller)));
+  router.get('/issuance/templates', ...issuanceRead, endpoint(controller.issuanceTemplates.bind(controller)));
 
-  router.get('/me', requirePermission('payslips:self:read'), (req, res) =>
-    controller.myPayslips(req, res),
+  router.get('/me', requirePermission('payslips:self:read'), endpoint(controller.myPayslips.bind(controller)),
   );
-  router.get('/me/:id', requirePermission('payslips:self:read'), validateId, (req, res) =>
-    controller.myPayslip(req, res),
+  router.get('/me/:id', requirePermission('payslips:self:read'), validateId, endpoint(controller.myPayslip.bind(controller)),
   );
   router.get(
     '/me/:id/download',
     requirePermission('payslips:self:download'),
     validateId,
-    (req, res) => controller.myDownload(req, res),
+    endpoint(controller.myDownload.bind(controller)),
   );
   router.post(
     '/employees/:employeeId/link',
@@ -70,94 +75,87 @@ export const createPayslipsRoutes = (
       next();
     },
     validate('body', employeeUserLinkSchema),
-    (req, res) => controller.linkEmployee(req, res),
+    endpoint(controller.linkEmployee.bind(controller)),
   );
-  router.get('/policies', requirePermission('payslips:policies:manage'), (req, res) =>
-    controller.getPolicy(req, res),
+  router.get('/policies', requirePermission('payslips:policies:manage'), endpoint(controller.getPolicy.bind(controller)),
   );
   router.put(
     '/policies',
     requirePermission('payslips:policies:manage'),
     validate('body', payslipPolicySchema),
-    (req, res) => controller.updatePolicy(req, res),
+    endpoint(controller.updatePolicy.bind(controller)),
   );
 
-  router.get('/batches', requirePermission('payslips:read'), (req, res) =>
-    controller.listBatches(req, res),
+  router.get('/batches', requirePermission('payslips:read'), endpoint(controller.listBatches.bind(controller)),
   );
   router.post(
     '/batches',
     requirePermission('payslips:generate-batch'),
     validate('body', createPayslipBatchSchema),
-    (req, res) => controller.createBatch(req, res),
+    endpoint(controller.createBatch.bind(controller)),
   );
-  router.get('/batches/:id', requirePermission('payslips:read'), validateId, (req, res) =>
-    controller.getBatch(req, res),
+  router.get('/batches/:id', requirePermission('payslips:read'), validateId, endpoint(controller.getBatch.bind(controller)),
   );
   router.post(
     '/batches/:id/generate',
     requirePermission('payslips:generate-batch'),
     validateId,
-    (req, res) => controller.generateBatch(req, res),
+    endpoint(controller.generateBatch.bind(controller)),
   );
-  router.get('/batches/:id/progress', requirePermission('payslips:read'), validateId, (req, res) =>
-    controller.batchProgress(req, res),
+  router.get('/batches/:id/progress', requirePermission('payslips:read'), validateId, endpoint(controller.batchProgress.bind(controller)),
   );
   router.post(
     '/batches/:id/retry-failed',
     requirePermission('payslips:retry-generation'),
     validateId,
-    (req, res) => controller.retryFailed(req, res),
+    endpoint(controller.retryFailed.bind(controller)),
   );
   router.post(
     '/batches/:id/publish',
     requirePermission('payslips:publish-batch'),
     validateId,
-    (req, res) => controller.publishBatch(req, res),
+    endpoint(controller.publishBatch.bind(controller)),
   );
 
-  router.get('/templates', requirePermission('payslips:read'), (req, res) =>
-    controller.listTemplates(req, res),
+  router.get('/templates', requirePermission('payslips:read'), endpoint(controller.listTemplates.bind(controller)),
   );
   router.post(
     '/templates',
     requirePermission('payslips:templates:create'),
     validate('body', templateSchema),
-    (req, res) => controller.createTemplate(req, res),
+    endpoint(controller.createTemplate.bind(controller)),
   );
-  router.get('/templates/:id', requirePermission('payslips:read'), validateId, (req, res) =>
-    controller.getTemplate(req, res),
+  router.get('/templates/:id', requirePermission('payslips:read'), validateId, endpoint(controller.getTemplate.bind(controller)),
   );
   router.post(
     '/templates/:id/versions',
     requirePermission('payslips:templates:create'),
     validateId,
     validate('body', templateVersionSchema.omit({ templateId: true })),
-    (req, res) => controller.createTemplateVersion(req, res),
+    endpoint(controller.createTemplateVersion.bind(controller)),
   );
   router.post(
     '/templates/:id/preview',
     requirePermission('payslips:read'),
     validateId,
     validate('body', previewTemplateVersionBodySchema),
-    (req, res) => controller.previewTemplate(req, res),
+    endpoint(controller.previewTemplate.bind(controller)),
   );
   router.post(
     '/template-versions/:id/publish',
     requirePermission('payslips:templates:publish'),
     validateId,
-    (req, res) => controller.publishTemplateVersion(req, res),
+    endpoint(controller.publishTemplateVersion.bind(controller)),
   );
 
-  router.get('/reports/summary', requirePermission('payslips:reports:read'), (req, res) =>
-    controller.summary(req, res),
+  router.get('/reports/summary', requirePermission('payslips:reports:read'), endpoint(controller.summary.bind(controller)),
   );
   router.post(
     '/exports',
     requirePermission('payslips:export'),
     requirePermission('payslips:read-sensitive'),
     validate('body', exportReportSchema),
-    (req, res) => controller.export(req, res),
+    endpoint(controller.export.bind(controller)),
   );
 
   router.get(
@@ -165,76 +163,80 @@ export const createPayslipsRoutes = (
     requirePermission('payslips:read'),
     requirePermission('payslips:read-sensitive'),
     validate('query', listQuerySchema),
-    (req, res) => controller.list(req, res),
+    endpoint(controller.list.bind(controller)),
   );
   router.post(
     '/',
     requirePermission('payslips:generate'),
+    requirePermission('payslips:read-sensitive'),
     validate('body', generatePayslipSchema),
-    (req, res) => controller.generate(req, res),
+    endpoint(controller.generate.bind(controller)),
   );
   router.get(
     '/:id',
     requirePermission('payslips:read'),
     requirePermission('payslips:read-sensitive'),
     validateId,
-    (req, res) => controller.get(req, res),
+    endpoint(controller.get.bind(controller)),
   );
   router.get(
     '/:id/download',
     requirePermission('payslips:download'),
     requirePermission('payslips:read-sensitive'),
     validateId,
-    (req, res) => controller.download(req, res),
+    endpoint(controller.download.bind(controller)),
   );
   router.get(
     '/:id/print',
     requirePermission('payslips:print'),
     requirePermission('payslips:read-sensitive'),
     validateId,
-    (req, res) => controller.print(req, res),
+    endpoint(controller.print.bind(controller)),
   );
   router.get(
     '/:id/preview',
     requirePermission('payslips:read'),
     requirePermission('payslips:read-sensitive'),
     validateId,
-    (req, res) => controller.preview(req, res),
+    endpoint(controller.preview.bind(controller)),
   );
   router.post(
     '/:id/publish',
     requirePermission('payslips:publish'),
+    requirePermission('payslips:read-sensitive'),
     validateId,
     validate('body', publishSchema),
-    (req, res) => controller.publish(req, res),
+    endpoint(controller.publish.bind(controller)),
   );
-  router.get('/:id/history', requirePermission('payslips:history:read'), validateId, (req, res) =>
-    controller.history(req, res),
+  router.get('/:id/history', requirePermission('payslips:history:read'), requirePermission('payslips:read-sensitive'), validateId, endpoint(controller.history.bind(controller)),
   );
   router.get(
     '/:id/verification',
     requirePermission('payslips:verification:read'),
     validateId,
-    (req, res) => controller.verification(req, res),
+    endpoint(controller.verification.bind(controller)),
   );
   router.post(
     '/:id/corrections',
     requirePermission('payslips:corrections:create'),
+    requirePermission('payslips:read-sensitive'),
     validateId,
     validate('body', correctionSchema),
-    (req, res) => controller.createCorrection(req, res),
+    endpoint(controller.createCorrection.bind(controller)),
   );
   router.get(
     '/:id/corrections',
     requirePermission('payslips:corrections:read'),
+    requirePermission('payslips:read-sensitive'),
     validateId,
-    (req, res) => controller.getCorrections(req, res),
+    endpoint(controller.getCorrections.bind(controller)),
   );
   router.post(
     '/:id/duplicate-copy',
     requirePermission('payslips:download'),
+    requirePermission('payslips:read-sensitive'),
     validateId,
-    (req, res) => controller.duplicateCopy(req, res),
+    endpoint(controller.duplicateCopy.bind(controller)),
   );
 
   return router;

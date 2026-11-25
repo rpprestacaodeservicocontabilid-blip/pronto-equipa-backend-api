@@ -322,6 +322,7 @@ export const UserModule = (dependencies: UserModuleDependencies) => {
 
   return {
     routes,
+    invalidateUser: (id: number) => cache.delete(`user:${id}`),
 
     controllers: {
       userController,

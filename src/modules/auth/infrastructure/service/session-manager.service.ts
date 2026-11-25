@@ -5,6 +5,8 @@ import { AuthAccountModel } from '../persistence/models/auth-account.model';
 import { RefreshTokenModel } from '../persistence/models/refresh-token.model';
 import { createHash, randomUUID } from 'crypto';
 import { sequelize } from '../../../../infra/database';
+import { UserModel } from '../../../user/infrastructure/persistence/models/user.model';
+import { UnauthorizedError } from '../../../../shared/errors/app.error';
 
 /** Persists and validates sessions against the auth_sessions table. */
 export class SessionManagerService implements SessionManagerPort {
@@ -87,13 +89,16 @@ export class SessionManagerService implements SessionManagerPort {
         expiresAt: { [Op.gt]: now },
       } }),
     ]);
-    return Boolean(account && refreshToken);
+    return Boolean(account && refreshToken && await UserModel.count({
+      where: { id: input.userId, identityDisabledAt: null, status: { [Op.ne]: 'INACTIVE' } },
+    }));
   }
 
   async rotateRefreshToken(input: {
     sessionId: number;
     tokenId: number;
     token: string;
+    preserveExpiry?: boolean;
     createNextToken: (tokenId: number) => Promise<{ token: string; expiresAt: Date }>;
   }): Promise<{ token: string; expiresAt: Date } | null> {
     return sequelize.transaction(async (transaction) => {
@@ -138,10 +143,12 @@ export class SessionManagerService implements SessionManagerPort {
       );
       const generated = await input.createNextToken(nextTokenRecord.id);
 
+      const expiresAt = input.preserveExpiry && session.expiresAt < generated.expiresAt
+        ? session.expiresAt : generated.expiresAt;
       await nextTokenRecord.update(
         {
           tokenHash: this.hashRefreshToken(generated.token),
-          expiresAt: generated.expiresAt,
+          expiresAt,
         },
         { transaction },
       );
@@ -155,12 +162,12 @@ export class SessionManagerService implements SessionManagerPort {
       await session.update(
         {
           refreshTokenId: nextTokenRecord.id,
-          expiresAt: generated.expiresAt,
+          expiresAt,
         },
         { transaction },
       );
 
-      return generated;
+      return { token: generated.token, expiresAt };
     });
   }
   async createSession(input: {
@@ -173,7 +180,10 @@ export class SessionManagerService implements SessionManagerPort {
     refreshTokenExpiresAt: Date;
   }): Promise<SessionResult> {
     const now = new Date();
-    const model = await SessionModel.create({
+    const model = await sequelize.transaction(async transaction => {
+      const user = await UserModel.findByPk(input.userId, { transaction, lock: transaction.LOCK.UPDATE });
+      if (!user || user.identityDisabledAt || user.status === 'INACTIVE') throw new UnauthorizedError('Identity unavailable.');
+      return SessionModel.create({
       authAccountId: input.authAccountId,
       refreshTokenId: null,
       status: 'ACTIVE',
@@ -185,6 +195,7 @@ export class SessionManagerService implements SessionManagerPort {
       revokedAt: null,
       createdAt: now,
       updatedAt: now,
+      }, { transaction });
     });
 
     return {
@@ -202,7 +213,7 @@ export class SessionManagerService implements SessionManagerPort {
     if (!model) return null;
 
     const account = await AuthAccountModel.findByPk(model.authAccountId);
-    if (!account) return null;
+    if (!account || !await UserModel.count({ where: { id: account.userId, identityDisabledAt: null, status: { [Op.ne]: 'INACTIVE' } } })) return null;
 
     return {
       sessionId: model.id,

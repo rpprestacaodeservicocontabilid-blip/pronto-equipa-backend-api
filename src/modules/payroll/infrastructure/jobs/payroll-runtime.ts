@@ -55,6 +55,10 @@ export class PayrollRuntime {
   private timer?: ReturnType<typeof setInterval>;
   private queue?: Queue;
   private worker?: Worker;
+
+  operationalHandles() {
+    return { queue: this.queue, worker: this.worker };
+  }
   private busy = false;
   private running?: Promise<void>;
   start(): void {

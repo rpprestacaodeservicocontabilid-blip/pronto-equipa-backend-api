@@ -10,8 +10,9 @@ import {
 
 export class ReportsController {
   constructor(private readonly reports: ReportsApplicationService) {}
-  catalog(_req: Request, res: Response) {
-    res.json({ success: true, data: this.reports.catalog() });
+  async catalog(req: Request, res: Response) {
+    const c = this.context(req, res);
+    if (c) res.json({ success: true, data: await this.reports.catalog(c.companyId, c.actorUserId) });
   }
   async execute(req: Request, res: Response) {
     const c = this.context(req, res);
@@ -55,6 +56,16 @@ export class ReportsController {
     );
     res.status(202).json({ success: true, data: value });
   }
+  async exports(req: Request, res: Response) {
+    const c = this.context(req, res);
+    if (c) res.json({ success: true, data: await this.reports.listExports(c.companyId, c.actorUserId, 100) });
+  }
+  async exportExecution(req: Request, res: Response) {
+    const c = this.context(req, res);
+    if (!c) return;
+    const format = exportReportSchema.shape.format.parse(req.body?.format);
+    res.status(201).json({ success: true, data: await this.reports.exportExecution(c.companyId, c.actorUserId, req.params.id, format) });
+  }
   async download(req: Request, res: Response) {
     const c = this.context(req, res);
     if (!c) return;
@@ -73,10 +84,10 @@ export class ReportsController {
     res.send(file.content);
   }
   async dashboard(req: Request, res: Response) {
-    const companyId = this.companyId(res);
-    if (!companyId) return;
+    const c = this.context(req, res);
+    if (!c) return;
     const filters = reportFiltersSchema.parse(req.query);
-    res.json({ success: true, data: await this.reports.dashboard(companyId, filters) });
+    res.json({ success: true, data: await this.reports.dashboardFor(c.companyId, c.actorUserId, filters) });
   }
   async customReports(req: Request, res: Response) {
     const c = this.context(req, res);
@@ -101,6 +112,12 @@ export class ReportsController {
       success: true,
       data: await this.reports.publishCustomReport(c.companyId, c.actorUserId, req.params.id),
     });
+  }
+  async previewCustomReport(req: Request, res: Response) {
+    const c = this.context(req, res);
+    if (c) res.json({ success: true, data: await this.reports.previewCustomReport(
+      c.companyId, c.actorUserId, req.params.id, reportFiltersSchema.parse(req.body ?? {}),
+    ) });
   }
   async schedules(req: Request, res: Response) {
     const c = this.context(req, res);

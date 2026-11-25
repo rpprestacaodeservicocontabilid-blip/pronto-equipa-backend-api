@@ -18,37 +18,21 @@ export class UpdateCompanyUseCase {
   ) {}
 
   async execute(input: UpdateCompanyInput) {
-    const company = await this.companyRepository.findById(input.companyId);
-
-    if (!company) {
-      throw new NotFoundError('Company');
-    }
-
-    if (!company.status.isActive()) {
-      throw new ForbiddenError('Company is suspended.');
-    }
-
-    const before = company.toPrimitives();
-
-    company.updateProfile({
-      name: input.name,
-      nif: input.nif,
-      email: input.email,
-      phone: input.phone,
-      timezone: input.timezone,
-      locale: input.locale,
+    const saved = await this.companyRepository.mutate(input.companyId, company => {
+      if (!company.status.isActive()) throw new ForbiddenError('Company is suspended.');
+      company.updateProfile(input);
     });
+    if (!saved) throw new NotFoundError('Company');
 
-    const saved = await this.companyRepository.save(company);
-
-    const after = saved.toPrimitives();
+    const before = saved.before.toPrimitives();
+    const after = saved.after.toPrimitives();
 
     await this.audit.record({
-      companyId: saved.id,
+      companyId: after.id,
       actorUserId: input.actorUserId,
       action: 'company.updated',
       entityType: 'company',
-      entityId: saved.id,
+      entityId: after.id,
       before: before as unknown as Record<string, unknown>,
       after: after as unknown as Record<string, unknown>,
       ipAddress: input.ipAddress,

@@ -166,7 +166,11 @@ export class PaymentsApplicationService {
     const persisted = await this.persistence.instruction.findOne({
       where: { companyId, idempotencyKey: key },
     });
-    if (persisted) return this.presentInstruction(persisted as any);
+    if (persisted) {
+      if (persisted.payrollResultId !== input.payrollResultId || persisted.employeeId !== input.employeeId)
+        throw new ConflictError('The operation key belongs to another payroll result.');
+      return this.presentInstruction(persisted);
+    }
     const existingForResult = await this.persistence.instruction.findOne({
       where: { companyId, payrollResultId: input.payrollResultId },
     });
@@ -201,7 +205,6 @@ export class PaymentsApplicationService {
       updatedAt: new Date().toISOString(),
     };
 
-    this.instructions.push(instruction);
     try {
       await this.persistence.instruction.create({
         ...instruction,
@@ -220,7 +223,8 @@ export class PaymentsApplicationService {
         const raced = await this.persistence.instruction.findOne({
           where: { companyId, idempotencyKey: key },
         });
-        if (raced) return this.presentInstruction(raced as any);
+        if (raced && raced.payrollResultId === input.payrollResultId && raced.employeeId === input.employeeId)
+          return this.presentInstruction(raced);
         throw new ConflictError('A payment instruction already exists for this payroll result.');
       }
       throw error;
@@ -243,7 +247,7 @@ export class PaymentsApplicationService {
 
   async getInstruction(companyId: number, id: string) {
     const persisted = await this.persistence.instruction.findOne({ where: { companyId, id } });
-    if (persisted) return persisted as PaymentInstruction;
+    if (persisted) return this.presentInstruction(persisted);
     const instruction = this.instructions.find(
       (item) => item.companyId === companyId && item.id === id,
     );
@@ -326,7 +330,7 @@ export class PaymentsApplicationService {
         accountFingerprint: beneficiarySnapshot.accountFingerprint,
       },
     });
-    return { ...instruction, beneficiary: safe, updatedAt: new Date().toISOString() };
+    return { ...instruction, status: 'PENDING_APPROVAL', beneficiary: safe, updatedAt: new Date().toISOString() };
   }
 
   async listInstructionHistory(companyId: number, id: string) {
@@ -449,97 +453,64 @@ export class PaymentsApplicationService {
     batchId: string,
     input: { instructionId: string; amount: number | string },
   ) {
-    const batch = await this.getBatch(companyId, batchId);
-    if (batch.status !== 'DRAFT') throw new ConflictError('Only draft batches can be changed.');
-    const instruction = await this.getInstruction(companyId, input.instructionId);
-    if (instruction.status !== 'APPROVED' && instruction.status !== 'PENDING_APPROVAL') {
-      throw new ConflictError(
-        'Only approved or pending payment instructions can be added to a batch.',
-      );
-    }
-    if (instruction.currency !== batch.currency)
-      throw new ConflictError('A payment batch cannot mix currencies.');
-
-    const amount = this.normalizeAmount(input.amount);
-    if (amount !== instruction.amount)
-      throw new ConflictError(
-        'Partial or overpaid batch items are not allowed. Use the exact payroll instruction amount.',
-      );
-    if (
-      batch.items.some((entry) => entry.instructionId === instruction.id) ||
-      (await this.persistence.batchItem.findOne({
-        where: { companyId, instructionId: instruction.id },
-      }))
-    ) {
-      throw new ConflictError(
-        'A payment instruction may only be included once in an active batch.',
-      );
-    }
-    const item: PaymentBatchItem = {
-      id: randomUUID(),
-      batchId: batch.id,
-      instructionId: instruction.id,
-      amount,
-      status: 'PENDING',
-      createdAt: new Date().toISOString(),
-    };
-
-    batch.items.push(item);
-    await this.persistence.batchItem.create({ companyId, ...item });
-    batch.totalAmount = this.normalizeAmount(
-      this.sumAmounts(batch.items.map((entry) => entry.amount)),
-    );
-    batch.updatedAt = new Date().toISOString();
-    await this.persistence.batch.updateWhere(
-      { totalAmount: batch.totalAmount, updatedAt: new Date() },
-      { where: { companyId, id: batch.id, status: 'DRAFT' } },
-    );
-
-    await this.audit.record({
-      companyId,
-      actorUserId,
-      action: 'payments.batch.item-added',
-      entityType: 'payment_batch_item',
-      entityId: item.id,
-      after: { batchId: batch.id, instructionId: instruction.id, amount },
+    const item = await this.persistence.withCompany(companyId, async transaction => {
+      const batch = await this.persistence.batch.findOne({
+        where: { companyId, id: batchId, status: 'DRAFT' }, transaction, forUpdate: true,
+      });
+      if (!batch) throw new ConflictError('Only draft batches can be changed.');
+      const instruction = await this.persistence.instruction.findOne({
+        where: { companyId, id: input.instructionId }, transaction, forUpdate: true,
+      });
+      if (!instruction || !['APPROVED', 'PENDING_APPROVAL'].includes(instruction.status))
+        throw new ConflictError('Only approved or pending instructions can be included in a batch.');
+      if (instruction.currency !== batch.currency)
+        throw new ConflictError('A payment batch cannot mix currencies.');
+      const amount = this.normalizeAmount(input.amount);
+      if (amount !== this.normalizeAmount(instruction.amount))
+        throw new ConflictError('Use the exact payroll instruction amount.');
+      if (await this.persistence.batchItem.findOne({ where: { companyId, instructionId: instruction.id }, transaction }))
+        throw new ConflictError('This payment instruction is already in a batch.');
+      const item: PaymentBatchItem = {
+        id: randomUUID(), batchId, instructionId: instruction.id, amount, status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      };
+      await this.persistence.batchItem.create({ companyId, ...item }, { transaction });
+      await this.persistence.update(batch, { totalAmount: this.sumAmounts([batch.totalAmount, amount]), updatedAt: new Date() }, { transaction });
+      return item;
     });
-
+    await this.audit.record({
+      companyId, actorUserId, action: 'payments.batch.item-added',
+      entityType: 'payment_batch_item', entityId: item.id,
+      after: { batchId, instructionId: item.instructionId, amount: item.amount },
+    });
     return item;
   }
 
   async validateBatch(companyId: number, actorUserId: number, batchId: string) {
-    const batch = await this.getBatch(companyId, batchId);
-    if (batch.status !== 'DRAFT') throw new ConflictError('Only draft batches can be validated.');
-    if (batch.items.length === 0) {
-      throw new ConflictError(
-        'A batch must contain at least one payment instruction before validation.',
-      );
-    }
-
-    batch.status = 'VALIDATED';
-    batch.updatedAt = new Date().toISOString();
-    batch.items.forEach((item) => {
-      item.status = 'VALIDATED';
+    const data = await this.persistence.withCompany(companyId, async transaction => {
+      const batch = await this.persistence.batch.findOne({
+        where: { companyId, id: batchId, status: 'DRAFT' }, transaction, forUpdate: true,
+      });
+      if (!batch) throw new ConflictError('Only draft batches can be validated.');
+      const items = await this.persistence.batchItem.findAll({ where: { companyId, batchId }, transaction });
+      if (!items.length) throw new ConflictError('Add at least one payment instruction before validation.');
+      const account = await this.persistence.bankAccount.findOne({
+        where: { companyId, id: batch.sourceAccountId, status: 'VERIFIED' }, transaction,
+      });
+      if (!account || account.currency !== batch.currency)
+        throw new ConflictError('The source account must be verified and match the batch currency.');
+      const totalAmount = this.sumAmounts(items.map(item => item.amount));
+      await this.persistence.update(batch, { status: 'VALIDATED', totalAmount, updatedAt: new Date() }, { transaction });
+      await this.persistence.batchItem.updateWhere({ status: 'VALIDATED', updatedAt: new Date() }, {
+        where: { companyId, batchId }, transaction,
+      });
+      return { totalAmount, itemCount: items.length };
     });
-    await this.persistence.batch.updateWhere(
-      { status: 'VALIDATED', totalAmount: batch.totalAmount, updatedAt: new Date() },
-      { where: { companyId, id: batch.id, status: 'DRAFT' } },
-    );
-    await this.persistence.batchItem.updateWhere(
-      { status: 'VALIDATED', updatedAt: new Date() },
-      { where: { companyId, batchId: batch.id } },
-    );
-
     await this.audit.record({
-      companyId,
-      actorUserId,
-      action: 'payments.batch.validated',
-      entityType: 'payment_batch',
-      entityId: batch.id,
-      after: { totalAmount: batch.totalAmount, itemCount: batch.items.length },
+      companyId, actorUserId, action: 'payments.batch.validated',
+      entityType: 'payment_batch', entityId: batchId, after: data,
     });
-
-    return batch;
+    return this.getBatch(companyId, batchId);
   }
 
   async submitBatch(companyId: number, actorUserId: number, batchId: string) {
@@ -755,6 +726,7 @@ export class PaymentsApplicationService {
       work.push({ item, instruction, beneficiary, idempotencyKey });
     }
 
+    const debitAccount = await this.providerSource(companyId, batch.sourceAccountId, batch.currency);
     batch.status = 'PROCESSING';
     batch.updatedAt = new Date().toISOString();
     const claimed = await this.persistence.batch.updateWhere(
@@ -785,6 +757,7 @@ export class PaymentsApplicationService {
         idempotencyKey,
         amount: order.amount,
         currency: order.currency,
+        sourceAccount: debitAccount,
         beneficiary,
       };
       const requestHash = createHash('sha256').update(JSON.stringify(request)).digest('hex');
@@ -893,9 +866,8 @@ export class PaymentsApplicationService {
     input: { providerId: string; paymentMethod: PaymentMethod },
   ) {
     const order = await this.getOrder(companyId, orderId);
-    if (order.status === 'SETTLED' || order.status === 'RECONCILED') {
-      throw new ConflictError('An already settled or reconciled order cannot be resubmitted.');
-    }
+    if (order.status !== 'APPROVED' || order.providerId !== input.providerId || input.paymentMethod !== 'BANK_TRANSFER')
+      throw new ConflictError('Only an approved order can be submitted to its original provider.');
     const provider = this.providerAdapters.find((item) => item.id === input.providerId);
     const config = await this.persistence.providerConfig.findOne({
       where: { companyId, providerId: input.providerId, status: 'ACTIVE' },
@@ -906,19 +878,26 @@ export class PaymentsApplicationService {
       );
     }
 
-    if (order.status === 'SUBMISSION_UNKNOWN')
-      throw new ConflictError(
-        'Submission status must be queried from the provider before retrying.',
-      );
     const instruction = await this.getInstruction(companyId, order.instructionId);
     const beneficiary = await this.loadBeneficiary(companyId, instruction.id);
     if (!beneficiary) throw new ConflictError('Payment instruction has no beneficiary details.');
+    if (!order.batchId) throw new ConflictError('Execute payments from an approved batch.');
+    const batch = await this.getBatch(companyId, order.batchId);
+    const debitAccount = await this.providerSource(companyId, batch.sourceAccountId, order.currency);
+    const approvers = await this.persistence.approval.findAll({ where: { companyId, batchId: batch.id, decision: 'APPROVED' } });
+    if (approvers.some(row => Number(row.actorUserId) === actorUserId))
+      throw new ConflictError('A batch approver cannot execute its payment orders.');
+    const claimed = await this.persistence.order.updateWhere({ status: 'SUBMITTED', updatedAt: new Date() }, {
+      where: { companyId, id: orderId, status: 'APPROVED', providerId: input.providerId },
+    });
+    if (!claimed) throw new ConflictError('The payment order changed before execution.');
     const request = {
       companyId,
       orderId: order.id,
       idempotencyKey: order.idempotencyKey,
       amount: order.amount,
       currency: order.currency,
+      sourceAccount: debitAccount,
       beneficiary,
     };
     const requestHash = createHash('sha256').update(JSON.stringify(request)).digest('hex');
@@ -995,6 +974,8 @@ export class PaymentsApplicationService {
 
   async refreshOrderStatus(companyId: number, actorUserId: number, orderId: string) {
     const order = await this.getOrder(companyId, orderId);
+    if (!['SUBMITTED', 'PROCESSING', 'SUBMISSION_UNKNOWN'].includes(order.status))
+      throw new ConflictError('Provider status queries are available for pending orders.');
     const provider = this.providerAdapters.find((item) => item.id === order.providerId);
     const config = await this.persistence.providerConfig.findOne({
       where: { companyId, providerId: order.providerId, status: 'ACTIVE' },
@@ -1013,6 +994,8 @@ export class PaymentsApplicationService {
       idempotencyKey: order.idempotencyKey,
       providerReference,
     });
+    if (!submission.providerReference?.trim() || (submission.status === 'SETTLED' && !submission.settledAt))
+      throw new ConflictError('The provider has not supplied valid settlement evidence.');
     const transaction = await this.applyProviderSubmission(companyId, order, submission);
     await this.audit.record({
       companyId,
@@ -1059,76 +1042,23 @@ export class PaymentsApplicationService {
     transactionId: string,
     input: { reference: string; externalAmount: string; externalCurrency: string; notes?: string },
   ) {
-    const externalAmount = this.normalizeAmount(input.externalAmount);
-    const externalCurrency = input.externalCurrency.toUpperCase();
-    const existing = await this.persistence.reconciliation.findOne({
-      where: { companyId, reference: input.reference },
+    return this.runReconciliation(companyId, actorUserId, input.reference, {
+      transactionId, amount: this.normalizeAmount(input.externalAmount),
+      currency: input.externalCurrency.toUpperCase(), notes: input.notes,
     });
-    if (existing) {
-      if (
-        String(existing.transactionId) === transactionId &&
-        String(existing.externalAmount) === externalAmount &&
-        String(existing.externalCurrency) === externalCurrency
-      )
-        return existing;
-      throw new ConflictError(
-        'Reconciliation reference has already been used with different payment data.',
-      );
-    }
-    const transaction = await this.persistence.transaction.findOne({
-      where: { companyId, id: transactionId },
-    });
-    if (!transaction) throw new NotFoundError('Payment transaction');
-    const internalAmount = this.normalizeAmount(String(transaction.amount));
-    const exact =
-      internalAmount === externalAmount && String(transaction.currency) === externalCurrency;
-    const reconciliation = await this.persistence.reconciliation.create({
-      id: randomUUID(),
-      companyId,
-      transactionId,
-      statementEntryId: null,
-      reference: input.reference,
-      externalAmount,
-      externalCurrency,
-      reconciledBy: actorUserId,
-      status: exact ? 'MATCHED' : 'RECONCILIATION_EXCEPTION',
-      notes: input.notes ?? null,
-    });
-    if (exact)
-      await this.persistence.transaction.updateWhere(
-        { status: 'RECONCILED', updatedAt: new Date() },
-        { where: { companyId, id: transactionId } },
-      );
-    if (exact) {
-      await this.persistence.order.updateWhere(
-        { status: 'RECONCILED', updatedAt: new Date() },
-        { where: { companyId, id: transaction.orderId } },
-      );
-      const order = await this.persistence.order.findOne({
-        where: { companyId, id: transaction.orderId },
-      });
-      if (order)
-        await this.persistence.instruction.updateWhere(
-          { status: 'RECONCILED', updatedAt: new Date() },
-          { where: { companyId, id: order.instructionId } },
-        );
-    }
+  }
+
+  async transactionEvidence(companyId: number, actorUserId: number, id: string) {
+    const item = await this.persistence.transaction.findOne({ where: { companyId, id } });
+    if (!item) throw new NotFoundError('Payment transaction');
+    if (!['SETTLED', 'RECONCILED'].includes(item.status) || !item.providerReference || !item.settledAt)
+      throw new ConflictError('A receipt requires a confirmed settlement with bank evidence.');
     await this.audit.record({
-      companyId,
-      actorUserId,
-      action: exact
-        ? 'payments.transaction.reconciled'
-        : 'payments.transaction.reconciliation-exception',
-      entityType: 'payment_reconciliation',
-      entityId: reconciliation.id,
-      after: {
-        transactionId,
-        externalAmount,
-        externalCurrency,
-        status: exact ? 'MATCHED' : 'RECONCILIATION_EXCEPTION',
-      },
+      companyId, actorUserId, action: 'payments.transaction.receipt-downloaded',
+      entityType: 'payment_transaction', entityId: id,
     });
-    return reconciliation;
+    return { id, orderId: item.orderId, amount: this.normalizeAmount(item.amount), currency: item.currency,
+      reference: item.providerReference, settledAt: new Date(item.settledAt).toISOString(), status: item.status };
   }
 
   async confirmTransaction(
@@ -1477,6 +1407,12 @@ export class PaymentsApplicationService {
     }));
   }
 
+  async executionProviders(companyId: number) {
+    const configs = await this.persistence.providerConfig.findAll({ where: { companyId, status: 'ACTIVE' } });
+    const allowed = new Set(configs.map(row => row.providerId));
+    return this.listProviders().filter(provider => allowed.has(provider.id));
+  }
+
   async configureProvider(
     companyId: number,
     actorUserId: number,
@@ -1512,18 +1448,25 @@ export class PaymentsApplicationService {
       createdAt: new Date().toISOString(),
     };
 
-    this.providerConfigurations.push(config);
-    await this.persistence.providerConfig.upsert({ ...config, credentialSecretRef: null });
+    const saved = await this.persistence.withCompany(companyId, async transaction => {
+      const current = await this.persistence.providerConfig.findOne({ where: { companyId, providerId: config.providerId }, transaction, forUpdate: true });
+      if (current) return this.persistence.update(current, {
+        providerType: config.providerType, status: config.status, capabilities: config.capabilities,
+        ...(config.endpoint ? { endpoint: config.endpoint } : {}),
+      }, { transaction });
+      return this.persistence.providerConfig.create({ ...config, credentialSecretRef: null }, { transaction });
+    });
     await this.audit.record({
       companyId,
       actorUserId,
       action: 'payments.provider.configured',
       entityType: 'payment_provider_configuration',
-      entityId: config.id,
+      entityId: saved.id,
       after: { providerId: config.providerId, status: config.status },
     });
 
-    return config;
+    const { credentialSecretRef, endpoint, ...safe } = saved;
+    return safe;
   }
 
   listProviderConfigurations(companyId: number) {
@@ -1532,7 +1475,7 @@ export class PaymentsApplicationService {
         where: { companyId },
         order: [['createdAt', 'DESC']],
       })
-      .then((rows) => rows.map((row) => row));
+      .then((rows) => rows.map(({ credentialSecretRef, endpoint, ...row }) => row));
   }
 
   async getPaymentPolicy(companyId: number) {
@@ -1630,10 +1573,6 @@ export class PaymentsApplicationService {
     if (input.fileHash && input.fileHash.toLowerCase() !== computedFileHash)
       throw new ConflictError('Statement file hash does not match its contents.');
     const fileHash = computedFileHash;
-    const duplicate = await this.persistence.statementImport.findOne({
-      where: { companyId, fileHash },
-    });
-    if (duplicate) return duplicate;
     const record = {
       id: randomUUID(),
       companyId,
@@ -1646,9 +1585,12 @@ export class PaymentsApplicationService {
       createdAt: new Date().toISOString(),
     };
 
-    await this.persistence.statementImport.create(record);
-    await this.persistence.statementEntry.bulkCreate(
-      input.entries.map((entry) => ({
+    const saved = await this.persistence.withCompany(companyId, async transaction => {
+      const duplicate = await this.persistence.statementImport.findOne({ where: { companyId, fileHash }, transaction });
+      if (duplicate) return duplicate;
+      await this.persistence.statementImport.create(record, { transaction });
+      await this.persistence.statementEntry.bulkCreate(
+        input.entries.map((entry) => ({
         id: randomUUID(),
         companyId,
         importId: record.id,
@@ -1659,8 +1601,11 @@ export class PaymentsApplicationService {
         direction: entry.direction,
         description: entry.description ?? null,
         matchedTransactionId: null,
-      })),
-    );
+        })), { transaction },
+      );
+      return record;
+    });
+    if (saved.id !== record.id) return saved;
 
     await this.audit.record({
       companyId,
@@ -1686,75 +1631,101 @@ export class PaymentsApplicationService {
     return rows.map((row) => row);
   }
 
-  async runReconciliation(companyId: number, actorUserId: number, reference: string) {
-    const entryModel = await this.persistence.statementEntry.findOne({
-      where: { companyId, externalReference: reference },
-    });
-    if (!entryModel) throw new NotFoundError('Bank statement entry');
-    const existingReconciliation = await this.persistence.reconciliation.findOne({
-      where: { companyId, reference },
-    });
-    if (existingReconciliation) return existingReconciliation;
-    const entry = entryModel as any;
-    const matchingTransaction = await this.persistence.transaction.findOne({
-      where: { companyId, providerReference: reference },
-    });
-    const exact =
-      !!matchingTransaction &&
-      this.normalizeAmount(String(matchingTransaction.amount)) ===
-        this.normalizeAmount(String(entry.amount)) &&
-      String(matchingTransaction.currency) === String(entry.currency) &&
-      entry.direction === 'DEBIT';
-    if (matchingTransaction && exact) {
-      await this.persistence.transaction.updateWhere(
-        { status: 'RECONCILED', settledAt: entry.transactionDate, updatedAt: new Date() },
-        { where: { companyId, id: matchingTransaction.id } },
-      );
-      await this.persistence.order.updateWhere(
-        { status: 'RECONCILED', updatedAt: new Date() },
-        { where: { companyId, id: matchingTransaction.orderId } },
-      );
-      const order = await this.persistence.order.findOne({
-        where: { companyId, id: matchingTransaction.orderId },
-      });
-      if (order)
-        await this.persistence.instruction.updateWhere(
-          { status: 'RECONCILED', updatedAt: new Date() },
-          { where: { companyId, id: order.instructionId } },
-        );
-    }
-    const reconciliation: PaymentReconciliation = {
-      id: randomUUID(),
-      companyId,
-      transactionId: matchingTransaction ? String(matchingTransaction.id) : null,
-      reference,
-      externalAmount: this.normalizeAmount(String(entry.amount)),
-      externalCurrency: String(entry.currency),
-      reconciledBy: actorUserId.toString(),
-      status: exact ? 'MATCHED' : 'RECONCILIATION_EXCEPTION',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+  async getReconciliation(companyId: number, id: string) {
+    const item = await this.persistence.reconciliation.findOne({ where: { companyId, id } });
+    if (!item) throw new NotFoundError('Payment reconciliation');
+    return item;
+  }
 
-    await this.persistence.reconciliation.create({
-      id: reconciliation.id,
-      companyId,
-      statementEntryId: entry.id,
-      transactionId: matchingTransaction?.id ?? null,
-      reference,
-      externalAmount: reconciliation.externalAmount,
-      externalCurrency: reconciliation.externalCurrency,
-      reconciledBy: actorUserId,
-      status: reconciliation.status,
-      notes: null,
-      evidence: null,
+  async runReconciliation(companyId: number, actorUserId: number, reference: string,
+    expected?: { transactionId: string; amount: string; currency: string; notes?: string }) {
+    const reconciliation = await this.persistence.withCompany(companyId, async transaction => {
+      const entries = await this.persistence.statementEntry.findAll({
+        where: { companyId, externalReference: reference }, limit: 2, transaction,
+      });
+      if (entries.length > 1) throw new ConflictError('This statement reference is ambiguous.');
+      const entryModel = entries[0];
+      if (!entryModel) throw new NotFoundError('Bank statement entry');
+      if (expected && (this.normalizeAmount(entryModel.amount) !== expected.amount || entryModel.currency !== expected.currency))
+        throw new ConflictError('Enter the amount and currency from the imported bank statement.');
+      const existingReconciliation = await this.persistence.reconciliation.findOne({
+        where: { companyId, reference }, transaction,
+      });
+      if (existingReconciliation) {
+        if (expected && existingReconciliation.transactionId !== expected.transactionId)
+          throw new ConflictError('This statement movement belongs to another transaction.');
+        return existingReconciliation;
+      }
+      const entry = entryModel as any;
+      const matchingTransaction = await this.persistence.transaction.findOne({
+        where: { companyId, providerReference: reference, status: 'SETTLED' }, transaction, forUpdate: true,
+      });
+      if (expected && matchingTransaction?.id !== expected.transactionId)
+        throw new ConflictError('The statement reference does not identify the selected settled transaction.');
+      const bankStatement = await this.persistence.statementImport.findOne({
+        where: { companyId, id: entry.importId }, transaction,
+      });
+      const order = matchingTransaction ? await this.persistence.order.findOne({
+        where: { companyId, id: matchingTransaction.orderId, status: 'SETTLED' }, transaction,
+      }) : null;
+      const batch = order?.batchId ? await this.persistence.batch.findOne({
+        where: { companyId, id: order.batchId }, transaction,
+      }) : null;
+      const exact =
+        !!matchingTransaction &&
+        !!bankStatement && !!batch && batch.sourceAccountId === bankStatement.sourceAccountId &&
+        this.normalizeAmount(String(matchingTransaction.amount)) ===
+          this.normalizeAmount(String(entry.amount)) &&
+        String(matchingTransaction.currency) === String(entry.currency) &&
+        entry.direction === 'DEBIT';
+      if (matchingTransaction && exact) {
+        await this.persistence.transaction.updateWhere(
+          { status: 'RECONCILED', updatedAt: new Date() },
+          { where: { companyId, id: matchingTransaction.id }, transaction },
+        );
+        await this.persistence.order.updateWhere(
+          { status: 'RECONCILED', updatedAt: new Date() },
+          { where: { companyId, id: matchingTransaction.orderId }, transaction },
+        );
+        if (order)
+          await this.persistence.instruction.updateWhere(
+            { status: 'RECONCILED', updatedAt: new Date() },
+            { where: { companyId, id: order.instructionId }, transaction },
+          );
+      }
+      const result: PaymentReconciliation = {
+        id: randomUUID(),
+        companyId,
+        transactionId: matchingTransaction ? String(matchingTransaction.id) : null,
+        reference,
+        externalAmount: this.normalizeAmount(String(entry.amount)),
+        externalCurrency: String(entry.currency),
+        reconciledBy: actorUserId.toString(),
+        status: exact ? 'MATCHED' : 'RECONCILIATION_EXCEPTION',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await this.persistence.reconciliation.create({
+        id: result.id,
+        companyId,
+        statementEntryId: entry.id,
+        transactionId: matchingTransaction?.id ?? null,
+        reference,
+        externalAmount: result.externalAmount,
+        externalCurrency: result.externalCurrency,
+        reconciledBy: actorUserId,
+        status: result.status,
+        notes: expected?.notes ?? null,
+        evidence: null,
+      }, { transaction });
+      if (matchingTransaction && exact)
+        await this.persistence.statementEntry.updateWhere(
+          { matchedTransactionId: matchingTransaction.id },
+          { where: { companyId, id: entry.id }, transaction },
+        );
+      return result;
     });
-    if (matchingTransaction && exact)
-      await this.persistence.statementEntry.updateWhere(
-        { matchedTransactionId: matchingTransaction.id },
-        { where: { companyId, id: entry.id } },
-      );
-    this.reconciliations.push(reconciliation);
     await this.audit.record({
       companyId,
       actorUserId,
@@ -1788,7 +1759,7 @@ export class PaymentsApplicationService {
       reconciliation.notes = input.notes;
       reconciliation.updatedAt = new Date().toISOString();
     }
-    await this.persistence.reconciliation.updateWhere(
+    const resolved = await this.persistence.reconciliation.updateWhere(
       {
         status: 'RESOLVED',
         notes: input.notes,
@@ -1799,6 +1770,7 @@ export class PaymentsApplicationService {
       },
       { where: { companyId, id, status: 'RECONCILIATION_EXCEPTION' } },
     );
+    if (!resolved) throw new ConflictError('The reconciliation exception has changed status.');
 
     await this.audit.record({
       companyId,
@@ -1809,7 +1781,7 @@ export class PaymentsApplicationService {
       after: { status: 'RESOLVED', notes: input.notes, evidenceCount: input.evidence.length },
     });
 
-    return reconciliation ? { ...reconciliation, notes: input.notes } : persisted!;
+    return { ...persisted!, status: 'RESOLVED', notes: input.notes, evidence: input.evidence };
   }
 
   async getSummary(companyId: number): Promise<PaymentSummaryReport> {
@@ -1817,19 +1789,23 @@ export class PaymentsApplicationService {
       where: { companyId, status: { [Op.notIn]: ['CANCELLED', 'REJECTED'] } },
     });
     const transactions = await this.persistence.transaction.findAll({ where: { companyId } });
-    const totalAuthorized = this.sumAmounts(instructions.map((item) => String(item.amount)));
-    const totalConfirmed = this.sumAmounts(
-      transactions
-        .filter((item) => ['SETTLED', 'RECONCILED'].includes(String(item.status)))
-        .map((item) => String(item.amount)),
-    );
+    const authorized = instructions.filter(item => ['APPROVED', 'SUBMITTED', 'PROCESSING',
+      'SETTLED', 'RECONCILED', 'SUBMISSION_UNKNOWN', 'PARTIALLY_SETTLED'].includes(item.status));
+    const confirmed = transactions.filter(item => ['SETTLED', 'RECONCILED'].includes(item.status));
+    const currencies = [...new Set([...authorized, ...confirmed].map(row => row.currency))].sort();
+    const byCurrency = currencies.map(currency => ({
+      currency,
+      authorized: this.sumAmounts(authorized.filter(row => row.currency === currency).map(row => row.amount)),
+      confirmed: this.sumAmounts(confirmed.filter(row => row.currency === currency).map(row => row.amount)),
+    }));
     return {
-      totalAuthorized,
-      totalConfirmed,
-      pendingPayments: transactions.filter((item) =>
-        ['PROCESSING', 'SUBMITTED', 'SUBMISSION_UNKNOWN'].includes(String(item.status)),
+      byCurrency,
+      totalAuthorized: byCurrency.length > 1 ? null : byCurrency[0]?.authorized ?? '0.00',
+      totalConfirmed: byCurrency.length > 1 ? null : byCurrency[0]?.confirmed ?? '0.00',
+      pendingPayments: instructions.filter((item) =>
+        ['PENDING_APPROVAL', 'APPROVED', 'PROCESSING', 'SUBMITTED', 'SUBMISSION_UNKNOWN'].includes(String(item.status)),
       ).length,
-      failedPayments: transactions.filter((item) =>
+      failedPayments: instructions.filter((item) =>
         ['FAILED', 'RETURNED', 'PARTIALLY_SETTLED'].includes(String(item.status)),
       ).length,
     };
@@ -1871,7 +1847,9 @@ export class PaymentsApplicationService {
       );
     const report =
       input.reportType === 'summary'
-        ? [await this.getSummary(companyId)]
+        ? await this.getSummary(companyId).then(summary => (summary.byCurrency.length ? summary.byCurrency : [
+            { currency: '', authorized: '0.00', confirmed: '0.00' },
+          ]).map(row => ({ ...row, pendingPayments: summary.pendingPayments, failedPayments: summary.failedPayments })))
         : input.reportType === 'settlements'
           ? await this.settlementReport(companyId)
           : input.reportType === 'failed'
@@ -1944,6 +1922,15 @@ export class PaymentsApplicationService {
 
   private maskAccount(fingerprint: string): string {
     return `••••${fingerprint}`;
+  }
+
+  private async providerSource(companyId: number, accountId: string, currency: string) {
+    const source = await this.persistence.bankAccount.findOne({
+      where: { companyId, id: accountId, status: 'VERIFIED', currency },
+    });
+    if (!source?.accountCiphertext)
+      throw new ConflictError('A verified debit account matching the transfer currency is required.');
+    return { id: source.id, bankCode: source.bankCode, accountNumber: this.decryptAccount(source.accountCiphertext) };
   }
 
   private presentInstruction(row: any): PaymentInstruction {
@@ -2076,7 +2063,11 @@ export class PaymentsApplicationService {
   private toCsv(rows: Array<Record<string, unknown>>): string {
     if (rows.length === 0) return '';
     const headers = [...new Set(rows.flatMap((row) => Object.keys(row)))];
-    const cell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const cell = (value: unknown) => {
+      const text = String(value ?? '');
+      const escaped = /^(?:\s*[=+@-]|[\t\r\n])/.test(text) ? "'" + text : text;
+      return `"${escaped.replace(/"/g, '""')}"`;
+    };
     return [
       headers.map(cell).join(','),
       ...rows.map((row) => headers.map((key) => cell(row[key])).join(',')),

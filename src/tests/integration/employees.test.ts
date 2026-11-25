@@ -1,9 +1,18 @@
+jest.mock('../../infra/database/sequelize', () => {
+  const { Sequelize } = require('sequelize');
+  return { sequelize: new Sequelize({ dialect: 'sqlite', storage: ':memory:', logging: false }) };
+});
+
 import request from 'supertest';
+import { DataTypes } from 'sequelize';
+import { sequelize } from '../../infra/database';
 import { app } from '../../main/app';
+import { audit as applicationAudit } from '../../main/routes';
 import { CompanyMemberModel } from '../../modules/tenancy/infrastructure/persistence/models/company-member.model';
 import { RoleModel } from '../../modules/user/infrastructure/persistence/models/role.model';
 import { PermissionModel } from '../../modules/user/infrastructure/persistence/models/permission.model';
 import { RolePermissionModel } from '../../modules/auth/infrastructure/persistence/models/role-permission.model';
+import { AuditRecordModel } from '../../modules/audit/infrastructure/persistence/models/audit-engine.models';
 import { AuditLogModel } from '../../modules/audit/infrastructure/persistence/models/audit-log.model';
 import { SequelizeEmployeeRepository } from '../../modules/employees/infrastructure/persistence/repositories/sequelize-employee.repository';
 import { createActor, TestActor } from '../support/auth';
@@ -23,9 +32,12 @@ describe('Employees module', () => {
   let outsider: TestActor;
   let companyId: number;
   let employeeId: string;
+  let roleId: number;
 
   beforeAll(async () => {
     await resetTestDatabase();
+    const migration = require('../../infra/database/migrations/20261125000001-complete-employee-administration');
+    await migration.up(sequelize.getQueryInterface(), DataTypes);
     actor = await createActor({ name: 'HR Admin' });
     outsider = await createActor({ name: 'Outsider' });
 
@@ -45,6 +57,7 @@ describe('Employees module', () => {
       updatedAt: new Date(),
     });
 
+    roleId = createdRole.id;
     const permissionNames = [
       'employees.read',
       'employees.create',
@@ -62,6 +75,9 @@ describe('Employees module', () => {
       'employees.rehire',
       'employees.import',
       'employees.export',
+      'employees.registration.review',
+      'employees.tax.read',
+      'employees.tax.manage',
     ];
     const permissions = await PermissionModel.findAll({
       where: { name: permissionNames },
@@ -79,6 +95,8 @@ describe('Employees module', () => {
       { where: { companyId, userId: actor.userId } },
     );
   });
+
+  afterAll(() => sequelize.close());
 
   it('requires an assigned tenant permission', async () => {
     const denied = await request(app)
@@ -119,6 +137,26 @@ describe('Employees module', () => {
     expect(listed.status).toBe(200);
     expect(listed.body.data).toHaveLength(1);
     expect(listed.body.data[0].id).toBe(employeeId);
+
+    const expected = await request(app)
+      .get('/api/v1/company/employees')
+      .set(...auth(actor)).set(...tenant(companyId))
+      .query({ departmentId: 2, admittedFrom: '2024-01-02', admittedTo: '2024-01-02', sort: 'admission-desc' });
+    expect(expected.status).toBe(200);
+    expect(expected.body.data.map((row: { id: string }) => row.id)).toEqual([employeeId]);
+
+    const outsideRange = await request(app)
+      .get('/api/v1/company/employees/exports')
+      .set(...auth(actor)).set(...tenant(companyId))
+      .query({ format: 'json', admittedFrom: '2024-01-03' });
+    expect(outsideRange.status).toBe(200);
+    expect(outsideRange.body.data).toEqual([]);
+
+    const reversedRange = await request(app)
+      .get('/api/v1/company/employees')
+      .set(...auth(actor)).set(...tenant(companyId))
+      .query({ admittedFrom: '2024-02-02', admittedTo: '2024-01-01' });
+    expect(reversedRange.status).toBe(400);
 
     const read = await request(app)
       .get(`/api/v1/company/employees/${employeeId}`)
@@ -191,6 +229,21 @@ describe('Employees module', () => {
 
     expect(transfer.status).toBe(201);
 
+    const failAudit = jest.spyOn(AuditLogModel, 'create').mockRejectedValueOnce(new Error('Audit storage unavailable'));
+    try {
+      const failed = await request(app).post(`/api/v1/company/employees/${employeeId}/termination`)
+        .set(...auth(actor)).set(...tenant(companyId))
+        .send({ effectiveAt: '2026-01-01', reason: 'Rollback test', terminationReason: 'End of contract' });
+      expect(failed.status).toBe(500);
+    } finally {
+      failAudit.mockRestore();
+    }
+    const unchanged = await request(app).get(`/api/v1/company/employees/${employeeId}`)
+      .set(...auth(actor)).set(...tenant(companyId));
+    expect(unchanged.body.data.status).toBe('ACTIVE');
+    const terminationEvents = { companyId, action: 'employee.terminated', sourceId: 'employees' };
+    expect(await AuditRecordModel.count({ where: terminationEvents })).toBe(0);
+
     const terminated = await request(app)
       .post(`/api/v1/company/employees/${employeeId}/termination`)
       .set(...auth(actor))
@@ -202,6 +255,7 @@ describe('Employees module', () => {
       });
     expect(terminated.status).toBe(200);
     expect(terminated.body.data.status).toBe('TERMINATED');
+    expect(await AuditRecordModel.count({ where: terminationEvents })).toBe(1);
 
     const rehire = await request(app)
       .post(`/api/v1/company/employees/${employeeId}/rehire`)
@@ -223,7 +277,7 @@ describe('Employees module', () => {
       'ACTIVE',
     ]);
 
-    const repository = new SequelizeEmployeeRepository();
+    const repository = new SequelizeEmployeeRepository(applicationAudit.transactionalAudit);
     const beforeTermination = await repository.snapshotAsOf(
       companyId,
       employeeId,
@@ -311,7 +365,7 @@ describe('Employees module', () => {
       .set(...auth(outsider))
       .set(...tenant(company.body.data.id));
     expect(crossTenantRead.status).toBe(403);
-    const repository = new SequelizeEmployeeRepository();
+    const repository = new SequelizeEmployeeRepository(applicationAudit.transactionalAudit);
     await expect(repository.findById(company.body.data.id, employeeId)).resolves.toBeNull();
 
     const backdated = await request(app)
@@ -324,5 +378,38 @@ describe('Employees module', () => {
         reason: 'Data anterior à situação actual',
       });
     expect(backdated.status).toBe(422);
+  });
+
+  it('version-controls complementary data and protects it across tenants', async () => {
+    const endpoint = `/api/v1/company/employees/${employeeId}/profile/tax`;
+    await request(app).get(endpoint).set(...auth(outsider)).set(...tenant(companyId)).expect(403);
+    const initial = await request(app).get(endpoint).set(...auth(actor)).set(...tenant(companyId)).expect(200);
+    expect(initial.body.data).toEqual({ version: 0, content: {} });
+    const update = { version: 0, content: { nif: '123456789', socialSecurityNumber: '8765432' } };
+    const saved = await request(app).put(endpoint).set(...auth(actor)).set(...tenant(companyId)).send(update).expect(200);
+    expect(saved.body.data).toEqual({ version: 1, content: update.content });
+    await request(app).put(endpoint).set(...auth(actor)).set(...tenant(companyId)).send(update).expect(409);
+    const audit = await AuditLogModel.findAll({ where: { action: 'employee.profile.updated' } });
+    expect(JSON.stringify(audit.map(entry => entry.after))).not.toContain('123456789');
+  });
+
+  it('keeps a draft outside the workforce and activates it only after independent approval', async () => {
+    const reviewer = await createActor({ name: 'Independent reviewer' });
+    await CompanyMemberModel.create({ companyId, userId: reviewer.userId, roleId, status: 'ACTIVE' });
+    const endpoint = '/api/v1/company/employees';
+    const draft = await request(app).post(endpoint + '/registrations')
+      .set(...auth(actor)).set(...tenant(companyId)).send({ firstName: 'Ana' }).expect(201);
+    const id: string = draft.body.data.id;
+    const registration = endpoint + '/registrations/' + id;
+    await request(app).get(endpoint + '/' + id).set(...auth(actor)).set(...tenant(companyId)).expect(404);
+    await request(app).post(registration + '/submit').set(...auth(actor)).set(...tenant(companyId)).send({ version: 1 }).expect(400);
+    const content = { employeeNumber: 'DRAFT-01', firstName: 'Ana', lastName: 'Luanda', admissionDate: '2024-03-01' };
+    await request(app).patch(registration).set(...auth(actor)).set(...tenant(companyId)).send({ version: 1, content }).expect(200);
+    await request(app).post(registration + '/submit').set(...auth(actor)).set(...tenant(companyId)).send({ version: 2 }).expect(200);
+    await request(app).post(registration + '/approve').set(...auth(actor)).set(...tenant(companyId)).send({ version: 3 }).expect(403);
+    await request(app).post(registration + '/approve').set(...auth(reviewer)).set(...tenant(companyId)).send({ version: 3 }).expect(200);
+    await request(app).post(registration + '/approve').set(...auth(reviewer)).set(...tenant(companyId)).send({ version: 3 }).expect(409);
+    const approved = await request(app).get(endpoint + '/' + id).set(...auth(actor)).set(...tenant(companyId)).expect(200);
+    expect(approved.body.data).toMatchObject({ id, employeeNumber: 'DRAFT-01', status: 'ACTIVE' });
   });
 });

@@ -1,104 +1,38 @@
-import { SessionManagerService } from '../service/session-manager.service';
 import { Router } from 'express';
-import { Op } from 'sequelize';
+import { z } from 'zod';
+import type { AuthorizationService } from '../../../authorization/application/services/authorization.service';
+import type { PlatformRoleCheckerPort } from '../../../authorization/application/ports/platform-role-checker.port';
+import { PermissionCode } from '../../../authorization/domain/value-objects/permission-code.vo';
 
-import { ENV } from '../../../../config/env';
-import { RolePermissionModel } from '../persistence/models/role-permission.model';
-import { UserRoleModel } from '../persistence/models/user-role.model';
-import { PermissionModel } from '../persistence/models/permission.model';
-import { JwtTokenService } from '../service/jwt-token.service';
-import { authenticationMiddleware } from '../../presentation/middlewares/authentication.middleware';
-import { roleMiddleware } from '../../presentation/middlewares/role.middleware';
+const positiveId = z.coerce.number().int().positive().max(2147483647);
 
-export function createAuthorizationCheckRoutes(): Router {
+export function createAuthorizationCheckRoutes(
+  service: Pick<AuthorizationService, 'authorize'>,
+  roles: PlatformRoleCheckerPort,
+): Router {
   const router = Router();
-  const tokenService = new JwtTokenService(ENV.JWT.SECRET, ENV.JWT.EXPIRES_IN || '15m');
-
-  router.use(authenticationMiddleware(tokenService, new SessionManagerService()));
-  router.use(roleMiddleware('ADMIN'));
-
-  /**
-   * @swagger
-   * /authorization/users/{userId}/permissions/{permission}:
-   *   get:
-   *     summary: Verificar permissão atribuída a um utilizador
-   *     tags: [Authorization]
-   *     security:
-   *       - bearerAuth: []
-   *     parameters:
-   *       - in: path
-   *         name: userId
-   *         required: true
-   *         schema:
-   *           type: integer
-   *           minimum: 1
-   *       - in: path
-   *         name: permission
-   *         required: true
-   *         schema:
-   *           type: string
-   *           example: MATCH_CREATE
-   *     responses:
-   *       200:
-   *         description: Indica se a permissão está atribuída ao utilizador.
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/PermissionCheckResponse'
-   *       400:
-   *         $ref: '#/components/responses/ValidationError'
-   *       401:
-   *         $ref: '#/components/responses/UnauthorizedError'
-   *       403:
-   *         $ref: '#/components/responses/ForbiddenError'
-   *       500:
-   *         $ref: '#/components/responses/InternalServerError'
-   */
   router.get('/users/:userId/permissions/:permission', async (req, res, next) => {
-    const userId = Number(req.params.userId);
-    const permissionName = req.params.permission;
-
-    if (!Number.isInteger(userId) || userId <= 0 || !permissionName) {
-      res.status(400).json({
-        success: false,
-        error: 'Invalid user ID or permission.',
-      });
-      return;
-    }
-
     try {
-      const assignments = await UserRoleModel.findAll({
-        attributes: ['roleId'],
-        where: { userId },
-      });
-      const roleIds = [...new Set(assignments.map(({ roleId }) => roleId))];
-
-      if (roleIds.length === 0) {
-        res.status(200).json({ allowed: false });
-        return;
+      const actor = req.user?.userId;
+      if (!actor) return res.sendStatus(401);
+      const userId = positiveId.parse(req.params.userId);
+      if (actor !== userId && !(await roles.hasAnyRole(actor, ['SUPER_ADMIN']))) return res.sendStatus(403);
+      const { companyId } = z.object({ companyId: positiveId.optional() }).strict().parse(req.query);
+      let permission: string;
+      try {
+        permission = PermissionCode.create(req.params.permission).value;
+      } catch {
+        return res.status(400).json({ message: 'A contextual permission code is required.' });
       }
-
-      const rolePermissions = await RolePermissionModel.findAll({
-        attributes: ['permissionId'],
-        where: { roleId: { [Op.in]: roleIds } },
+      const allowed = await service.authorize({
+        principalId: userId,
+        permission,
+        context: companyId === undefined ? { type: 'platform' } : { type: 'tenant', tenantId: companyId },
       });
-      const permissionIds = [...new Set(rolePermissions.map(({ permissionId }) => permissionId))];
-
-      const permission = permissionIds.length
-        ? await PermissionModel.findOne({
-            attributes: ['id'],
-            where: {
-              id: { [Op.in]: permissionIds },
-              name: permissionName,
-            },
-          })
-        : null;
-
-      res.status(200).json({ allowed: permission !== null });
+      res.set('Cache-Control', 'private, no-store').json({ allowed });
     } catch (error) {
       next(error);
     }
   });
-
   return router;
 }

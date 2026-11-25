@@ -1,6 +1,8 @@
+import type { TransactionalAuditPort } from '../../../../audit/application/ports/audit-engine.ports';
+import { withRecordTransaction } from '../../../../../shared/infrastructure/persistence/sequelize-record-store';
 import { Op, QueryTypes, Transaction, UniqueConstraintError } from 'sequelize';
 import { sequelize } from '../../../../../infra/database';
-import { ConflictError, ValidationError } from '../../../../../shared/errors/app.error';
+import { ConflictError, ForbiddenError, ValidationError } from '../../../../../shared/errors/app.error';
 import { EmployeeEntity } from '../../../domain/entities/employee.entity';
 import { EmployeeStatus } from '../../../domain/value-objects/employee-status.vo';
 import {
@@ -39,7 +41,7 @@ const mapEmployee = (row: EmployeeRow): EmployeeEntity =>
     status: row.status,
   });
 
-const inTenantTransaction = async <T>(
+export const inTenantTransaction = async <T>(
   companyId: number,
   operation: (transaction: Transaction) => Promise<T>,
 ): Promise<T> =>
@@ -56,8 +58,10 @@ const inTenantTransaction = async <T>(
   });
 
 export class SequelizeEmployeeRepository implements EmployeeRepository {
-  async create(employee: EmployeeEntity, actorUserId: number): Promise<EmployeeEntity> {
-    return inTenantTransaction(employee.companyId, async (transaction) => {
+  constructor(private readonly audit: TransactionalAuditPort) {}
+
+  async create(employee: EmployeeEntity, actorUserId: number, outerTransaction?: Transaction): Promise<EmployeeEntity> {
+    const persist = async (transaction: Transaction) => {
       const duplicate = await EmployeeModel.findOne({
         where: {
           companyId: employee.companyId,
@@ -133,7 +137,8 @@ export class SequelizeEmployeeRepository implements EmployeeRepository {
       );
 
       return mapEmployee(row);
-    });
+    };
+    return outerTransaction ? persist(outerTransaction) : inTenantTransaction(employee.companyId, persist);
   }
 
   async findById(companyId: number, employeeId: string): Promise<EmployeeEntity | null> {
@@ -150,6 +155,13 @@ export class SequelizeEmployeeRepository implements EmployeeRepository {
     return inTenantTransaction(companyId, async (transaction) => {
       const where: Record<string | symbol, unknown> = { companyId };
       if (query.status) where.status = query.status;
+      if (query.departmentId) where.departmentId = query.departmentId;
+      if (query.admittedFrom || query.admittedTo) {
+        where.admissionDate = {
+          ...(query.admittedFrom ? { [Op.gte]: query.admittedFrom } : {}),
+          ...(query.admittedTo ? { [Op.lte]: query.admittedTo } : {}),
+        };
+      }
       if (query.search) {
         where[Op.or] = [
           { employeeNumber: { [Op.like]: `%${query.search}%` } },
@@ -165,8 +177,10 @@ export class SequelizeEmployeeRepository implements EmployeeRepository {
         limit: query.limit,
         offset,
         order: [
+          ...(query.sort === 'admission-desc' ? [['admissionDate', 'DESC'] as [string, string]] : []),
           ['lastName', 'ASC'],
           ['firstName', 'ASC'],
+          ['id', 'ASC'],
         ],
         transaction,
       });
@@ -223,6 +237,7 @@ export class SequelizeEmployeeRepository implements EmployeeRepository {
     effectiveAt: Date;
     reason: string;
     actorUserId: number;
+    operation?: 'status' | 'termination' | 'rehire';
     terminationReason?: string;
   }): Promise<EmployeeEntity | null> {
     return inTenantTransaction(input.companyId, async (transaction) => {
@@ -235,6 +250,11 @@ export class SequelizeEmployeeRepository implements EmployeeRepository {
 
       const from = EmployeeStatus.from(row.status);
       const to = EmployeeStatus.from(input.status);
+      const requiredOperation = to.value === 'TERMINATED' ? 'termination'
+        : from.value === 'TERMINATED' && to.value === 'ACTIVE' ? 'rehire' : 'status';
+      if ((input.operation ?? 'status') !== requiredOperation) {
+        throw new ForbiddenError('This transition requires its dedicated employee operation.');
+      }
       if (!from.canTransitionTo(to)) {
         throw new ValidationError(
           `Employee status cannot change from ${from.value} to ${to.value}.`,
@@ -280,7 +300,7 @@ export class SequelizeEmployeeRepository implements EmployeeRepository {
       });
       await row.save({ transaction });
 
-      await EmployeeStatusHistoryModel.create(
+      const history = await EmployeeStatusHistoryModel.create(
         {
           companyId: input.companyId,
           employeeId: input.employeeId,
@@ -293,6 +313,18 @@ export class SequelizeEmployeeRepository implements EmployeeRepository {
         },
         { transaction },
       );
+      const action = requiredOperation === 'termination' ? 'employee.terminated'
+        : requiredOperation === 'rehire' ? 'employee.rehired' : 'employee.status.changed';
+      await withRecordTransaction(transaction, input.companyId, context => this.audit.append({
+        eventId: 'employee-status-' + history.id,
+        eventType: action, action, module: 'employees', sourceId: 'employees',
+        category: 'ACTIVITY', severity: 'MEDIUM', scope: 'TENANT', tenantId: String(input.companyId),
+        resource: { resourceType: 'employee', resourceId: input.employeeId },
+        actor: { actorType: 'USER', actorId: String(input.actorUserId) },
+        changes: [{ field: 'status', before: from.value, after: to.value }],
+        metadata: { effectiveAt: input.effectiveAt.toISOString() },
+        outcome: 'SUCCESS', occurredAt: now.toISOString(),
+      }, context));
       return mapEmployee(row);
     });
   }

@@ -18,6 +18,7 @@ export interface ReportSourcePort {
   dashboardData(
     companyId: number,
     filters: ReportFilters,
+    includePayroll?: boolean,
   ): Promise<{ active: number; employees: number; payroll: ReportDataRow[] }>;
   readSource(
     companyId: number,

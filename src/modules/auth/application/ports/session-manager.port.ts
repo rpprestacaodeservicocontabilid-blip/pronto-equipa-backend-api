@@ -57,6 +57,7 @@ export interface SessionManagerPort {
     sessionId: number;
     tokenId: number;
     token: string;
+    preserveExpiry?: boolean;
     createNextToken: (tokenId: number) => Promise<{ token: string; expiresAt: Date }>;
   }): Promise<{ token: string; expiresAt: Date } | null>;
 }

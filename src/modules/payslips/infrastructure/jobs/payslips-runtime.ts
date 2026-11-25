@@ -11,6 +11,10 @@ import { PayslipsApplicationService } from '../../application/use-cases/payslips
 export class PayslipsRuntime {
   private queue?: Queue;
   private worker?: Worker;
+
+  operationalHandles() {
+    return { queue: this.queue, worker: this.worker };
+  }
   private timer?: ReturnType<typeof setInterval>;
   private dispatching = false;
   constructor(private readonly service: PayslipsApplicationService) {}

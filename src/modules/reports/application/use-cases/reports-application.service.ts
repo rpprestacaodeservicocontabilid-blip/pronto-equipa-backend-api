@@ -8,7 +8,11 @@ import { MembershipReaderPort } from '../../../tenancy/application/ports/members
 
 import { randomUUID } from 'crypto';
 
-import { REPORT_CATALOG, REPORT_PERMISSION, ReportDefinition } from '../../domain/report-catalog';
+import { REPORT_CATALOG, REPORT_PERMISSION, ReportDefinition, requiresSalaryAccess, WORKSPACE_REPORT_FILTERS } from '../../domain/report-catalog';
+import { cents, money } from '../../../payroll/domain/payroll-result';
+
+const exportLifetime = 24 * 60 * 60 * 1000;
+const expiresAt = (row: ReportRecordView) => new Date(new Date(row.createdAt).getTime() + exportLifetime);
 
 export class ReportsApplicationService {
   constructor(
@@ -19,13 +23,16 @@ export class ReportsApplicationService {
     private readonly membership: MembershipReaderPort,
   ) {}
 
-  catalog() {
-    return REPORT_CATALOG.map(({ code, name, description, domain, sensitive }) => ({
+  async catalog(companyId: number, actor: number) {
+    const grants = await this.membership.findPermissionNames(companyId, actor);
+    return REPORT_CATALOG.filter(report => this.canRead(grants, report)).map(({ code, name, description, domain, sensitive, source }) => ({
       code,
       name,
       description,
       domain,
       sensitive,
+      source,
+      workspaceFilters: WORKSPACE_REPORT_FILTERS[code],
     }));
   }
   categories() {
@@ -49,6 +56,24 @@ export class ReportsApplicationService {
     const value = REPORT_CATALOG.find((item) => item.code === code);
     if (!value) throw Object.assign(new Error('Relatório não encontrado.'), { statusCode: 404 });
     return value;
+  }
+  private canRead(grants: readonly string[], report: ReportDefinition) {
+    return grants.includes(REPORT_PERMISSION[report.domain]) &&
+      (!requiresSalaryAccess(report) || grants.includes('reports:salary:read-sensitive'));
+  }
+  private async assertReadable(companyId: number, actor: number, code: string | null) {
+    const definition = this.definition(String(code));
+    if (!this.canRead(await this.membership.findPermissionNames(companyId, actor), definition))
+      throw Object.assign(new Error('Report access is no longer available.'), { statusCode: 403 });
+    return definition;
+  }
+  customFields(code: string) {
+    return this.allowedFields(this.definition(code));
+  }
+
+  private projectStoredRows(rows: ReportDataRow[]) {
+    const restricted = new Set(['salaryAmount', 'calculationSnapshot', 'beneficiarySnapshot', 'accountCiphertext']);
+    return rows.map(row => Object.fromEntries(Object.entries(row).filter(([name]) => !restricted.has(name))));
   }
   async execute(companyId: number, actorUserId: number, code: string, filters: ReportFilters) {
     const definition = this.definition(code);
@@ -81,7 +106,7 @@ export class ReportsApplicationService {
       entityId: id,
       after: { code, rowCount: data.length, filters },
     });
-    return { id, code, status: 'COMPLETED', rowCount: data.length, generatedAt: createdAt, data };
+    return { id, code, status: 'COMPLETED', ...payload };
   }
   async listExecutions(companyId: number, actorUserId: number, limit = 30) {
     const rows = await this.recordFindAll(companyId, {
@@ -106,10 +131,11 @@ export class ReportsApplicationService {
     return rows.map((row) => ({
       id: row.id,
       code: row.code,
-      status: row.status,
+      status: expiresAt(row).getTime() <= Date.now() ? 'EXPIRED' : row.status,
       filename: row.payload.filename,
       rowCount: row.payload.rowCount,
       createdAt: row.createdAt,
+      expiresAt: expiresAt(row),
     }));
   }
   async getExecution(companyId: number, actorUserId: number, id: string) {
@@ -117,6 +143,7 @@ export class ReportsApplicationService {
       where: { id, companyId, ownerUserId: actorUserId, recordType: 'EXECUTION' },
     });
     if (!row) throw Object.assign(new Error('Execução não encontrada.'), { statusCode: 404 });
+    await this.assertReadable(companyId, actorUserId, row.code);
     await this.audit.record({
       companyId,
       actorUserId,
@@ -125,7 +152,8 @@ export class ReportsApplicationService {
       entityId: id,
       after: { code: row.code },
     });
-    return { id: row.id, code: row.code, status: row.status, ...row.payload };
+    const data = Array.isArray(row.payload.data) ? this.projectStoredRows(row.payload.data as ReportDataRow[]) : [];
+    return { id: row.id, code: row.code, status: row.status, ...row.payload, data };
   }
   async createExport(
     companyId: number,
@@ -135,7 +163,14 @@ export class ReportsApplicationService {
     filters: ReportFilters,
   ) {
     const result = await this.execute(companyId, actorUserId, code, filters);
-    const rows = result.data;
+    return this.renderExport(companyId, actorUserId, code, format, result.id, result.data);
+  }
+  async exportExecution(companyId: number, actorUserId: number, id: string, format: 'CSV' | 'XLSX' | 'PDF') {
+    const result = await this.getExecution(companyId, actorUserId, id);
+    return this.renderExport(companyId, actorUserId, String(result.code), format, id, result.data);
+  }
+  private async renderExport(companyId: number, actorUserId: number, code: string,
+    format: 'CSV' | 'XLSX' | 'PDF', executionId: string, rows: ReportDataRow[]) {
     const keys = rows.length ? Object.keys(rows[0]) : [];
     const table = [
       keys,
@@ -147,7 +182,7 @@ export class ReportsApplicationService {
     ];
     const content =
       format === 'PDF'
-        ? this.renderer.pdf(table)
+        ? this.renderer.pdf(keys.length ? table : [['No records']])
         : format === 'XLSX'
           ? this.renderer.xlsx(table)
           : Buffer.from(this.toCsv(rows));
@@ -164,8 +199,9 @@ export class ReportsApplicationService {
         filename,
         format,
         content: content.toString('base64'),
-        rowCount: result.rowCount,
-        executionId: result.id,
+        rowCount: rows.length,
+        executionId,
+        projectionVersion: 2,
       },
       createdAt,
       updatedAt: createdAt,
@@ -176,15 +212,18 @@ export class ReportsApplicationService {
       action: 'REPORT_EXPORTED',
       entityType: 'REPORT_EXPORT',
       entityId: row.id,
-      after: { code, format, rowCount: result.rowCount },
+      after: { code, format, rowCount: rows.length, executionId },
     });
-    return { id: row.id, filename, rowCount: result.rowCount, status: 'READY' };
+    return { id: row.id, filename, rowCount: rows.length, status: 'READY', expiresAt: expiresAt(row) };
   }
   async downloadExport(companyId: number, actorUserId: number, id: string) {
     const row = await this.recordFindOne(companyId, {
       where: { id, companyId, ownerUserId: actorUserId, recordType: 'EXPORT', status: 'READY' },
     });
     if (!row) throw Object.assign(new Error('Exportação não encontrada.'), { statusCode: 404 });
+    const definition = await this.assertReadable(companyId, actorUserId, row.code);
+    if (expiresAt(row).getTime() <= Date.now() || (row.payload.projectionVersion !== 2 && definition.domain === 'contracts'))
+      throw Object.assign(new Error('Esta exportação expirou. Gere um novo ficheiro.'), { statusCode: 410 });
     const content = String(row.payload.content || '');
     await this.audit.record({
       companyId,
@@ -200,25 +239,33 @@ export class ReportsApplicationService {
       content: Buffer.from(content, 'base64'),
     };
   }
-  async dashboard(companyId: number, filters: ReportFilters) {
-    const { active, employees, payroll } = await this.sources.dashboardData(companyId, filters);
-    const gross = payroll.reduce((n, r: ReportDataRow) => n + Number(r.grossAmount || 0), 0);
-    const net = payroll.reduce((n, r: ReportDataRow) => n + Number(r.netAmount || 0), 0);
-    const costs = payroll.reduce(
-      (n, r: ReportDataRow) => n + Number(r.employerCostsAmount || 0),
-      0,
-    );
+  async dashboardFor(companyId: number, actor: number, filters: ReportFilters) {
+    const grants = await this.membership.findPermissionNames(companyId, actor);
+    return this.dashboard(companyId, filters, this.canRead(grants, this.definition('RPT-PAY-002')));
+  }
+  async dashboard(companyId: number, filters: ReportFilters, includePayroll = true) {
+    const { active, employees, payroll } = await this.sources.dashboardData(companyId, filters, includePayroll);
+    const totals = payroll.map(row => ({
+      grossAmount: money(cents(String(row.grossAmount ?? '0'))),
+      netAmount: money(cents(String(row.netAmount ?? '0'))),
+      employerCostsAmount: money(cents(String(row.employerCostsAmount ?? '0'))),
+      personnelCost: money(cents(String(row.grossAmount ?? '0')) + cents(String(row.employerCostsAmount ?? '0'))),
+      currency: String(row.currency || 'AOA'),
+      closedResults: Number(row.resultCount ?? 1),
+    }));
+    const legacy = totals.find(row => row.currency === 'AOA') ?? totals[0];
     return {
       asOf: new Date().toISOString(),
       currency: 'AOA',
       workforce: { active, total: employees },
-      payroll: {
-        grossAmount: gross,
-        netAmount: net,
-        employerCostsAmount: costs,
-        currency: payroll[0]?.currency || 'AOA',
-        closedResults: payroll.length,
-      },
+      payroll: includePayroll ? {
+        grossAmount: Number(legacy?.grossAmount ?? 0),
+        netAmount: Number(legacy?.netAmount ?? 0),
+        employerCostsAmount: Number(legacy?.employerCostsAmount ?? 0),
+        currency: legacy?.currency ?? 'AOA',
+        closedResults: legacy?.closedResults ?? 0,
+      } : null,
+      payrollByCurrency: includePayroll ? totals : [],
       formulas: {
         personnelCost: 'grossAmount + employerCostsAmount',
         source: 'closed payroll results only',
@@ -263,9 +310,13 @@ export class ReportsApplicationService {
       throw Object.assign(new Error('Relatório personalizado não encontrado.'), {
         statusCode: 404,
       });
-    const definition = this.definition(String(row.code));
-    const data = await this.sources.readSource(companyId, definition, filters);
+    const definition = await this.assertReadable(companyId, actorUserId, row.code);
+    const data = await this.sources.readSource(companyId, definition, { ...row.payload.filters as ReportFilters, ...filters });
     const fields = Array.isArray(row.payload.fields) ? (row.payload.fields as string[]) : [];
+    await this.audit.record({
+      companyId, actorUserId, action: 'REPORT_CUSTOM_PREVIEWED', entityType: 'REPORT_CUSTOM', entityId: id,
+      after: { code: row.code, rowCount: data.length },
+    });
     return {
       id,
       code: row.code,
@@ -279,7 +330,7 @@ export class ReportsApplicationService {
       where: { companyId, recordType: 'CUSTOM_REPORT', ownerUserId: actorUserId },
       order: [['updatedAt', 'DESC']],
     });
-    return rows.map((row) => ({ id: row.id, status: row.status, ...row.payload }));
+    return rows.map((row) => ({ id: row.id, code: row.code, status: row.status, ...row.payload }));
   }
   async publishCustomReport(companyId: number, actorUserId: number, id: string) {
     const row = await this.recordFindOne(companyId, {
@@ -289,20 +340,19 @@ export class ReportsApplicationService {
       throw Object.assign(new Error('Relatório personalizado não encontrado.'), {
         statusCode: 404,
       });
-    const payload = {
-      ...row.payload,
-      publishedAt: new Date().toISOString(),
-      version: Number(row.payload.version || 1) + 1,
-    };
-    await this.withTenant(companyId, async (transaction) => {
+    await this.assertReadable(companyId, actorUserId, row.code);
+    return this.withTenant(companyId, async (transaction) => {
       const current = await this.store.findOne({
         where: { id, companyId, recordType: 'CUSTOM_REPORT', ownerUserId: actorUserId },
-        transaction,
+        transaction, forUpdate: true,
       });
-      if (current)
-        await this.store.update(current, { status: 'PUBLISHED', payload }, { transaction });
+      if (!current) throw Object.assign(new Error('Relatório personalizado não encontrado.'), { statusCode: 404 });
+      const payload = current.status === 'PUBLISHED' ? current.payload : {
+        ...current.payload, publishedAt: new Date().toISOString(), version: Number(current.payload.version || 1) + 1,
+      };
+      if (current.status !== 'PUBLISHED') await this.store.update(current, { status: 'PUBLISHED', payload }, { transaction });
+      return { id, code: current.code, status: 'PUBLISHED', ...payload };
     });
-    return { id, status: row.status, ...row.payload };
   }
   async createSchedule(
     companyId: number,
@@ -451,6 +501,8 @@ export class ReportsApplicationService {
       loans: ['employeeId', 'loanNumber', 'principalAmount', 'currency', 'status'],
       payslips: ['employeeId', 'status', 'createdAt'],
     };
+    if (report.code === 'RPT-TAX-001') return ['runId', 'employeeId', 'irt', 'legalRuleSetVersion', 'currency'];
+    if (report.code === 'RPT-TAX-003') return ['runId', 'employeeId', 'employeeInss', 'employerInss', 'legalRuleSetVersion', 'currency'];
     return fields[report.source] || [];
   }
   private toCsv(rows: ReportDataRow[]): string {
@@ -458,7 +510,7 @@ export class ReportsApplicationService {
     const keys = Object.keys(rows[0]);
     const cell = (value: unknown) => {
       let text = String(value ?? '');
-      if (/^[=+@\-\t\r]/.test(text)) text = "'" + text;
+      if (/^(?:\s*[=+@-]|[\t\r\n])/.test(text)) text = "'" + text;
       return `"${text.replace(/"/g, '""')}"`;
     };
     return (

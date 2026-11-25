@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { PaymentsApplicationService } from '../../application/use-cases/payments-application.service';
+import { payrollPdf } from '../../../payroll/infrastructure/payroll-export';
 import {
   bankAccountSchema,
   bankAccountUpdateSchema,
@@ -251,6 +252,16 @@ export class PaymentsController {
     const result = await this.payments.getTransaction(companyId, req.params.id);
     res.status(200).json({ success: true, data: result });
   }
+  async transactionReceipt(req: Request, res: Response) {
+    const context = this.context(req, res);
+    if (!context) return;
+    const document = await this.payments.transactionEvidence(context.companyId, context.actorUserId, req.params.id);
+    const rows = [['COMPROVATIVO INTERNO DE PAGAMENTO'], ['Company ID', String(context.companyId)],
+      ['Transaction', document.id], ['Payment order', document.orderId], ['Bank reference', document.reference],
+      ['Amount', document.amount + ' ' + document.currency], ['Settled at', document.settledAt], ['Status', document.status]];
+    res.attachment('payment-' + document.id + '.pdf').type('application/pdf')
+      .set('X-Content-Type-Options', 'nosniff').send(payrollPdf(rows));
+  }
 
   async reconcileTransaction(req: Request, res: Response) {
     const context = this.context(req, res);
@@ -311,6 +322,10 @@ export class PaymentsController {
   async listProviders(req: Request, res: Response) {
     const result = this.payments.listProviders();
     res.status(200).json({ success: true, data: result });
+  }
+  async executionProviders(_req: Request, res: Response) {
+    const company = this.companyId(res);
+    if (company) res.json({ success: true, data: await this.payments.executionProviders(company) });
   }
 
   async configureProvider(req: Request, res: Response) {
@@ -397,13 +412,7 @@ export class PaymentsController {
   async getReconciliation(req: Request, res: Response) {
     const companyId = this.companyId(res);
     if (!companyId) return;
-    const result = (await this.payments.listReconciliations(companyId)).find(
-      (item) => item.id === req.params.id,
-    );
-    if (!result) {
-      res.status(404).json({ success: false, message: 'Payment reconciliation not found.' });
-      return;
-    }
+    const result = await this.payments.getReconciliation(companyId, req.params.id);
     res.status(200).json({ success: true, data: result });
   }
 

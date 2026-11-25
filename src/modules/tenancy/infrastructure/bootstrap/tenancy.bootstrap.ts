@@ -166,6 +166,7 @@ export const createTenancyModule = (options: TenancyModuleOptions): TenancyModul
     getCompanyContextUseCase,
     updateCompanyUseCase,
     changeCompanyStatusUseCase,
+    listMembersUseCase,
   );
 
   const memberController = new MemberController(

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { COMPANY_STATUSES } from '../../domain/value-objects/company-status';
 
 /** Criação de empresa (`POST /api/v1/companies`). */
 export const createCompanySchema = z.object({
@@ -56,6 +57,10 @@ export const listCompaniesSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional().default(20),
 
   search: z.string().trim().min(1).max(150).optional(),
+  status: z.enum(COMPANY_STATUSES).optional(),
 });
+
+export const platformCompanyParams = z.object({ id: z.coerce.number().int().positive() });
+export const companyStatusChangeSchema = z.object({ reason: z.string().trim().min(3).max(500).optional() }).default({});
 
 export type ListCompaniesDto = z.infer<typeof listCompaniesSchema>;

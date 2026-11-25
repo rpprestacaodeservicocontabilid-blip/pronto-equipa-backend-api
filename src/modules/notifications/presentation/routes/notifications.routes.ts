@@ -1,3 +1,4 @@
+import { notificationChannelInventory } from '../../application/notification-channel-inventory';
 import { createHash, timingSafeEqual } from 'crypto';
 
 import { notificationCallback } from '../middlewares/provider-callback';
@@ -171,12 +172,7 @@ export function createNotificationsRoutes(
   );
   adminRoutes.get('/providers', (_r, res) =>
     res.json({
-      data: ['EMAIL', 'SMS'].map((c) => ({
-        channel: c,
-        configured: Boolean(
-          process.env[`NOTIFICATIONS_${c}_URL`] && process.env[`NOTIFICATIONS_${c}_TOKEN`],
-        ),
-      })),
+      data: notificationChannelInventory(),
     }),
   );
 

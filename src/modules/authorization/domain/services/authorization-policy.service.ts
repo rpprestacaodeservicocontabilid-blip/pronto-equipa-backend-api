@@ -71,7 +71,7 @@ export class AuthorizationPolicyService {
     } else if (
       input.resource?.sensitivity === 'payroll' ||
       input.resource?.type === 'payroll' ||
-      permission.value.startsWith('payroll.')
+      /^payroll[.:]/.test(permission.value)
     ) {
       return false;
     }

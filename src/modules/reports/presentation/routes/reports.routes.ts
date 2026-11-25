@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { NextFunction, Request, Response, Router } from 'express';
+import { NextFunction, Request, RequestHandler, Response, Router } from 'express';
 import { ReportsController } from '../controllers/reports.controller';
-import { REPORT_PERMISSION, REPORT_CATALOG } from '../../domain/report-catalog';
+import { REPORT_PERMISSION, REPORT_CATALOG, requiresSalaryAccess, WORKSPACE_REPORT_FILTERS } from '../../domain/report-catalog';
 import { ReportsApplicationService } from '../../application/use-cases/reports-application.service';
 import { idSchema } from '../schemas/reports.schema';
+const historyLimit = z.coerce.number().int().min(1).max(100);
 
 type RequirePermission = (
   permission: string,
@@ -16,12 +17,15 @@ const validateId = (req: Request, res: Response, next: NextFunction) => {
   }
   next();
 };
+const endpoint = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHandler =>
+  (req, res, next) => { void fn(req, res).catch(next); };
 export const createReportsRoutes = (
   controller: ReportsController,
   service: ReportsApplicationService,
   requirePermission: RequirePermission,
 ) => {
   const router = Router();
+  router.use((_req, res, next) => { res.set('Cache-Control', 'private, no-store'); next(); });
   const checkCode =
     (param: 'body' | 'param') => (req: Request, res: Response, next: NextFunction) => {
       const code =
@@ -39,7 +43,7 @@ export const createReportsRoutes = (
           next(error);
           return;
         }
-        if (def.domain === 'payroll' || def.domain === 'tax') {
+        if (requiresSalaryAccess(def)) {
           requirePermission('reports:salary:read-sensitive')(req, res, next);
         } else next();
       });
@@ -47,82 +51,104 @@ export const createReportsRoutes = (
   router.get(
     '/catalog',
     requirePermission('reports:catalog:read'),
-    controller.catalog.bind(controller),
+    endpoint(controller.catalog.bind(controller)),
   );
   router.get(
     '/catalog/:code',
     requirePermission('reports:catalog:read'),
     checkCode('param'),
-    (req, res) => res.json({ success: true, data: service.definition(req.params.code) }),
+    (req, res) => res.json({ success: true, data: {
+      ...service.definition(req.params.code),
+      workspaceFilters: WORKSPACE_REPORT_FILTERS[req.params.code],
+      fields: service.customFields(req.params.code),
+    } }),
   );
   router.post(
     '/executions',
     requirePermission('reports:execute'),
     checkCode('body'),
-    controller.execute.bind(controller),
+    endpoint(controller.execute.bind(controller)),
   );
   router.get(
     '/executions',
     requirePermission('reports:executions:read'),
-    controller.executions.bind(controller),
+    (req, _res, next) => { if (req.query.limit !== undefined) historyLimit.parse(req.query.limit); next(); },
+    endpoint(controller.executions.bind(controller)),
   );
   router.get(
     '/executions/:id',
     requirePermission('reports:executions:read'),
     validateId,
-    controller.execution.bind(controller),
+    endpoint(controller.execution.bind(controller)),
+  );
+  router.post(
+    '/executions/:id/exports',
+    requirePermission('reports:exports:create'),
+    validateId,
+    endpoint(controller.exportExecution.bind(controller)),
+  );
+  router.get(
+    '/exports',
+    requirePermission('reports:exports:download'),
+    endpoint(controller.exports.bind(controller)),
   );
   router.post(
     '/exports',
     requirePermission('reports:exports:create'),
     checkCode('body'),
-    controller.export.bind(controller),
+    endpoint(controller.export.bind(controller)),
   );
   router.get(
     '/exports/:id/download',
     requirePermission('reports:exports:download'),
     validateId,
-    controller.download.bind(controller),
+    endpoint(controller.download.bind(controller)),
   );
   router.get(
     '/dashboard',
     requirePermission('reports:dashboard:read'),
     requirePermission('reports:kpis:read'),
-    controller.dashboard.bind(controller),
+    endpoint(controller.dashboard.bind(controller)),
   );
   router.get(
     '/custom',
     requirePermission('reports:catalog:read'),
-    controller.customReports.bind(controller),
+    endpoint(controller.customReports.bind(controller)),
+  );
+  router.post(
+    '/custom/:id/preview',
+    requirePermission('reports:execute'),
+    validateId,
+    endpoint(controller.previewCustomReport.bind(controller)),
   );
   router.post(
     '/custom',
     requirePermission('reports:custom:create'),
     checkCode('body'),
-    controller.customReports.bind(controller),
+    endpoint(controller.customReports.bind(controller)),
   );
   router.post(
     '/custom/:id/publish',
     requirePermission('reports:custom:publish'),
     validateId,
-    controller.publishCustomReport.bind(controller),
+    endpoint(controller.publishCustomReport.bind(controller)),
   );
   router.get(
     '/schedules',
     requirePermission('reports:history:read'),
-    controller.schedules.bind(controller),
+    endpoint(controller.schedules.bind(controller)),
   );
   router.post(
     '/schedules',
     requirePermission('reports:schedules:create'),
     checkCode('body'),
-    controller.schedules.bind(controller),
+    endpoint(controller.schedules.bind(controller)),
   );
   router.post(
     '/schedules/:id/:action(pause|resume)',
     requirePermission('reports:schedules:update'),
     validateId,
-    controller.scheduleAction.bind(controller),
+    endpoint(controller.scheduleAction.bind(controller)),
   );
   return router;
 };

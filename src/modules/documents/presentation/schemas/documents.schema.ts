@@ -29,6 +29,8 @@ export const completeSchema = z.object({
     .default([]),
 });
 export const listSchema = z.object({
+  scope: z.enum(['EMPLOYEE', 'COMPANY']).optional(),
+  expiring: z.literal('true').optional(),
   status: z.string().optional(),
   employeeId: uuidSchema.optional(),
   categoryCode: z.string().optional(),

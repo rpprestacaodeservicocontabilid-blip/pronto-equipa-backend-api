@@ -96,8 +96,10 @@ class PaymentStore<T extends PaymentRecord>
   async upsert(input: Partial<T> & PaymentRecord) {
     await this.model.upsert(input as Record<string, unknown>);
   }
-  async bulkCreate(input: Array<Partial<T> & PaymentRecord>) {
-    return (await this.model.bulkCreate(input as Array<Record<string, unknown>>)).map((row) =>
+  async bulkCreate(input: Array<Partial<T> & PaymentRecord>, options?: { transaction?: RecordStoreContext }) {
+    return (await this.model.bulkCreate(input as Array<Record<string, unknown>>, {
+      transaction: resolveRecordTransaction(options?.transaction),
+    })).map((row) =>
       this.view(row),
     );
   }

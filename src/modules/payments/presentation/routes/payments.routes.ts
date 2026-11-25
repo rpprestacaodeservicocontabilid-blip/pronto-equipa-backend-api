@@ -1,4 +1,4 @@
-import { NextFunction, Request, Response, Router } from 'express';
+import { NextFunction, Request, RequestHandler, Response, Router } from 'express';
 import { z } from 'zod';
 import { PaymentsController } from '../controllers/payments.controller';
 import {
@@ -14,6 +14,9 @@ import {
   paymentInstructionSchema,
   providerConfigurationSchema,
   reconcileSchema,
+  reconciliationResolutionSchema,
+  paymentPolicySchema,
+  paymentBeneficiarySchema,
   statementImportSchema,
 } from '../schemas/payments.schema';
 
@@ -47,6 +50,8 @@ const validateId: (req: Request, _res: Response, next: NextFunction) => void = (
     next(error);
   }
 };
+const endpoint = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHandler =>
+  (req, res, next) => { void fn(req, res).catch(next); };
 
 export const createPaymentsRoutes = (
   controller: PaymentsController,
@@ -55,229 +60,225 @@ export const createPaymentsRoutes = (
   ) => (req: Request, res: Response, next: NextFunction) => void,
 ): Router => {
   const router = Router();
+  router.use((_req, res, next) => { res.set('Cache-Control', 'private, no-store'); next(); });
+  router.patch('/instructions/:id/beneficiary', requirePermission('payments:beneficiaries:manage'),
+    validateId, validate('body', paymentBeneficiarySchema), endpoint(controller.setInstructionBeneficiary.bind(controller)));
+  router.post('/orders/:id/status', requirePermission('payments:orders:status'),
+    validateId, endpoint(controller.refreshOrderStatus.bind(controller)));
+  router.get('/policies', requirePermission('payments:policies:read'), endpoint(controller.getPaymentPolicy.bind(controller)));
+  router.put('/policies', requirePermission('payments:policies:manage'),
+    validate('body', paymentPolicySchema), endpoint(controller.configurePaymentPolicy.bind(controller)));
+  router.get('/execution-providers', requirePermission('payments:providers:read'), endpoint(controller.executionProviders.bind(controller)));
 
   router.get(
     '/instructions',
     requirePermission('payments:read'),
     validate('query', listQuerySchema),
-    (req, res) => controller.listInstructions(req, res),
+    endpoint(controller.listInstructions.bind(controller)),
   );
   router.post(
     '/instructions',
     requirePermission('payments:instructions:create'),
     validate('body', paymentInstructionSchema),
-    (req, res) => controller.createInstruction(req, res),
+    endpoint(controller.createInstruction.bind(controller)),
   );
   router.get(
     '/instructions/:id',
     requirePermission('payments:instructions:read'),
     validateId,
-    (req, res) => controller.getInstruction(req, res),
+    endpoint(controller.getInstruction.bind(controller)),
   );
   router.post(
     '/instructions/:id/cancel',
     requirePermission('payments:instructions:cancel'),
     validateId,
-    (req, res) => controller.cancelInstruction(req, res),
+    endpoint(controller.cancelInstruction.bind(controller)),
   );
   router.get(
     '/instructions/:id/history',
     requirePermission('payments:history:read'),
     validateId,
-    (req, res) => controller.getInstructionHistory(req, res),
+    endpoint(controller.getInstructionHistory.bind(controller)),
   );
 
   router.get(
     '/batches',
     requirePermission('payments:read'),
     validate('query', listQuerySchema),
-    (req, res) => controller.listBatches(req, res),
+    endpoint(controller.listBatches.bind(controller)),
   );
   router.post(
     '/batches',
     requirePermission('payments:batches:create'),
     validate('body', paymentBatchSchema),
-    (req, res) => controller.createBatch(req, res),
+    endpoint(controller.createBatch.bind(controller)),
   );
-  router.get('/batches/:id', requirePermission('payments:read'), validateId, (req, res) =>
-    controller.getBatch(req, res),
+  router.get('/batches/:id', requirePermission('payments:read'), validateId, endpoint(controller.getBatch.bind(controller)),
   );
   router.post(
     '/batches/:id/items',
     requirePermission('payments:batches:update'),
     validateId,
     validate('body', paymentBatchItemSchema),
-    (req, res) => controller.addBatchItem(req, res),
+    endpoint(controller.addBatchItem.bind(controller)),
   );
   router.post(
     '/batches/:id/validate',
     requirePermission('payments:batches:validate'),
     validateId,
-    (req, res) => controller.validateBatch(req, res),
+    endpoint(controller.validateBatch.bind(controller)),
   );
   router.post(
     '/batches/:id/submit',
     requirePermission('payments:batches:submit'),
     validateId,
-    (req, res) => controller.submitBatch(req, res),
+    endpoint(controller.submitBatch.bind(controller)),
   );
   router.post(
     '/batches/:id/approve',
     requirePermission('payments:batches:approve'),
     validateId,
     validate('body', batchApprovalSchema),
-    (req, res) => controller.approveBatch(req, res),
+    endpoint(controller.approveBatch.bind(controller)),
   );
   router.post(
     '/batches/:id/reject',
     requirePermission('payments:batches:reject'),
     validateId,
     validate('body', batchApprovalSchema),
-    (req, res) => controller.rejectBatch(req, res),
+    endpoint(controller.rejectBatch.bind(controller)),
   );
   router.post(
     '/batches/:id/execute',
     requirePermission('payments:batches:execute'),
     validateId,
     validate('body', z.object({ providerId: z.string().trim().min(1) })),
-    (req, res) => controller.executeBatch(req, res),
+    endpoint(controller.executeBatch.bind(controller)),
   );
-  router.get('/batches/:id/progress', requirePermission('payments:read'), validateId, (req, res) =>
-    controller.getBatchProgress(req, res),
+  router.get('/batches/:id/progress', requirePermission('payments:read'), validateId, endpoint(controller.getBatchProgress.bind(controller)),
   );
 
-  router.get('/orders', requirePermission('payments:orders:read'), (req, res) =>
-    controller.listOrders(req, res),
+  router.get('/orders', requirePermission('payments:orders:read'), endpoint(controller.listOrders.bind(controller)),
   );
-  router.get('/orders/:id', requirePermission('payments:orders:read'), validateId, (req, res) =>
-    controller.getOrder(req, res),
+  router.get('/orders/:id', requirePermission('payments:orders:read'), validateId, endpoint(controller.getOrder.bind(controller)),
   );
   router.post(
     '/orders/:id/execute',
     requirePermission('payments:orders:execute'),
     validateId,
     validate('body', orderExecutionSchema),
-    (req, res) => controller.executeOrder(req, res),
+    endpoint(controller.executeOrder.bind(controller)),
   );
   router.get(
     '/orders/:id/attempts',
     requirePermission('payments:orders:read'),
     validateId,
-    (req, res) => controller.listOrderAttempts(req, res),
+    endpoint(controller.listOrderAttempts.bind(controller)),
   );
 
-  router.get('/transactions', requirePermission('payments:transactions:read'), (req, res) =>
-    controller.listTransactions(req, res),
+  router.get('/transactions', requirePermission('payments:transactions:read'), endpoint(controller.listTransactions.bind(controller)),
   );
   router.get(
     '/transactions/:id',
     requirePermission('payments:transactions:read'),
     validateId,
-    (req, res) => controller.getTransaction(req, res),
+    endpoint(controller.getTransaction.bind(controller)),
   );
+  router.get('/transactions/:id/receipt', requirePermission('payments:transactions:read'),
+    requirePermission('payments:export'), validateId, endpoint(controller.transactionReceipt.bind(controller)));
   router.post(
     '/transactions/:id/reconcile',
     requirePermission('payments:reconciliation:execute'),
     validateId,
     validate('body', reconcileSchema),
-    (req, res) => controller.reconcileTransaction(req, res),
+    endpoint(controller.reconcileTransaction.bind(controller)),
   );
 
-  router.get('/bank-accounts', requirePermission('payments:bank-accounts:read'), (req, res) =>
-    controller.listBankAccounts(req, res),
+  router.get('/bank-accounts', requirePermission('payments:bank-accounts:read'), endpoint(controller.listBankAccounts.bind(controller)),
   );
   router.post(
     '/bank-accounts',
     requirePermission('payments:bank-accounts:manage'),
     validate('body', bankAccountSchema),
-    (req, res) => controller.registerBankAccount(req, res),
+    endpoint(controller.registerBankAccount.bind(controller)),
   );
   router.patch(
     '/bank-accounts/:id',
     requirePermission('payments:bank-accounts:manage'),
     validateId,
     validate('body', bankAccountUpdateSchema),
-    (req, res) => controller.updateBankAccount(req, res),
+    endpoint(controller.updateBankAccount.bind(controller)),
   );
   router.post(
     '/bank-accounts/:id/verify',
     requirePermission('payments:bank-accounts:verify'),
     validateId,
-    (req, res) => controller.verifyBankAccount(req, res),
+    endpoint(controller.verifyBankAccount.bind(controller)),
   );
 
-  router.get('/providers', requirePermission('payments:providers:read'), (req, res) =>
-    controller.listProviders(req, res),
+  router.get('/providers', requirePermission('payments:providers:read'), endpoint(controller.listProviders.bind(controller)),
   );
   router.post(
     '/provider-configurations',
     requirePermission('payments:providers:manage'),
     validate('body', providerConfigurationSchema),
-    (req, res) => controller.configureProvider(req, res),
+    endpoint(controller.configureProvider.bind(controller)),
   );
-  router.get('/provider-configurations', requirePermission('payments:providers:read'), (req, res) =>
-    controller.listProviderConfigurations(req, res),
+  router.get('/provider-configurations', requirePermission('payments:providers:read'), endpoint(controller.listProviderConfigurations.bind(controller)),
   );
   router.post(
     '/bank-files',
     requirePermission('payments:export'),
     validate('body', exportRequestSchema),
-    (req, res) => controller.generateBankFile(req, res),
+    endpoint(controller.generateBankFile.bind(controller)),
   );
 
   router.post(
     '/bank-statements/import',
     requirePermission('payments:reconciliation:execute'),
     validate('body', statementImportSchema),
-    (req, res) => controller.importStatement(req, res),
+    endpoint(controller.importStatement.bind(controller)),
   );
-  router.get('/reconciliations', requirePermission('payments:reconciliation:read'), (req, res) =>
-    controller.listReconciliations(req, res),
+  router.get('/reconciliations', requirePermission('payments:reconciliation:read'), endpoint(controller.listReconciliations.bind(controller)),
   );
   router.post(
     '/reconciliations/run',
     requirePermission('payments:reconciliation:execute'),
     validate('body', z.object({ reference: z.string().trim().min(1) })),
-    (req, res) => controller.runReconciliation(req, res),
+    endpoint(controller.runReconciliation.bind(controller)),
   );
   router.get(
     '/reconciliations/:id',
     requirePermission('payments:reconciliation:read'),
     validateId,
-    (req, res) => controller.getReconciliation(req, res),
+    endpoint(controller.getReconciliation.bind(controller)),
   );
   router.post(
     '/reconciliations/:id/resolve',
     requirePermission('payments:reconciliation:resolve'),
     validateId,
-    validate('body', z.object({ notes: z.string().trim().max(2000).optional() })),
-    (req, res) => controller.resolveReconciliationException(req, res),
+    validate('body', reconciliationResolutionSchema),
+    endpoint(controller.resolveReconciliationException.bind(controller)),
   );
 
-  router.get('/returns', requirePermission('payments:transactions:read'), (req, res) =>
-    controller.listReturns(req, res),
+  router.get('/returns', requirePermission('payments:transactions:read'), endpoint(controller.listReturns.bind(controller)),
   );
 
-  router.get('/reports/summary', requirePermission('payments:reports:read'), (req, res) =>
-    controller.summaryReport(req, res),
+  router.get('/reports/summary', requirePermission('payments:reports:read'), endpoint(controller.summaryReport.bind(controller)),
   );
-  router.get('/reports/settlements', requirePermission('payments:reports:read'), (req, res) =>
-    controller.settlementReport(req, res),
+  router.get('/reports/settlements', requirePermission('payments:reports:read'), endpoint(controller.settlementReport.bind(controller)),
   );
-  router.get('/reports/failed', requirePermission('payments:reports:read'), (req, res) =>
-    controller.failedReport(req, res),
+  router.get('/reports/failed', requirePermission('payments:reports:read'), endpoint(controller.failedReport.bind(controller)),
   );
-  router.get('/reports/returns', requirePermission('payments:reports:read'), (req, res) =>
-    controller.returnsReport(req, res),
+  router.get('/reports/returns', requirePermission('payments:reports:read'), endpoint(controller.returnsReport.bind(controller)),
   );
-  router.get('/reports/reconciliation', requirePermission('payments:reports:read'), (req, res) =>
-    controller.reconciliationReport(req, res),
+  router.get('/reports/reconciliation', requirePermission('payments:reports:read'), endpoint(controller.reconciliationReport.bind(controller)),
   );
   router.post(
     '/exports',
     requirePermission('payments:export'),
     validate('body', exportRequestSchema),
-    (req, res) => controller.exportReport(req, res),
+    endpoint(controller.exportReport.bind(controller)),
   );
 
   return router;

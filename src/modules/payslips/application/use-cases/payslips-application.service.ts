@@ -107,30 +107,12 @@ export class PayslipsApplicationService {
         companyId,
         ...(query.status ? { status: query.status } : {}),
         ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+        ...(query.type ? { 'data.type': query.type } : {}),
       };
-      if (query.type) {
-        const rows = (
-          await this.persistence.collections.payslip.findAll({
-            where,
-            order: [['createdAt', 'DESC']],
-            transaction,
-          })
-        )
-          .map(rec)
-          .filter((row) => row.data.type === query.type);
-        return {
-          page: query.page,
-          limit: query.limit,
-          total: rows.length,
-          data: rows
-            .slice((query.page - 1) * query.limit, query.page * query.limit)
-            .map((row) => this.present(row.data)),
-        };
-      }
       const [rows, total] = await Promise.all([
         this.persistence.collections.payslip.findAll({
           where,
-          order: [['createdAt', 'DESC']],
+          order: [['createdAt', 'DESC'], ['id', 'DESC']],
           limit: query.limit,
           offset: (query.page - 1) * query.limit,
           transaction,
@@ -143,6 +125,63 @@ export class PayslipsApplicationService {
         total,
         data: rows.map(rec).map((row) => this.present(row.data)),
       };
+    });
+  }
+
+  async issuanceRuns(companyId: number, page: number) {
+    return this.tenant(companyId, async transaction => {
+      const limit = 25;
+      const rows = await this.sources.runs.findAll({
+        where: { companyId, status: 'CLOSED', runType: { [Op.ne]: 'SIMULATION' } },
+        order: [['createdAt', 'DESC'], ['id', 'DESC']], offset: (page - 1) * limit, limit: limit + 1, transaction,
+      });
+      const runs = rows.slice(0, limit);
+      const periods = runs.length ? await this.sources.periods.findAll({
+        where: { companyId, id: { [Op.in]: [...new Set(runs.map(run => run.periodId))] } }, transaction,
+      }) : [];
+      const byId = new Map(periods.map(period => [period.id, { startDate: period.startDate, endDate: period.endDate }]));
+      return { more: rows.length > limit, items: runs.map(run => ({
+        id: run.id, runType: run.runType, originalRunId: run.originalRunId, period: byId.get(run.periodId),
+      })) };
+    });
+  }
+
+  async issuanceResults(companyId: number, runId: string, page: number, employeeId?: string) {
+    return this.tenant(companyId, async transaction => {
+      const run = await this.sources.runs.findOne({
+        where: { companyId, id: runId, status: 'CLOSED', runType: { [Op.ne]: 'SIMULATION' } }, transaction,
+      });
+      if (!run) throw new NotFoundError('Closed payroll run');
+      const limit = 50;
+      const rows = await this.sources.results.findAll({
+        where: { companyId, runId, ...(employeeId ? { employeeId } : {}) },
+        order: [['employeeId', 'ASC'], ['id', 'ASC']], offset: (page - 1) * limit, limit: limit + 1, transaction,
+      });
+      const keys = rows.slice(0, limit);
+      const employees = keys.length ? await this.sources.employees.findAll({
+        where: { companyId, id: { [Op.in]: keys.map(row => row.employeeId) } }, transaction,
+      }) : [];
+      const people = new Map(employees.map(person => [person.id, person]));
+      return { more: rows.length > limit, items: keys.map(row => {
+        const person = people.get(row.employeeId);
+        return { id: row.id, employeeId: row.employeeId, name: person
+          ? (person.firstName + ' ' + person.lastName).trim() : null, employeeCode: person?.employeeNumber ?? null };
+      }) };
+    });
+  }
+
+  async issuanceTemplates(companyId: number) {
+    return this.tenant(companyId, async transaction => {
+      const versions = await this.persistence.collections.payslipTemplateVersion.findAll({
+        where: { companyId, status: 'PUBLISHED' }, order: [['createdAt', 'DESC']], limit: 100, transaction,
+      });
+      const ids = [...new Set(versions.map(row => row.employeeId).filter(Boolean))];
+      const templates = ids.length ? await this.persistence.collections.payslipTemplate.findAll({
+        where: { companyId, id: { [Op.in]: ids } }, transaction,
+      }) : [];
+      const names = new Map(templates.map(row => [row.id, row.data.name]));
+      return versions.map(row => ({ id: row.id, version: String(row.data.version),
+        name: names.get(String(row.employeeId)) ?? 'Payslip template' }));
     });
   }
 
@@ -165,6 +204,8 @@ export class PayslipsApplicationService {
       });
       if (!run || run.status !== 'CLOSED' || run.runType === 'SIMULATION')
         throw new ConflictError('A payslip requires a closed, non-simulation payroll run.');
+      if (run.runType !== (input.type ?? 'REGULAR'))
+        throw new ConflictError('The receipt type must match the closed payroll run.');
       const result = await this.sources.results.findOne({
         where: {
           companyId,
@@ -529,6 +570,8 @@ export class PayslipsApplicationService {
       if (!['VALIDATED', 'PUBLISHED'].includes(row.status))
         throw new ConflictError('Only validated payslips can be published.');
       if (row.status === 'PUBLISHED') return rec(row).data;
+      if (rec(row).data.type === 'CORRECTION' && !rec(row).data.originalPayslipId)
+        throw new ConflictError('Link the correction to its original payslip before publishing.');
       const publishedAt = now(),
         data: RecordData = {
           ...(row.data as RecordData),
@@ -543,6 +586,8 @@ export class PayslipsApplicationService {
           transaction,
           forUpdate: true,
         });
+        if (!original || !['VALIDATED', 'PUBLISHED'].includes(original.status))
+          throw new ConflictError('The original receipt is no longer eligible for correction.');
         if (original) {
           const originalData = {
             ...rec(original).data,
@@ -644,8 +689,10 @@ export class PayslipsApplicationService {
       };
     });
   }
-  async verification(companyId: number, id: string) {
+  async verification(companyId: number, id: string, actorId?: number) {
     const row = await this.tenant(companyId, (tx) => this.findPayslip(companyId, id, tx));
+    if (!row.data.documentStorageKey || !row.data.documentHash)
+      throw new ConflictError('Payslip document is not available for verification.');
     const file = await this.storage.read(String(row.data.documentStorageKey));
     const actual = createHash('sha256').update(file).digest('hex');
     await this.tenant(companyId, async (tx) => {
@@ -659,7 +706,7 @@ export class PayslipsApplicationService {
           key: id,
           data: {
             payslipId: id,
-            actorId: null,
+            actorId: actorId ?? null,
             action: 'VERIFY',
             verifiedAt: now(),
             valid: actual === row.data.documentHash,
@@ -707,6 +754,8 @@ export class PayslipsApplicationService {
       });
       if (!run || run.runType === 'SIMULATION')
         throw new ConflictError('Batch generation requires a closed financial payroll run.');
+      if (run.runType !== input.type || input.type === 'CORRECTION')
+        throw new ConflictError('The batch type must match its payroll run. Link corrections individually.');
       const version = await this.findTemplateVersion(companyId, input.templateVersionId, tx);
       if (version.status !== 'PUBLISHED')
         throw new ConflictError('Template version must be published.');
@@ -792,7 +841,7 @@ export class PayslipsApplicationService {
       });
       if (!batch) throw new NotFoundError('Payslip batch');
       const itemRows = await this.persistence.collections.payslipBatchItem.findAll({
-        where: { companyId, runId: batch.runId },
+        where: { companyId, runId: batch.runId, key: { [Op.like]: `${id}:%` } },
         transaction: tx,
       });
       const { data } = rec(batch);
@@ -833,7 +882,7 @@ export class PayslipsApplicationService {
             { transaction: tx },
           );
       });
-      await this.generate(companyId, actor, {
+      const generated = await this.generate(companyId, actor, {
         payrollRunId: batch.payrollRunId,
         payrollResultId: item.payrollResultId,
         employeeId: item.employeeId,
@@ -841,6 +890,8 @@ export class PayslipsApplicationService {
         type: batch.type,
         idempotencyKey: item.id,
       });
+      if (!['VALIDATED', 'PUBLISHED'].includes(generated.status))
+        throw new ConflictError('The batch item has no publishable payslip.');
       await this.tenant(companyId, async (tx) => {
         const row = await this.persistence.collections.payslipBatchItem.findOne({
           where: { companyId, id: itemId },
@@ -849,7 +900,7 @@ export class PayslipsApplicationService {
         if (row)
           await this.persistence.update(
             row,
-            { status: 'GENERATED', data: { ...rec(row).data, status: 'GENERATED' } },
+            { status: 'GENERATED', data: { ...rec(row).data, status: 'GENERATED', payslipId: generated.id } },
             { transaction: tx },
           );
       });
@@ -888,7 +939,7 @@ export class PayslipsApplicationService {
       if (!batch) throw new NotFoundError('Payslip batch');
       const rows = (
         await this.persistence.collections.payslipBatchItem.findAll({
-          where: { companyId, runId: batch.runId },
+          where: { companyId, runId: batch.runId, key: { [Op.like]: `${id}:%` } },
           transaction: tx,
         })
       )
@@ -899,7 +950,7 @@ export class PayslipsApplicationService {
       const status =
         complete + failed === rows.length
           ? failed
-            ? 'PARTIALLY_COMPLETED'
+            ? complete ? 'PARTIALLY_COMPLETED' : 'FAILED'
             : 'COMPLETED'
           : complete || failed
             ? 'STARTED'
@@ -976,6 +1027,8 @@ export class PayslipsApplicationService {
             employeeId: item.employeeId,
             runId: batch.payrollRunId,
             status: 'VALIDATED',
+            key: `${item.payrollResultId}:${batch.type}`,
+            ...(item.payslipId ? { id: item.payslipId } : {}),
           },
           transaction: tx,
         }),
@@ -1238,6 +1291,8 @@ export class PayslipsApplicationService {
     const original = await this.tenant(companyId, (tx) =>
       this.findPayslip(companyId, originalId, tx),
     );
+    if (!['VALIDATED', 'PUBLISHED'].includes(original.status) || original.data.type === 'DUPLICATE_COPY')
+      throw new ConflictError('The original must be a current, issued payslip.');
     const correctionRun = await this.tenant(companyId, async (tx) =>
       this.sources.runs.findOne({
         where: { companyId, id: input.payrollRunId, status: 'CLOSED' },
@@ -1266,11 +1321,16 @@ export class PayslipsApplicationService {
         forUpdate: true,
       });
       if (!generated) throw new NotFoundError('Correction payslip');
+      const correction = rec(generated);
+      if (correction.data.originalPayslipId && correction.data.originalPayslipId !== originalId)
+        throw new ConflictError('This correction is already linked to another receipt.');
+      if (!['VALIDATED', 'PUBLISHED'].includes(correction.status))
+        throw new ConflictError('The correction document has not finished generating.');
       await this.persistence.update(
         generated,
         {
           data: {
-            ...rec(generated).data,
+            ...correction.data,
             originalPayslipId: originalId,
             correctionReason: input.reason.trim(),
           },
@@ -1516,21 +1576,14 @@ export class PayslipsApplicationService {
   }
   async reportSummary(companyId: number) {
     return this.tenant(companyId, async (tx) => {
-      const rows = (
-        await this.persistence.collections.payslip.findAll({
-          where: { companyId },
-          transaction: tx,
-        })
-      ).map(rec);
+      const rows = await this.persistence.collections.payslip.count({ where: { companyId }, group: ['status'], transaction: tx });
+      const totals = new Map(Array.isArray(rows) ? rows.map(row => [row.status, Number(row.count)]) : []);
+      const count = (...statuses: string[]) => statuses.reduce((total, status) => total + (totals.get(status) ?? 0), 0);
       return {
-        totalGenerated: rows.filter((row) =>
-          ['GENERATED', 'VALIDATED', 'PUBLISHED', 'SUPERSEDED', 'ARCHIVED'].includes(row.status),
-        ).length,
-        published: rows.filter((row) => row.status === 'PUBLISHED').length,
-        pending: rows.filter((row) => ['PENDING', 'GENERATING'].includes(row.status)).length,
-        failed: rows.filter((row) =>
-          ['GENERATION_FAILED', 'PUBLICATION_FAILED'].includes(row.status),
-        ).length,
+        totalGenerated: count('GENERATED', 'VALIDATED', 'PUBLISHED', 'SUPERSEDED', 'ARCHIVED'),
+        published: count('PUBLISHED'),
+        pending: count('PENDING', 'GENERATING'),
+        failed: count('GENERATION_FAILED', 'PUBLICATION_FAILED'),
       };
     });
   }

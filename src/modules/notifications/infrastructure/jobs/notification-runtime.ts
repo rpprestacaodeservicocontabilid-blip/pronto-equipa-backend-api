@@ -8,6 +8,10 @@ export class NotificationRuntime {
   private timer?: ReturnType<typeof setInterval>;
   private queue?: Queue;
   private worker?: Worker;
+
+  operationalHandles() {
+    return { queue: this.queue, worker: this.worker };
+  }
   private running = false;
   constructor(private service: NotificationsService) {}
   start() {

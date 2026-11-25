@@ -1,7 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 
 import { CompanyController } from '../controllers/company.controller';
-import { createCompanySchema, listCompaniesSchema } from '../schemas/company.schema';
+import { listMembersSchema } from '../schemas/member.schema';
+import { createCompanySchema, listCompaniesSchema, updateCompanySchema } from '../schemas/company.schema';
 
 type Middleware = (req: Request, res: Response, next: NextFunction) => void;
 
@@ -129,6 +130,13 @@ export const createPlatformCompanyRoutes = (controller: CompanyController): Rout
    *       200: { description: Empresa suspensa }
    *       409: { description: Estado inválido }
    */
+  router.get('/companies/summary', (req, res) => controller.platformSummary(req, res));
+  router.get('/companies/:id', (req, res) => controller.platformDetails(req, res));
+  router.get('/companies/:id/members', validateQuery(listMembersSchema), (req, res) =>
+    controller.platformMembers(req, res),
+  );
+  router.patch('/companies/:id', validate(updateCompanySchema), (req, res) => controller.platformUpdate(req, res));
+
   router.patch('/companies/:id/suspend', (req, res) => controller.suspend(req, res));
 
   /**

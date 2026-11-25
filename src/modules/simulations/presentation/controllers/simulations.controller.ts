@@ -6,6 +6,7 @@ import {
   createScenarioSchema,
   decisionSchema,
   exportSchema,
+  idSchema,
   projectionSchema,
   proposalSchema,
   runListSchema,
@@ -37,7 +38,7 @@ export class SimulationsController {
   async scenario(req: Request, res: Response) {
     const c = this.context(req, res);
     if (!c) return;
-    if (req.method === 'PATCH') {
+    if (req.method === 'PATCH' || req.method === 'POST') {
       res.json({
         success: true,
         data: await this.simulations.updateScenario(
@@ -144,7 +145,7 @@ export class SimulationsController {
     if (!c) return;
     res.json({
       success: true,
-      data: await this.simulations.explanation(c.companyId, req.params.id, req.params.employeeId),
+      data: await this.simulations.explanation(c.companyId, req.params.id, idSchema.parse(req.query.employeeId)),
     });
   }
   async compare(req: Request, res: Response) {

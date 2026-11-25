@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { z } from 'zod';
 import { PayslipsApplicationService } from '../../application/use-cases/payslips-application.service';
 import {
   correctionSchema,
@@ -14,8 +15,24 @@ import {
   templateVersionSchema,
 } from '../schemas/payslips.schema';
 
+const issuanceQuery = z.object({ page: z.coerce.number().int().min(1).max(100000).default(1) });
+
 export class PayslipsController {
   constructor(private readonly payslips: PayslipsApplicationService) {}
+  async issuanceRuns(req: Request, res: Response) {
+    const company = this.companyId(res);
+    if (company) res.json({ success: true, data: await this.payslips.issuanceRuns(company, issuanceQuery.parse(req.query).page) });
+  }
+  async issuanceResults(req: Request, res: Response) {
+    const company = this.companyId(res);
+    if (!company) return;
+    const { page, employeeId } = issuanceQuery.extend({ employeeId: z.string().uuid().optional() }).parse(req.query);
+    res.json({ success: true, data: await this.payslips.issuanceResults(company, req.params.id, page, employeeId) });
+  }
+  async issuanceTemplates(_req: Request, res: Response) {
+    const company = this.companyId(res);
+    if (company) res.json({ success: true, data: await this.payslips.issuanceTemplates(company) });
+  }
   async list(req: Request, res: Response) {
     const companyId = this.companyId(res);
     if (!companyId) return;
@@ -83,11 +100,11 @@ export class PayslipsController {
     res.status(200).json({ success: true, data: await this.payslips.history(id, req.params.id) });
   }
   async verification(req: Request, res: Response) {
-    const id = this.companyId(res);
-    if (!id) return;
+    const c = this.context(req, res);
+    if (!c) return;
     res
       .status(200)
-      .json({ success: true, data: await this.payslips.verification(id, req.params.id) });
+      .json({ success: true, data: await this.payslips.verification(c.companyId, req.params.id, c.actorUserId) });
   }
   async listBatches(req: Request, res: Response) {
     const id = this.companyId(res);

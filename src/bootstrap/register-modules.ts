@@ -24,6 +24,7 @@ import { DatabaseManager } from '../infra/database';
 import { RedisManager } from '../infra/redis';
 import { RabbitMQManager } from '../infra/rabbitmq';
 import JobsManager from '../jobs';
+import { OPERATIONS_QUEUE_SOURCES, queueReader } from '../modules/platform-operations/queue-inventory';
 import { PayrollRuntime } from '../modules/payroll/infrastructure/jobs/payroll-runtime';
 import { sharedModule } from '../shared/shared.module';
 import {
@@ -57,6 +58,19 @@ export function defaultModules(): ModuleDefinition[] {
     // Registado primeiro — qualquer módulo posterior resolve
     // os tokens na fase `register`.
     sharedModule(),
+    {
+      name: 'platform-operations',
+      register(container) {
+        container.register(OPERATIONS_QUEUE_SOURCES, () => [
+          queueReader('payroll', () => payrollRuntime.operationalHandles()),
+          queueReader('notifications', () => notifications.runtime.operationalHandles()),
+          queueReader('documents', () => documents.runtime.operationalHandles()),
+          queueReader('payslips', () => payslips.runtime.operationalHandles()),
+          queueReader('simulations', () => simulations.runtime.operationalHandles()),
+          queueReader('subscriptions', () => subscriptions.runtime.operationalHandles()),
+        ]);
+      },
+    },
     {
       name: 'database',
       critical: true,

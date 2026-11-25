@@ -31,6 +31,7 @@ export function createSimulationsModule(options: SimulationsModuleOptions) {
   const controller = new SimulationsController(service);
   const runtime = new SimulationsRuntime(service);
   return {
+    service,
     routes: createSimulationsRoutes(controller, service, options.requirePermission),
     runtime,
   };

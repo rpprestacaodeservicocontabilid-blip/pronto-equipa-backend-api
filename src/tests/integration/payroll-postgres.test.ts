@@ -19,6 +19,7 @@ suite('Payroll PostgreSQL RLS and immutability', () => {
     admin = new Sequelize(url, { logging: false });
     await admin.query(`CREATE SCHEMA "${schema}"`);
     db = new Sequelize(url, {
+      schema,
       logging: false,
       dialectOptions: { options: `-c search_path=${schema}` },
     });

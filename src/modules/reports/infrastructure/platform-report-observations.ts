@@ -21,6 +21,10 @@ const workflowEvents = {
     'payments.batch.rejected', 'payments.order.submitted', 'payments.order.failed',
     'payments.transaction.returned', 'payments.reconciliation.started', 'payments.reconciliation.resolved',
   ],
+  SIMULATION_ACTIVITY: [
+    'SIMULATION_SCENARIO_CREATED', 'SIMULATION_RUN_REQUESTED', 'SIMULATION_RUN_FINISHED',
+    'SIMULATION_RUN_CANCELLED', 'SIMULATION_PROPOSAL_SUBMITTED', 'SIMULATION_EXPORT_CREATED',
+  ],
 };
 
 const postgres = () => sequelize.getDialect() === 'postgres';

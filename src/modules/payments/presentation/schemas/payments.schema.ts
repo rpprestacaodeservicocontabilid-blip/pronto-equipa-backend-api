@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const paymentIdSchema = z.string().trim().min(1);
+export const paymentIdSchema = z.string().uuid();
 
 export const listQuerySchema = z
   .object({
@@ -23,7 +23,7 @@ export const paymentInstructionSchema = z
       .trim()
       .length(3)
       .transform((value) => value.toUpperCase())
-      .default('AOA'),
+      .optional(),
     paymentType: z
       .enum([
         'REGULAR_SALARY',
@@ -77,6 +77,11 @@ export const batchApprovalSchema = z
     reason: z.string().trim().max(1000).optional(),
   })
   .strict();
+
+export const reconciliationResolutionSchema = z.object({
+  notes: z.string().trim().min(1).max(2000),
+  evidence: z.array(z.string().trim().min(1).max(200)).min(1).max(20),
+}).strict();
 
 export const paymentPolicySchema = z
   .object({

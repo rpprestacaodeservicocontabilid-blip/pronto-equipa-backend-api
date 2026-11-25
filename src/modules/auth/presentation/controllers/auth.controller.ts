@@ -195,8 +195,7 @@ export class AuthController {
     const refreshToken = browserRefreshToken(req);
     if (!refreshToken) return res.sendStatus(204);
     try {
-      // Resuming a browser session is read-only, so simultaneous tabs and repeated reloads can safely retry.
-      return res.json(await this.refreshTokenUseCase.resumeBrowserSession(refreshToken));
+      return sendSession(req, res, await this.refreshTokenUseCase.resumeBrowserSession(refreshToken));
     } catch (error) {
       if (error instanceof InvalidRefreshTokenError) {
         return res.sendStatus(204);

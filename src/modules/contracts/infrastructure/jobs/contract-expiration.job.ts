@@ -4,6 +4,7 @@ import { CompanyModel } from '../../../tenancy/infrastructure/persistence/models
 import { SequelizeContractRepository } from '../persistence/repositories/sequelize-contract.repository';
 
 export class ContractExpirationJob {
+  static readonly timezone = 'Africa/Luanda';
   private readonly repository = new SequelizeContractRepository();
   private readonly job = new CronJob(
     '0 0 2 * * *',
@@ -14,7 +15,7 @@ export class ContractExpirationJob {
     },
     null,
     false,
-    'Africa/Luanda',
+    ContractExpirationJob.timezone,
   );
 
   start(): void {
@@ -23,6 +24,10 @@ export class ContractExpirationJob {
 
   stop(): void {
     this.job.stop();
+  }
+
+  nextRunAt(): string | null {
+    return this.job.running ? this.job.nextDate().toISO() : null;
   }
 
   async run(

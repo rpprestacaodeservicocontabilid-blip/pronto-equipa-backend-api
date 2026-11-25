@@ -1,3 +1,6 @@
+import { auditRequestContext } from '../../../../shared/infrastructure/context/audit-request-context';
+import { AuditLogModel } from '../persistence/models/audit-log.model';
+import { resolveRecordTransaction } from '../../../../shared/infrastructure/persistence/sequelize-record-store';
 import { randomUUID } from 'crypto';
 import path from 'path';
 import { AuditServices } from '../../application/use-cases/audit-services';
@@ -92,6 +95,26 @@ export function createAuditModule(options: {
   };
   return {
     services,
+    transactionalActivityAudit: {
+      async append(input, context) {
+        const origin = auditRequestContext.getStore();
+        const receipt = await transactionalAudit.append({
+          ...input, requestId: input.requestId ?? origin?.requestId,
+          correlationId: input.correlationId ?? origin?.requestId,
+        }, context);
+        if (!receipt.duplicate) {
+          await AuditLogModel.create({
+            companyId: input.tenantId ? Number(input.tenantId) : null,
+            actorUserId: input.actor.actorType === 'USER' ? Number(input.actor.actorId) : null,
+            action: input.action, entityType: input.resource.resourceType, entityId: input.resource.resourceId,
+            before: Object.fromEntries((input.changes ?? []).map(change => [change.field, change.before])),
+            after: { ...input.metadata, ...Object.fromEntries((input.changes ?? []).map(change => [change.field, change.after])) },
+            createdAt: new Date(input.occurredAt),
+          }, { transaction: resolveRecordTransaction(context) });
+        }
+        return receipt;
+      },
+    } satisfies TransactionalAuditPort,
     transactionalAudit,
     routes: createAuditEngineRoutes(services, options.authorize),
     platformRoutes: createAuditEngineRoutes(services, options.authorize, true),

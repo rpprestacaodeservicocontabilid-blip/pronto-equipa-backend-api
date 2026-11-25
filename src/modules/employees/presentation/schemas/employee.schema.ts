@@ -49,12 +49,23 @@ export const updateEmployeePersonalInfoSchema = z
     message: 'At least one field is required.',
   });
 
+const directoryFilters = {
+  admittedFrom: dateOnly.optional(),
+  admittedTo: dateOnly.optional(),
+  departmentId: z.coerce.number().int().positive().max(2147483647).optional(),
+  sort: z.enum(['name', 'admission-desc']).optional(),
+};
+const chronological = (value: { admittedFrom?: string; admittedTo?: string }) =>
+  !value.admittedFrom || !value.admittedTo || value.admittedFrom <= value.admittedTo;
+const admissionRangeMessage = { path: ['admittedTo'], message: 'End date must be on or after start date.' };
+
 export const listEmployeesSchema = z.object({
+  ...directoryFilters,
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   status: z.enum(['ACTIVE', 'SUSPENDED', 'ON_LEAVE', 'TERMINATED']).optional(),
   search: z.string().trim().max(100).optional(),
-});
+}).refine(chronological, admissionRangeMessage);
 
 export const changeEmployeeStatusSchema = z.object({
   status: z.enum(['ACTIVE', 'SUSPENDED', 'ON_LEAVE', 'TERMINATED']),
@@ -106,12 +117,13 @@ export const importEmployeesSchema = z.object({
 });
 
 export const exportEmployeesSchema = z.object({
+  ...directoryFilters,
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(1000).default(100),
   status: z.enum(['ACTIVE', 'SUSPENDED', 'ON_LEAVE', 'TERMINATED']).optional(),
   search: z.string().trim().max(100).optional(),
   format: z.enum(['json', 'csv']).default('json'),
-});
+}).refine(chronological, admissionRangeMessage);
 
 export type CreateEmployeeDto = z.infer<typeof createEmployeeSchema>;
 export type UpdateEmployeeDto = z.infer<typeof updateEmployeeSchema>;

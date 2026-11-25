@@ -1,6 +1,7 @@
 import {
   SubscriptionPersistencePort,
   SubscriptionRecord,
+  SubscriptionCollection,
 } from '../ports/subscription-persistence.port';
 import {
   RecordStorePort,
@@ -414,16 +415,28 @@ export class SubscriptionsApplicationService {
       throw fail('Código e nome de plano são obrigatórios.');
     if (!['FREE', 'TRIAL', 'STANDARD', 'PROFESSIONAL', 'ENTERPRISE', 'CUSTOM'].includes(input.type))
       throw fail('Tipo de plano inválido.');
+    const intervals = new Set<string>();
     for (const p of input.prices || []) {
+      if (intervals.has(p.interval)) throw fail('Configure apenas um preço por periodicidade.');
+      intervals.add(p.interval);
       if (!/^[A-Z]{3}$/.test(p.currency)) throw fail('Moeda ISO inválida.');
       money(p.amount);
     }
-    for (const metric of Object.keys(input.limits || {}))
+    for (const [metric, limit] of Object.entries(input.limits || {})) {
       if (!SUBSCRIPTION_METRICS.includes(metric as any))
         throw fail(`Métrica não suportada: ${metric}`);
+      if (limit.value !== null && !/^\d{1,18}$/.test(limit.value)) throw fail('Limite inválido.');
+    }
   }
   private async emitPlatform(event: string, id: string, data: Record<string, any>) {
     await this.platform((tx) => this.emit(null, event, id, data, tx));
+  }
+  private async assertCurrentPlanVersion(version: SubscriptionRecord, tx: RecordStoreContext) {
+    const plan = await this.persistence.collections.subscriptionPlan.findOne({
+      where: { companyId: null, id: version.runId, status: 'PUBLISHED' }, transaction: tx,
+    });
+    if (!plan || plan.data.currentVersionId !== version.id)
+      throw fail('Seleccione a versão comercial vigente de um plano publicado.', 409);
   }
 
   async createSubscription(
@@ -469,6 +482,7 @@ export class SubscriptionsApplicationService {
         transaction: tx,
       });
       if (!version) throw fail('Versão publicada não encontrada.', 404);
+      await this.assertCurrentPlanVersion(version, tx);
       const prices = await this.persistence.collections.subscriptionPlanPrice.findAll({
         where: { companyId: null, runId: version.id, status: 'ACTIVE' },
         transaction: tx,
@@ -476,13 +490,13 @@ export class SubscriptionsApplicationService {
       const price = prices.find((row: any) => row.data.interval === input.interval);
       if (!price && version.data.type !== 'FREE')
         throw fail('O plano não possui preço para a periodicidade escolhida.', 422);
-      const policy = await this.policy(companyId),
+      const policy = await this.policy(companyId, tx),
         now = new Date(),
         trialDays = Math.min(
           90,
           Math.max(
             0,
-            input.trialDays ?? (version.data.type === 'TRIAL' ? Number(policy.trialDays || 14) : 0),
+            input.trialDays ?? (version.data.type === 'TRIAL' ? Number(policy.trialDays ?? 14) : 0),
           ),
         );
       let status: string, ends: Date;
@@ -668,6 +682,7 @@ export class SubscriptionsApplicationService {
     });
     const version = await this.persistence.collections.subscriptionPlanVersion.findOne({
       where: { companyId: null, id: row.data.planVersionId },
+      transaction: tx,
     });
     return {
       ...this.present(row),
@@ -729,33 +744,15 @@ export class SubscriptionsApplicationService {
         id,
         tx,
       );
-      if (row.status === 'CANCELLED' && row.data.cancelAtPeriodEnd) {
-        await this.persistence.update(
-          row,
-          { status: 'ACTIVE', data: { ...row.data, cancelAtPeriodEnd: false, cancelledAt: null } },
-          { transaction: tx },
-        );
-        await this.transition(
-          companyId,
-          row,
-          'CANCELLED',
-          'ACTIVE',
-          'CANCELATION_REVERSED',
-          actor,
-          tx,
-        );
-      } else if (row.status === 'SUSPENDED' || row.status === 'GRACE_PERIOD') {
-        await this.persistence.update(
-          row,
-          {
-            status: 'ACTIVE',
-            data: { ...row.data, graceEndsAt: null, reactivatedAt: new Date().toISOString() },
-          },
-          { transaction: tx },
-        );
-        await this.transition(companyId, row, row.status, 'ACTIVE', 'REACTIVATED', actor, tx);
-      } else throw fail('Subscrição não pode ser reactivada.', 409);
+      if (!['ACTIVE', 'TRIALING'].includes(row.status) || !row.data.cancelAtPeriodEnd ||
+        !(Date.parse(row.data.currentPeriodEnd) > Date.now()))
+        throw fail('Apenas cancelamentos futuros podem ser revertidos pela empresa.', 409);
+      await this.persistence.update(row, {
+        data: { ...row.data, cancelAtPeriodEnd: false, cancelReason: null, cancelRequestedAt: null },
+      }, { transaction: tx });
+      await this.transition(companyId, row, row.status, row.status, 'CANCELATION_REVERSED', actor, tx);
       await this.emit(companyId, 'subscriptions.subscription.reactivated', id, {}, tx);
+
       return this.present(row);
     });
   }
@@ -780,8 +777,10 @@ export class SubscriptionsApplicationService {
         throw fail('Subscrição não permite alterações neste estado.', 409);
       const target = await this.persistence.collections.subscriptionPlanVersion.findOne({
         where: { companyId: null, id: input.planVersionId, status: 'PUBLISHED' },
+        transaction: tx,
       });
       if (!target) throw fail('Plano pretendido não está publicado.', 404);
+      await this.assertCurrentPlanVersion(target, tx);
       const req = await this.create(
         companyId,
         this.persistence.collections.subscriptionChangeRequest,
@@ -1496,10 +1495,10 @@ export class SubscriptionsApplicationService {
     );
     return rows.map((r: any) => this.present(r));
   }
-  async platformSubscription(companyId: number) {
+  async platformSubscription(companyId: number, id?: string) {
     return this.tenant(companyId, async (tx) => {
       const row = await this.persistence.collections.tenantSubscription.findOne({
-        where: { companyId },
+        where: { companyId, ...(id ? { id } : {}) },
         order: [['createdAt', 'DESC']],
         transaction: tx,
       });
@@ -1511,6 +1510,7 @@ export class SubscriptionsApplicationService {
     actor: number,
     status: 'SUSPENDED' | 'ACTIVE',
     reason: string,
+    expectedId?: string,
   ) {
     return this.tenant(companyId, async (tx) => {
       const sub = await this.persistence.collections.tenantSubscription.findOne({
@@ -1520,13 +1520,20 @@ export class SubscriptionsApplicationService {
         forUpdate: true,
       });
       if (!sub) throw fail('Subscrição vigente não encontrada.', 404);
+      if (expectedId && sub.id !== expectedId) throw fail('A subscrição vigente mudou. Actualize a consulta.', 409);
       const from = sub.status;
+      if (from === status) return this.present(sub);
+      if (status === 'SUSPENDED' && from !== 'ACTIVE') throw fail('Apenas subscrições activas podem ser suspensas manualmente.', 409);
+      if (status === 'ACTIVE' && (from !== 'SUSPENDED' || sub.data.suspendedFrom !== 'ACTIVE' ||
+        !(Date.parse(sub.data.currentPeriodEnd) > Date.now())))
+        throw fail('A reactivação manual exige uma suspensão administrativa e um período comercial ainda válido.', 409);
       await this.persistence.update(
         sub,
         {
           status,
           data: {
             ...sub.data,
+            suspendedFrom: status === 'SUSPENDED' ? from : null,
             [status === 'SUSPENDED' ? 'suspendedAt' : 'reactivatedAt']: new Date().toISOString(),
             reason,
           },
@@ -1586,10 +1593,12 @@ export class SubscriptionsApplicationService {
       return this.present(row);
     });
   }
-  async policy(companyId?: number) {
-    const where = { companyId: companyId ?? null, key: 'policy' };
-    const row = await this.persistence.collections.subscriptionPolicy.findOne({ where });
-    return row?.data || { trialDays: 14, graceDays: 7, renewalNoticeDays: 30, allowOverage: false };
+  async policy(companyId?: number, transaction?: RecordStoreContext) {
+    const collection = this.persistence.collections.subscriptionPolicy;
+    const defaults = await collection.findOne({ where: { companyId: null, key: 'policy' }, transaction });
+    const local = companyId ? await collection.findOne({ where: { companyId, key: 'policy' }, transaction }) : null;
+    return { trialDays: 14, graceDays: 7, renewalNoticeDays: 30, allowOverage: false, trialEligibleOnce: true,
+      ...defaults?.data, ...local?.data };
   }
   async updatePolicy(actor: number, input: Record<string, any>) {
     const row = await this.platform(async (tx) => {
@@ -1701,8 +1710,8 @@ export class SubscriptionsApplicationService {
     }
     return { plans, ...totals };
   }
-  async listSubscriptions(status?: string, limit = 50) {
-    const companies = await this.persistence.companyIds();
+  async listSubscriptions(status?: string, limit = 50, selectedCompany?: number) {
+    const companies = selectedCompany ? [{ id: selectedCompany }] : await this.persistence.companyIds();
     const results: SubscriptionRecord[] = [];
     for (const c of companies) {
       const rows = await this.tenant(Number(c.id), (tx) =>
@@ -1719,6 +1728,30 @@ export class SubscriptionsApplicationService {
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
       .slice(0, Math.min(100, limit))
       .map((r) => this.present(r));
+  }
+  async adminCreateSubscription(companyId: number, actor: number, input: Parameters<SubscriptionsApplicationService['createSubscription']>[2]) {
+    if (!(await this.persistence.companyIds()).some(company => Number(company.id) === companyId))
+      throw fail('Empresa não encontrada.', 404);
+    return this.createSubscription(companyId, actor, input);
+  }
+
+  async adminRecords(companyId: number, id: string, kind: string, page: number, limit: number) {
+    const views = new Map<string, SubscriptionCollection>([
+      ['changes', 'subscriptionChangeRequest'], ['usage', 'subscriptionUsageAccount'],
+      ['overrides', 'subscriptionOverride'], ['history', 'subscriptionTransition'],
+      ['periods', 'subscriptionPeriod'], ['alerts', 'subscriptionNotification'],
+    ]);
+    const view = views.get(kind);
+    if (!view) throw fail('Vista inválida.', 400);
+    return this.tenant(companyId, async tx => {
+      await this.one(companyId, this.persistence.collections.tenantSubscription, id, tx);
+      const collection = this.persistence.collections[view];
+      const where = { companyId, runId: id };
+      const items = await collection.findAll({ where, order: [['createdAt', 'DESC'], ['id', 'DESC']],
+        offset: (page - 1) * limit, limit, transaction: tx });
+      const total = Number(await collection.count({ where, transaction: tx }));
+      return { items: items.map(row => this.present(row)), page, limit, total };
+    });
   }
   async changeRequests(companyId: number, status?: string) {
     const rows = await this.tenant(companyId, (tx) =>
@@ -1775,6 +1808,7 @@ export class SubscriptionsApplicationService {
       );
       if (!['ACTIVE', 'GRACE_PERIOD'].includes(sub.status))
         throw fail('Subscrição não pode ser renovada neste estado.', 409);
+      if (sub.data.cancelAtPeriodEnd) throw fail('A subscrição tem cancelamento agendado.', 409);
       const invoiceRequestKey = `renewal-request:${sub.id}:${sub.data.currentPeriodEnd}`;
       const old = await this.persistence.collections.subscriptionOutbox.findOne({
         where: { companyId, key: invoiceRequestKey },
@@ -1826,11 +1860,14 @@ export class SubscriptionsApplicationService {
         transaction: tx,
       });
       if (!version) throw fail('Plano comercial não publicado.', 404);
+      await this.assertCurrentPlanVersion(version, tx);
       const prices = await this.persistence.collections.subscriptionPlanPrice.findAll({
         where: { companyId: null, runId: planVersionId, status: 'ACTIVE' },
         transaction: tx,
       });
       const price = prices.find((row: any) => row.data.interval === interval);
+      if (!price && version.data.type !== 'FREE')
+        throw fail('O plano não possui preço para a periodicidade escolhida.', 422);
       const now = new Date();
       if (!price || Number(price.data.amount) === 0) {
         const end = addInterval(now, interval, version.data.customDays);
@@ -2065,9 +2102,9 @@ export class SubscriptionsApplicationService {
         input.type === 'platform-billing.payment.failed' ||
         input.type === 'platform-billing.invoice.overdue'
       ) {
-        const policy = await this.policy(input.companyId),
+        const policy = await this.policy(input.companyId, tx),
           from = sub.status,
-          graceEnds = new Date(Date.now() + Number(policy.graceDays || 7) * 86400000);
+          graceEnds = new Date(Date.now() + Number(policy.graceDays ?? 7) * 86400000);
         await this.persistence.update(
           sub,
           {
@@ -2117,7 +2154,7 @@ export class SubscriptionsApplicationService {
   }
   async runLifecycle(companyId: number) {
     return this.tenant(companyId, async (tx) => {
-      const policy = await this.policy(companyId);
+      const policy = await this.policy(companyId, tx);
       const rows = await this.persistence.collections.tenantSubscription.findAll({
         where: { companyId, status: { [Op.in]: ['TRIALING', 'ACTIVE', 'GRACE_PERIOD'] } },
         transaction: tx,
@@ -2143,7 +2180,7 @@ export class SubscriptionsApplicationService {
           sub.status === 'TRIALING' &&
           !sub.data.trialExpiringAt &&
           new Date(sub.data.currentPeriodEnd).getTime() - now.getTime() <=
-            Number(policy.renewalNoticeDays || 7) * 86400000
+            Number(policy.renewalNoticeDays ?? 7) * 86400000
         ) {
           await this.persistence.update(
             sub,
@@ -2211,7 +2248,7 @@ export class SubscriptionsApplicationService {
           new Date(sub.data.currentPeriodEnd) <= now &&
           !sub.data.cancelAtPeriodEnd
         ) {
-          const graceEnds = new Date(now.getTime() + Number(policy.graceDays || 7) * 86400000);
+          const graceEnds = new Date(now.getTime() + Number(policy.graceDays ?? 7) * 86400000);
           await this.persistence.update(
             sub,
             {
@@ -2244,7 +2281,7 @@ export class SubscriptionsApplicationService {
         } else if (
           sub.status === 'ACTIVE' &&
           new Date(sub.data.currentPeriodEnd).getTime() - now.getTime() <=
-            Number(policy.renewalNoticeDays || 30) * 86400000 &&
+            Number(policy.renewalNoticeDays ?? 30) * 86400000 &&
           !sub.data.renewalRequestedAt
         ) {
           const key = `renewal-request:${sub.id}:${sub.data.currentPeriodEnd}`;

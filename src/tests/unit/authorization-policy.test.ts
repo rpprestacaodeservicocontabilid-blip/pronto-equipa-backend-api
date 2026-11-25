@@ -28,6 +28,15 @@ describe('Authorization domain policy', () => {
     expect(() => PermissionCode.create('payroll')).toThrow('Invalid permission code.');
   });
 
+  it.each(['notifications:read', 'support:tickets:read', 'billing:invoices:read'])(
+    'evaluates existing colon-delimited grants for %s', permission => {
+      const request = { ...baseRequest, permission, scope: AuthorizationScope.platform() };
+      expect(policy.authorize({ ...request, effectivePermissions: [{ code: permission, scope: 'platform' }] })).toBe(true);
+      expect(policy.authorize({ ...request, effectivePermissions: [] })).toBe(false);
+      expect(PermissionCode.create(permission).operation).toBe('read');
+    },
+  );
+
   it('denies missing or cross-tenant membership and resources', () => {
     expect(
       policy.authorize({

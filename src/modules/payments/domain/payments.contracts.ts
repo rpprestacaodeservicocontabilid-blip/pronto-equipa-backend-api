@@ -146,8 +146,9 @@ export interface PaymentReturn {
 }
 
 export interface PaymentSummaryReport {
-  totalAuthorized: string;
-  totalConfirmed: string;
+  totalAuthorized: string | null;
+  totalConfirmed: string | null;
   pendingPayments: number;
   failedPayments: number;
+  byCurrency: { currency: string; authorized: string; confirmed: string }[];
 }

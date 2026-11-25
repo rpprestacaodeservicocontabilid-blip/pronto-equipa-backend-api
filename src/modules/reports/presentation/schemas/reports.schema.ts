@@ -20,7 +20,7 @@ export const customReportSchema = z.object({
   name: z.string().trim().min(2).max(120),
   code: z.string().regex(/^RPT-[A-Z]+-\d{3}$/),
   fields: z.array(z.string().trim().min(1).max(60)).min(1).max(40),
-  filters: z.record(z.string(), z.unknown()).optional(),
+  filters: reportFiltersSchema.optional(),
 });
 export const scheduleSchema = z.object({
   code: z.string().regex(/^RPT-[A-Z]+-\d{3}$/),

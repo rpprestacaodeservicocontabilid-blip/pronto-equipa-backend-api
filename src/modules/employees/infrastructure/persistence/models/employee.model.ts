@@ -87,6 +87,7 @@ EmployeeModel.init(
         fields: ['companyId', 'employeeNumber'],
         name: 'uq_employees_company_number',
       },
+      { unique: true, fields: ['companyId', 'id'], name: 'uq_employees_company_id' },
       { fields: ['companyId', 'status'], name: 'idx_employees_company_status' },
       { fields: ['companyId', 'lastName', 'firstName'], name: 'idx_employees_company_name' },
     ],

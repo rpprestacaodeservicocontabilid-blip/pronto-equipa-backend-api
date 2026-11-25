@@ -7,6 +7,10 @@ import { DocumentsApplicationService } from '../../application/use-cases/documen
 export class DocumentsRuntime {
   private queue?: Queue;
   private worker?: Worker;
+
+  operationalHandles() {
+    return { queue: this.queue, worker: this.worker };
+  }
   private expiryTimer?: ReturnType<typeof setInterval>;
   private expiring = false;
   constructor(private readonly service: DocumentsApplicationService) {}

@@ -276,7 +276,8 @@ export class SubscriptionsController {
       res.status(400).json({ success: false, message: 'Tenant inválido.' });
       return;
     }
-    res.json({ success: true, data: await this.service.platformSubscription(tenantId) });
+    res.json({ success: true, data: await this.service.platformSubscription(tenantId,
+      req.query.subscriptionId === undefined ? undefined : idSchema.parse(req.query.subscriptionId)) });
   }
   async adminChangeDetail(req: Request, res: Response) {
     const companyId = Number(req.params.tenantId);
@@ -302,6 +303,7 @@ export class SubscriptionsController {
         Number(req.user?.userId),
         status,
         decisionSchema.parse(req.body || {}).reason || status,
+        zodObject(req.body ?? {}).subscriptionId === undefined ? undefined : idSchema.parse(zodObject(req.body).subscriptionId),
       ),
     });
   }
@@ -335,11 +337,16 @@ export class SubscriptionsController {
     else res.json({ success: true, data: await this.service.policy() });
   }
   async adminList(req: Request, res: Response) {
+    const companyId = req.query.companyId === undefined ? undefined : Number(req.query.companyId);
+    if (companyId !== undefined && (!Number.isInteger(companyId) || companyId < 1 || companyId > 2147483647)) {
+      res.status(400).json({ success: false, message: 'Empresa inválida.' });
+      return;
+    }
     res.json({
       success: true,
       data: await this.service.listSubscriptions(
         typeof req.query.status === 'string' ? req.query.status : undefined,
-        Number(req.query.limit) || 50,
+        Math.max(1, Math.min(100, Math.trunc(Number(req.query.limit) || 50))), companyId,
       ),
     });
   }

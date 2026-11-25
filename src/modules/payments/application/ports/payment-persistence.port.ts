@@ -203,7 +203,7 @@ export interface PaymentRecordStorePort<T extends PaymentRecord> {
     query: RecordQuery & { defaults: Partial<T> & PaymentRecord },
   ): Promise<[T, boolean]>;
   upsert(input: Partial<T> & PaymentRecord): Promise<void>;
-  bulkCreate(input: Array<Partial<T> & PaymentRecord>): Promise<T[]>;
+  bulkCreate(input: Array<Partial<T> & PaymentRecord>, options?: { transaction?: RecordStoreContext }): Promise<T[]>;
 }
 export interface PaymentPersistencePort {
   instruction: PaymentRecordStorePort<PaymentInstructionRecord>;

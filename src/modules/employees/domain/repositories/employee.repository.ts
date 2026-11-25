@@ -6,6 +6,10 @@ export interface EmployeeListQuery {
   limit: number;
   status?: EmployeeStatusValue;
   search?: string;
+  admittedFrom?: string;
+  admittedTo?: string;
+  departmentId?: number;
+  sort?: 'name' | 'admission-desc';
 }
 
 export interface EmployeeProfessionalHistory {
@@ -72,6 +76,7 @@ export interface EmployeeRepository {
     effectiveAt: Date;
     reason: string;
     actorUserId: number;
+    operation?: 'status' | 'termination' | 'rehire';
     terminationReason?: string;
   }): Promise<EmployeeEntity | null>;
   transfer(input: {

@@ -4,7 +4,7 @@ export class PermissionCode {
   static create(value: string): PermissionCode {
     const normalized = value.trim().toLowerCase();
 
-    if (normalized.length > 150 || !/^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$/.test(normalized)) {
+    if (normalized.length > 150 || !/^[a-z][a-z0-9_-]*([.:][a-z][a-z0-9_-]*)+$/.test(normalized)) {
       throw new Error('Invalid permission code.');
     }
 
@@ -12,11 +12,11 @@ export class PermissionCode {
   }
 
   get resource(): string {
-    return this.value.slice(0, this.value.lastIndexOf('.'));
+    return this.value.slice(0, Math.max(this.value.lastIndexOf('.'), this.value.lastIndexOf(':')));
   }
 
   get operation(): string {
-    return this.value.slice(this.value.lastIndexOf('.') + 1);
+    return this.value.slice(Math.max(this.value.lastIndexOf('.'), this.value.lastIndexOf(':')) + 1);
   }
 
   equals(other: PermissionCode): boolean {

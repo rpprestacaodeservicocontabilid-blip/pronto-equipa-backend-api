@@ -1,4 +1,5 @@
 import { Company } from '../entities/company';
+import { CompanyStatusValue } from '../value-objects/company-status';
 
 export interface Paginated<T> {
   rows: T[];
@@ -9,6 +10,7 @@ export interface ListCompaniesParams {
   page: number;
   limit: number;
   search?: string;
+  status?: CompanyStatusValue;
 }
 
 /**
@@ -20,6 +22,10 @@ export interface ListCompaniesParams {
  */
 export interface CompanyRepository {
   save(company: Company): Promise<Company>;
+
+  mutate(id: number, apply: (company: Company) => void): Promise<{ before: Company; after: Company } | null>;
+
+  countByStatus(): Promise<Record<CompanyStatusValue, number>>;
 
   findById(id: number): Promise<Company | null>;
 

@@ -149,7 +149,7 @@ export class EmployeesController {
     });
   }
 
-  async changeEmployeeStatus(req: Request, res: Response): Promise<void> {
+  async changeEmployeeStatus(req: Request, res: Response, operation: 'status' | 'termination' | 'rehire' = 'status'): Promise<void> {
     const companyId = this.companyId(res);
     const actorUserId = req.user?.userId;
     if (!companyId) return;
@@ -160,6 +160,7 @@ export class EmployeesController {
     const body = req.body as ChangeEmployeeStatusDto;
     const employee = await this.changeStatus.execute({
       ...body,
+      operation,
       companyId,
       employeeId: req.params.id,
       actorUserId,
@@ -283,6 +284,10 @@ export class EmployeesController {
         limit: query.limit,
         status: query.status,
         search: query.search,
+        admittedFrom: query.admittedFrom,
+        admittedTo: query.admittedTo,
+        departmentId: query.departmentId,
+        sort: query.sort,
       },
     });
 

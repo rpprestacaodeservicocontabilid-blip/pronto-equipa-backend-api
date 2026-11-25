@@ -177,3 +177,26 @@ export const REPORT_PERMISSION: Record<ReportDomain, string> = {
   loans: 'reports:loans:read',
   payslips: 'reports:payslips:read',
 };
+
+// This catalogue describes the projections verified for the company workspace.
+// Existing codes remain available to API consumers.
+export const WORKSPACE_REPORT_FILTERS: Record<string, readonly string[]> = {
+  'RPT-HR-001': ['from', 'to', 'employeeId', 'departmentId', 'status'],
+  'RPT-HR-003': ['from', 'to', 'employeeId', 'departmentId'],
+  'RPT-HR-004': ['from', 'to', 'employeeId', 'departmentId'],
+  'RPT-CTR-001': ['from', 'to', 'employeeId', 'departmentId'],
+  'RPT-CTR-005': ['from', 'to', 'employeeId', 'departmentId', 'status'],
+  'RPT-ATT-001': ['from', 'to', 'employeeId', 'departmentId'],
+  'RPT-LEV-001': ['from', 'to', 'employeeId', 'departmentId', 'status'],
+  'RPT-LEV-002': ['from', 'to', 'employeeId', 'departmentId'],
+  'RPT-PAY-002': ['from', 'to', 'employeeId', 'departmentId'],
+  'RPT-TAX-001': ['from', 'to', 'employeeId', 'departmentId'],
+  'RPT-TAX-003': ['from', 'to', 'employeeId', 'departmentId'],
+  'RPT-PMT-006': ['from', 'to', 'employeeId', 'departmentId', 'status'],
+  'RPT-LON-005': ['from', 'to', 'employeeId', 'departmentId', 'status'],
+  'RPT-PSL-005': ['from', 'to', 'employeeId', 'departmentId', 'status'],
+};
+
+export function requiresSalaryAccess(report: ReportDefinition) {
+  return report.domain === 'payroll' || report.domain === 'tax';
+}

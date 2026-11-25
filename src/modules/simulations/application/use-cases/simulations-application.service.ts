@@ -39,7 +39,7 @@ const validPeriod = (period: SimulationPeriod) =>
   period.startDate <= period.endDate;
 
 export class SimulationsApplicationService {
-  private enqueuer?: (companyId: number, actorUserId: number, runId: string) => Promise<void>;
+  private enqueuer?: (companyId: number, actorUserId: number, runId: string, attempt: number) => Promise<void>;
   constructor(
     private readonly sources: SimulationSourcesPort,
     private readonly calculator: SimulationCalculatorPort,
@@ -47,7 +47,7 @@ export class SimulationsApplicationService {
     private readonly persistence: SimulationPersistencePort,
     private readonly renderer: SimulationExportRendererPort,
   ) {}
-  setEnqueuer(enqueuer?: (companyId: number, actorUserId: number, runId: string) => Promise<void>) {
+  setEnqueuer(enqueuer?: (companyId: number, actorUserId: number, runId: string, attempt: number) => Promise<void>) {
     this.enqueuer = enqueuer;
   }
 
@@ -99,13 +99,12 @@ export class SimulationsApplicationService {
     filters: { status?: string; type?: string; limit?: number },
   ) {
     const rows = await this.findAll(companyId, this.persistence.collections.simulationScenario, {
-      where: { companyId, ...(filters.status ? { status: filters.status } : {}) },
+      where: { companyId, ...(filters.status ? { status: filters.status } : {}),
+        ...(filters.type ? { 'data.type': filters.type } : {}) },
       order: [['updatedAt', 'DESC']],
       limit: Math.min(filters.limit || 30, 100),
     });
-    return rows
-      .filter((row: any) => !filters.type || row.data.type === filters.type)
-      .map((row: any) => this.presentScenario(row));
+    return rows.map((row) => this.presentScenario(row));
   }
   async getScenario(companyId: number, id: string) {
     const row = await this.scenario(companyId, id);
@@ -234,18 +233,22 @@ export class SimulationsApplicationService {
     const cfg = scenario.data.configuration as ScenarioConfiguration;
     const period = input.period || cfg.period;
     if (!validPeriod(period)) throw fail('Período de simulação inválido.');
-    const employeeIds = await this.sources.selectEmployees(companyId, {
-      employeeIds: input.employeeIds || cfg.employeeIds,
+    const requestedIds = input.employeeIds ?? cfg.employeeIds;
+    if (requestedIds?.length === 0 || (scenario.data.type === 'INDIVIDUAL_PAYROLL' && requestedIds?.length !== 1))
+      throw fail('Seleccione trabalhadores válidos para este cenário.');
+    const employeeIds = (await this.sources.selectEmployees(companyId, {
+      employeeIds: requestedIds,
       excludeEmployeeIds: cfg.excludeEmployeeIds,
       departmentId: cfg.departmentId,
       jobCategory: cfg.jobCategory,
-    });
+    })).sort();
     if (!employeeIds.length) throw fail('O cenário não contém trabalhadores activos elegíveis.');
-    const isBulk = employeeIds.length > 1;
+    const isBulk = scenario.data.type === 'BULK_PAYROLL' || requestedIds?.length !== 1;
     const payload = {
       scenarioId: id,
       scenarioVersion: scenario.version,
       type: scenario.data.type,
+      executionScope: isBulk ? 'bulk' : 'individual',
       period,
       employeeIds,
       configuration: cfg,
@@ -256,24 +259,23 @@ export class SimulationsApplicationService {
       simulationOnly: true,
     };
     const key = `run:${id}:${input.idempotencyKey}`;
-    const existing = await this.findOne(companyId, this.persistence.collections.simulationRun, {
-      where: { companyId, key },
+    const store = this.persistence.collections.simulationRun;
+    const { run, reused } = await this.withTenant(companyId, async transaction => {
+      const existing = await store.findOne({ where: { companyId, key }, transaction });
+      if (existing) {
+        if (existing.data.requestHash !== payload.requestHash)
+          throw fail('A chave de idempotência já foi usada com outros parâmetros.', 409);
+        return { run: existing, reused: true };
+      }
+      const now = new Date();
+      const run = await store.create({
+        id: randomUUID(), companyId, status: 'PENDING', runId: id, employeeId: null,
+        key, version: 1, data: payload, createdAt: now, updatedAt: now,
+      }, { transaction });
+      return { run, reused: false };
     });
-    if (existing) return { ...this.presentRun(existing), idempotent: true };
-    const now = new Date(),
-      runId = randomUUID();
-    const run = await this.createRecord(companyId, this.persistence.collections.simulationRun, {
-      id: runId,
-      companyId,
-      status: 'PENDING',
-      runId: id,
-      employeeId: null,
-      key,
-      version: 1,
-      data: payload,
-      createdAt: now,
-      updatedAt: now,
-    });
+    if (reused) return { ...this.presentRun(run), idempotent: true };
+    const runId = run.id;
     await this.audit.record({
       companyId,
       actorUserId: actor,
@@ -283,7 +285,7 @@ export class SimulationsApplicationService {
       after: { scenarioId: id, employees: employeeIds.length, simulationOnly: true },
     });
     if (isBulk && this.enqueuer) {
-      await this.enqueuer(companyId, actor, runId);
+      await this.queueRun(companyId, actor, runId, 0);
       return { ...this.presentRun(run), queued: true };
     }
     await this.processRun(companyId, runId);
@@ -293,13 +295,13 @@ export class SimulationsApplicationService {
     let run = await this.findOne(companyId, this.persistence.collections.simulationRun, {
       where: { companyId, id: runId },
     });
-    if (!run || run.status === 'CANCELLED' || run.status === 'COMPLETED') return;
+    if (!run || !['PENDING', 'PROCESSING'].includes(run.status)) return;
     const { data } = run;
     const ids: string[] = data.employeeIds || [];
-    await this.updateRecord(companyId, this.persistence.collections.simulationRun, runId, {
+    if (!await this.transitionRun(companyId, runId, run.status, {
       status: 'PROCESSING',
       updatedAt: new Date(),
-    });
+    })) return;
     for (const employeeId of ids) {
       run = await this.findOne(companyId, this.persistence.collections.simulationRun, {
         where: { companyId, id: runId },
@@ -423,11 +425,11 @@ export class SimulationsApplicationService {
       engineVersions: [...new Set(complete.map((i) => i.data.engineVersion))],
       legalRuleSetVersions: [...new Set(complete.map((i) => i.data.legalRuleSetVersion))],
     };
-    await this.updateRecord(companyId, this.persistence.collections.simulationRun, runId, {
+    if (!await this.transitionRun(companyId, runId, 'PROCESSING', {
       status,
       data: updated,
       updatedAt: new Date(),
-    });
+    })) return;
     await this.audit.record({
       companyId,
       actorUserId: Number(data.requestedBy),
@@ -497,13 +499,13 @@ export class SimulationsApplicationService {
     if (!['FAILED', 'PARTIALLY_COMPLETED'].includes(run.status))
       throw fail('A execução não tem falhas recuperáveis.', 409);
     const data = { ...run.data, attempt: Number(run.data.attempt || 0) + 1, requestedBy: actor };
-    await this.updateRecord(companyId, this.persistence.collections.simulationRun, id, {
+    if (!await this.transitionRun(companyId, id, run.status, {
       status: 'PENDING',
       data,
       updatedAt: new Date(),
-    });
+    })) throw fail('O estado da execução mudou. Actualize os dados.', 409);
     if (this.enqueuer) {
-      await this.enqueuer(companyId, actor, id);
+      await this.queueRun(companyId, actor, id, data.attempt);
       return { runId: id, status: 'PENDING', queued: true };
     }
     await this.processRun(companyId, id);
@@ -516,11 +518,11 @@ export class SimulationsApplicationService {
     if (!run) throw fail('Execução não encontrada.', 404);
     if (!['PENDING', 'PROCESSING', 'VALIDATING'].includes(run.status))
       throw fail('Só é possível cancelar uma execução em curso.', 409);
-    await this.updateRecord(companyId, this.persistence.collections.simulationRun, id, {
+    if (!await this.transitionRun(companyId, id, run.status, {
       status: 'CANCELLED',
       data: { ...run.data, cancelledAt: new Date().toISOString(), cancelledBy: actor },
       updatedAt: new Date(),
-    });
+    })) throw fail('O estado da execução mudou. Actualize os dados.', 409);
     await this.audit.record({
       companyId,
       actorUserId: actor,
@@ -672,6 +674,31 @@ export class SimulationsApplicationService {
       order: [['createdAt', 'DESC']],
     });
     return rows.map((row: any) => ({ id: row.id, ...row.data }));
+  }
+  async listExports(companyId: number, runId?: string) {
+    const rows = await this.findAll(companyId, this.persistence.collections.simulationExport, {
+      where: { companyId, ...(runId ? { runId } : {}) },
+      order: [['createdAt', 'DESC']],
+      limit: 100,
+    });
+    return rows.map(row => ({
+      id: row.id, runId: row.runId, status: row.status, createdAt: row.createdAt,
+      filename: row.data.filename, format: row.data.format, rowCount: row.data.rowCount,
+    }));
+  }
+  async oversight(companyId: number) {
+    const { simulationScenario, simulationRun, simulationProposal } = this.persistence.collections;
+    return this.withTenant(companyId, async transaction => {
+      const counts = async (store: typeof simulationScenario) => {
+        const groups = await store.count({ where: { companyId }, group: ['status'], transaction });
+        return typeof groups === 'number' ? {} : Object.fromEntries(groups.flatMap(row => row.status ? [[row.status, Number(row.count)]] : []));
+      };
+      return {
+        scenarios: await counts(simulationScenario),
+        runs: await counts(simulationRun),
+        proposals: await counts(simulationProposal),
+      };
+    });
   }
   async getExport(companyId: number, id: string) {
     const row = await this.findOne(companyId, this.persistence.collections.simulationExport, {
@@ -1191,21 +1218,23 @@ export class SimulationsApplicationService {
       model.findAll({ ...options, transaction }),
     )) as any[];
   }
-  private async updateRecord(
+  private transitionRun(
     companyId: number,
-    model: RecordStorePort<SimulationRecord>,
     id: string,
-    patch: any,
-  ): Promise<any> {
-    return (await this.withTenant(companyId, async (transaction) => {
-      const row = await model.findOne({
-        where: { companyId, id },
-        transaction,
-        forUpdate: true,
-      });
-      if (row) await this.persistence.update(row, patch, { transaction });
-      return row;
-    })) as any;
+    status: string,
+    patch: Partial<SimulationRecord>,
+  ) {
+    return this.withTenant(companyId, transaction => this.persistence.collections.simulationRun.updateWhere(
+      patch, { where: { companyId, id, status }, transaction },
+    ));
+  }
+  private async queueRun(companyId: number, actor: number, id: string, attempt: number) {
+    try {
+      await this.enqueuer?.(companyId, actor, id, attempt);
+    } catch (error) {
+      await this.transitionRun(companyId, id, 'PENDING', { status: 'FAILED', updatedAt: new Date() });
+      throw error;
+    }
   }
   private withTenant<T>(
     companyId: number,

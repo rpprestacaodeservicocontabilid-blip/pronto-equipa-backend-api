@@ -14,6 +14,9 @@ import {
 } from '../schemas/documents.schema';
 export class DocumentsController {
   constructor(private readonly service: DocumentsApplicationService) {}
+  operations(...args: Parameters<DocumentsApplicationService['administration']>) {
+    return this.service.administration(...args);
+  }
   private context(req: Request, res: Response) {
     const companyId = res.req.tenant?.companyId,
       actorUserId = req.user?.userId;
@@ -35,7 +38,7 @@ export class DocumentsController {
       data: await this.service.createUpload(
         c.companyId,
         c.actorUserId,
-        uploadSchema.parse({
+        uploadSchema.omit({ documentId: true }).strict().parse({
           ...req.body,
           idempotencyKey: req.body?.idempotencyKey || req.header('Idempotency-Key'),
         }),
@@ -165,7 +168,7 @@ export class DocumentsController {
     const c = this.context(req, res);
     if (!c) return;
     const input = validationSchema.parse(req.body || {});
-    if (req.method === 'POST')
+    if (req.path.endsWith('/submit'))
       res.status(201).json({
         success: true,
         data: await this.service.submitValidation(

@@ -37,9 +37,8 @@ export class RefreshTokenUseCase {
   }
 
   async resumeBrowserSession(token: string) {
-    const { userId, sessionId } = await this.identifyBrowserSession(token);
-    const access = await this.issueAccessToken(userId, sessionId);
-    return { accessToken: access.token, accessTokenExpiresAt: access.expiresAt };
+    const payload = await this.identifyBrowserSession(token);
+    return this.rotate(token, payload, true);
   }
 
   private async issueAccessToken(userId: number, sessionId: number) {
@@ -51,11 +50,16 @@ export class RefreshTokenUseCase {
   async execute(input: RefreshTokenInput): Promise<RefreshTokenResult> {
     const payload = await this.tokenService.verifyRefreshToken(input.refreshToken);
 
+    return this.rotate(input.refreshToken, payload, false);
+  }
+
+  private async rotate(token: string, payload: { userId: number; sessionId: number; tokenId: number }, preserveExpiry: boolean) {
     const accessToken = await this.issueAccessToken(payload.userId, payload.sessionId);
     const refreshToken = await this.sessionManager.rotateRefreshToken({
       sessionId: payload.sessionId,
       tokenId: payload.tokenId,
-      token: input.refreshToken,
+      token,
+      preserveExpiry,
       createNextToken: (tokenId) =>
         this.tokenService.generateRefreshToken({
           userId: payload.userId,
@@ -64,7 +68,7 @@ export class RefreshTokenUseCase {
         }),
     });
     if (!refreshToken)
-      throw new Error('Refresh token has already been used or the session is inactive.');
+      throw new InvalidRefreshTokenError('Refresh token has already been used or the session is inactive.');
 
     return {
       accessToken: accessToken.token,

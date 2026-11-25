@@ -6,7 +6,9 @@ import { ListAllCompaniesUseCase } from '../../application/use-cases/list-all-co
 import { GetCompanyContextUseCase } from '../../application/use-cases/get-company-context.use-case';
 import { UpdateCompanyUseCase } from '../../application/use-cases/update-company.use-case';
 import { ChangeCompanyStatusUseCase } from '../../application/use-cases/change-company-status.use-case';
-import { CreateCompanyDto, UpdateCompanyDto, ListCompaniesDto } from '../schemas/company.schema';
+import { ListMembersUseCase } from '../../application/use-cases/list-members.use-case';
+import { ListMembersDto } from '../schemas/member.schema';
+import { CreateCompanyDto, UpdateCompanyDto, ListCompaniesDto, platformCompanyParams, companyStatusChangeSchema } from '../schemas/company.schema';
 
 /**
  * Controllers de empresa.
@@ -23,6 +25,7 @@ export class CompanyController {
     private readonly getCompanyContextUseCase: GetCompanyContextUseCase,
     private readonly updateCompanyUseCase: UpdateCompanyUseCase,
     private readonly changeCompanyStatusUseCase: ChangeCompanyStatusUseCase,
+    private readonly listMembersUseCase: ListMembersUseCase,
   ) {}
 
   /** POST /api/v1/companies */
@@ -83,6 +86,7 @@ export class CompanyController {
       page: query.page,
       limit: query.limit,
       search: query.search,
+      status: query.status,
     });
 
     res.status(200).json({
@@ -90,6 +94,25 @@ export class CompanyController {
       data: result.data,
       pagination: result.pagination,
     });
+  }
+
+  async platformSummary(_req: Request, res: Response): Promise<void> {
+    const data = await this.listAllCompaniesUseCase.summary();
+    res.json({ success: true, data });
+  }
+
+  async platformDetails(req: Request, res: Response): Promise<void> {
+    const { id } = platformCompanyParams.parse(req.params);
+    const data = await this.listAllCompaniesUseCase.get(id);
+    res.json({ success: true, data });
+  }
+
+  async platformMembers(req: Request, res: Response): Promise<void> {
+    const { id } = platformCompanyParams.parse(req.params);
+    const query = req.query as unknown as ListMembersDto;
+    await this.listAllCompaniesUseCase.get(id);
+    const result = await this.listMembersUseCase.execute({ companyId: id, ...query });
+    res.json({ success: true, ...result });
   }
 
   /** GET /api/v1/company/context */
@@ -123,7 +146,15 @@ export class CompanyController {
 
   /** PATCH /api/v1/company */
   async update(req: Request, res: Response): Promise<void> {
-    const companyId = req.tenant?.companyId;
+    await this.updateProfile(req, res, req.tenant?.companyId);
+  }
+
+  async platformUpdate(req: Request, res: Response): Promise<void> {
+    const { id } = platformCompanyParams.parse(req.params);
+    await this.updateProfile(req, res, id);
+  }
+
+  private async updateProfile(req: Request, res: Response, companyId?: number): Promise<void> {
     const actorUserId = req.user?.userId;
 
     if (!companyId || !actorUserId) {
@@ -176,7 +207,8 @@ export class CompanyController {
     action: 'company.suspended' | 'company.activated',
   ): Promise<void> {
     const actorUserId = req.user?.userId;
-    const companyId = Number(req.params.id);
+    const { id: companyId } = platformCompanyParams.parse(req.params);
+    const { reason } = companyStatusChangeSchema.parse(req.body);
 
     if (!actorUserId) {
       res.status(401).json({ message: 'Authentication required.' });
@@ -187,6 +219,7 @@ export class CompanyController {
       companyId,
       actorUserId,
       action,
+      reason,
       ipAddress: req.ip ?? null,
       userAgent: req.get('user-agent') ?? null,
     });

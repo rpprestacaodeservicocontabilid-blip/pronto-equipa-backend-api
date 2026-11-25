@@ -7,6 +7,10 @@ import { SimulationsApplicationService } from '../../application/use-cases/simul
 export class SimulationsRuntime {
   private queue?: Queue;
   private worker?: Worker;
+
+  operationalHandles() {
+    return { queue: this.queue, worker: this.worker };
+  }
   constructor(private readonly service: SimulationsApplicationService) {}
   start() {
     if (process.env.SIMULATIONS_WORKER_ENABLED !== 'true') return;
@@ -23,12 +27,12 @@ export class SimulationsRuntime {
       maxRetriesPerRequest: null,
     };
     this.queue = new Queue('simulation-execution', { connection });
-    this.service.setEnqueuer(async (companyId, actorUserId, runId) => {
+    this.service.setEnqueuer(async (companyId, actorUserId, runId, attempt) => {
       await this.queue!.add(
         'execute-run',
         { companyId, actorUserId, runId },
         {
-          jobId: `simulation-${companyId}-${runId}`,
+          jobId: `simulation-${companyId}-${runId}-${attempt}`,
           attempts: 3,
           backoff: { type: 'exponential', delay: 2000 },
           removeOnComplete: 1000,
@@ -63,11 +67,9 @@ export class SimulationsRuntime {
           !permissions.includes('simulations:salary:read-sensitive')
         )
           throw new Error('Simulation execution authorization revoked.');
-        if (
-          Number(run.employeeIds?.length || 0) > 1 &&
-          !permissions.includes('simulations:bulk:execute')
-        )
-          throw new Error('Bulk simulation authorization revoked.');
+        const scope = run.executionScope ?? (run.type === 'BULK_PAYROLL' || run.employeeIds?.length !== 1 ? 'bulk' : 'individual');
+        if (!permissions.includes(`simulations:${scope}:execute`))
+          throw new Error('Simulation scope authorization revoked.');
         await this.service.processRun(companyId, runId);
       },
       { connection, concurrency: 4, limiter: { max: 20, duration: 1000 } },

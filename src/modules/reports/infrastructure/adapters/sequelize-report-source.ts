@@ -1,6 +1,6 @@
 import { ReportDataRow } from '../../application/ports/report-source.port';
 
-import { Op, QueryTypes, WhereOptions, Transaction, Model } from 'sequelize';
+import { Op, QueryTypes, WhereOptions, Transaction, Model, col, fn } from 'sequelize';
 
 import { sequelize } from '../../../../infra/database/index';
 import { EmployeeModel } from '../../../employees/infrastructure/persistence/models/employee.model';
@@ -27,6 +27,12 @@ import { ReportDefinition } from '../../domain/report-catalog';
 
 import { ReportFilters } from '../../application/dto/report-filters';
 import { ReportSourcePort } from '../../application/ports/report-source.port';
+import { cents, money } from '../../../payroll/domain/payroll-result';
+
+const timestampBounds = (filters: ReportFilters) => ({
+  ...(filters.from ? { [Op.gte]: new Date(filters.from + 'T00:00:00+01:00') } : {}),
+  ...(filters.to ? { [Op.lt]: new Date(Date.parse(filters.to + 'T00:00:00+01:00') + 86400000) } : {}),
+});
 
 function reportRow(model: Model): ReportDataRow {
   const data: unknown = model.get({ plain: true });
@@ -35,17 +41,15 @@ function reportRow(model: Model): ReportDataRow {
   return data as ReportDataRow;
 }
 export class SequelizeReportSource implements ReportSourcePort {
-  async dashboardData(companyId: number, filters: ReportFilters) {
-    const active = await this.withTenant(companyId, async (transaction) =>
-      EmployeeModel.count({ where: { companyId, status: 'ACTIVE' }, transaction }),
-    );
-    const employees = await this.withTenant(companyId, async (transaction) =>
-      EmployeeModel.count({ where: { companyId }, transaction }),
-    );
-    const payroll = await this.withTenant(companyId, (transaction) =>
-      this.readPayroll(companyId, { ...filters, limit: 5000 }, transaction),
-    );
-    return { active, employees, payroll };
+  async dashboardData(companyId: number, filters: ReportFilters, includePayroll = true) {
+    return this.withTenant(companyId, async transaction => {
+      const where = { companyId, ...(filters.departmentId ? { departmentId: filters.departmentId } : {}),
+        ...(filters.employeeId ? { id: filters.employeeId } : {}) };
+      const active = await EmployeeModel.count({ where: { ...where, status: 'ACTIVE' }, transaction });
+      const employees = await EmployeeModel.count({ where, transaction });
+      const payroll = includePayroll ? await this.readPayroll(companyId, filters, transaction, undefined, true) : [];
+      return { active, employees, payroll };
+    });
   }
 
   async readSource(
@@ -73,11 +77,11 @@ export class SequelizeReportSource implements ReportSourcePort {
               : '00000000-0000-0000-0000-000000000000'
             : { [Op.in]: departmentEmployeeIds };
         if (field && (filters.from || filters.to))
-          where[field] = {
+          where[field] = field === 'createdAt' ? timestampBounds(filters) : {
             ...(filters.from ? { [Op.gte]: filters.from } : {}),
             ...(filters.to ? { [Op.lte]: filters.to } : {}),
           };
-        if (filters.status && report.source !== 'payroll') where.status = filters.status;
+        if (filters.status && !['payroll', 'attendance'].includes(report.source)) where.status = filters.status;
         return where as WhereOptions;
       };
       switch (report.source) {
@@ -87,6 +91,7 @@ export class SequelizeReportSource implements ReportSourcePort {
           if (filters.departmentId) where.departmentId = filters.departmentId;
           if (filters.status) where.status = filters.status;
           const dateField = report.code === 'RPT-HR-004' ? 'terminationDate' : 'admissionDate';
+          if (report.code === 'RPT-HR-004') where[dateField] = { [Op.ne]: null };
           if (filters.from || filters.to)
             where[dateField] = {
               ...(filters.from ? { [Op.gte]: filters.from } : {}),
@@ -114,7 +119,7 @@ export class SequelizeReportSource implements ReportSourcePort {
         }
         case 'contracts': {
           const rows = await EmploymentContractModel.findAll({
-            where: whereFor('startDate'),
+            where: { ...whereFor('startDate'), ...(report.code === 'RPT-CTR-001' ? { status: 'ACTIVE' } : {}) },
             attributes: [
               'id',
               'employeeId',
@@ -124,7 +129,6 @@ export class SequelizeReportSource implements ReportSourcePort {
               'startDate',
               'endDate',
               'currency',
-              'salaryAmount',
             ],
             order: [['startDate', 'DESC']],
             limit,
@@ -144,7 +148,7 @@ export class SequelizeReportSource implements ReportSourcePort {
         }
         case 'leave': {
           const rows = await LeaveRequestModel.findAll({
-            where: whereFor('startDate'),
+            where: { ...whereFor('startDate'), ...(report.code === 'RPT-LEV-002' ? { status: 'APPROVED' } : {}) },
             attributes: [
               'id',
               'employeeId',
@@ -163,7 +167,7 @@ export class SequelizeReportSource implements ReportSourcePort {
           return rows.map((r) => reportRow(r));
         }
         case 'payroll':
-          return this.readPayroll(companyId, filters, transaction);
+          return this.readPayroll(companyId, filters, transaction, report.code);
         case 'payments': {
           const model =
             report.code === 'RPT-PMT-003'
@@ -173,6 +177,9 @@ export class SequelizeReportSource implements ReportSourcePort {
                 : PayrollPaymentInstructionModel;
           const rows = await model.findAll({
             where: whereFor('createdAt'),
+            ...(model === PayrollPaymentInstructionModel ? { attributes: [
+              'id', 'employeeId', 'amount', 'currency', 'paymentType', 'method', 'status', 'createdAt',
+            ] } : {}),
             limit,
             order: [['createdAt', 'DESC']],
             transaction,
@@ -232,6 +239,8 @@ export class SequelizeReportSource implements ReportSourcePort {
     companyId: number,
     filters: ReportFilters,
     transaction?: Transaction,
+    reportCode?: string,
+    aggregate = false,
   ): Promise<ReportDataRow[]> {
     const periodWhere: Record<string, unknown> = { companyId };
     if (filters.from || filters.to)
@@ -263,8 +272,20 @@ export class SequelizeReportSource implements ReportSourcePort {
       });
       const employeeIds = employees.map((employee) => employee.id);
       if (!employeeIds.length) return [];
-      where.employeeId = { [Op.in]: employeeIds };
+      if (filters.employeeId && !employeeIds.includes(filters.employeeId)) return [];
+      where.employeeId = filters.employeeId ?? { [Op.in]: employeeIds };
     }
+    if (aggregate) {
+      const rows = await PayrollEmployeeResultModel.findAll({
+        where, transaction, group: ['currency'],
+        attributes: ['currency', [fn('COUNT', col('id')), 'resultCount'],
+          [fn('ROUND', fn('SUM', col('grossAmount')), 2), 'grossAmount'],
+          [fn('ROUND', fn('SUM', col('netAmount')), 2), 'netAmount'],
+          [fn('ROUND', fn('SUM', col('employerCostsAmount')), 2), 'employerCostsAmount']],
+      });
+      return rows.map(reportRow);
+    }
+    const taxes = reportCode === 'RPT-TAX-001' || reportCode === 'RPT-TAX-003';
     const rows = await PayrollEmployeeResultModel.findAll({
       where: where as WhereOptions,
       attributes: [
@@ -276,12 +297,23 @@ export class SequelizeReportSource implements ReportSourcePort {
         'netAmount',
         'employerCostsAmount',
         'currency',
-        'calculationSnapshot',
+        ...(taxes ? ['calculationSnapshot'] : []),
       ],
       limit: Math.min(Number(filters.limit || 1000), 5000),
+      order: [['runId', 'ASC'], ['employeeId', 'ASC'], ['id', 'ASC']],
       transaction,
     });
-    return rows.map((r) => reportRow(r));
+    return rows.map(model => {
+      const row = reportRow(model);
+      if (!taxes) return row;
+      const snapshot = row.calculationSnapshot as { legalRuleSetVersion?: string; lines?: { code: string; amount: string }[] } | undefined;
+      const amount = (code: string) => Array.isArray(snapshot?.lines)
+        ? money(snapshot.lines.filter(line => line.code === code).reduce((total, line) => total + cents(line.amount), 0n))
+        : null;
+      const base = { runId: row.runId, employeeId: row.employeeId, currency: row.currency, legalRuleSetVersion: snapshot?.legalRuleSetVersion ?? null };
+      return reportCode === 'RPT-TAX-001' ? { ...base, irt: amount('IRT') }
+        : { ...base, employeeInss: amount('INSS_EMPLOYEE'), employerInss: amount('INSS_EMPLOYER') };
+    });
   }
   private withTenant<T>(
     companyId: number,

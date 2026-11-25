@@ -35,9 +35,7 @@ export const generatePayslipSchema = z
         'OFF_CYCLE',
         'SUPPLEMENTARY',
         'RETROACTIVE',
-        'CORRECTION',
         'TERMINATION',
-        'DUPLICATE_COPY',
       ])
       .default('REGULAR'),
     idempotencyKey: z.string().trim().min(1).optional(),
@@ -49,9 +47,9 @@ export const createPayslipBatchSchema = z
     payrollRunId: z.string().trim().min(1),
     templateVersionId: z.string().trim().min(1),
     type: z
-      .enum(['REGULAR', 'OFF_CYCLE', 'SUPPLEMENTARY', 'RETROACTIVE', 'CORRECTION', 'TERMINATION'])
+      .enum(['REGULAR', 'OFF_CYCLE', 'SUPPLEMENTARY', 'RETROACTIVE', 'TERMINATION'])
       .default('REGULAR'),
-    employeeIds: z.array(z.string().trim().min(1)).min(1),
+    employeeIds: z.array(z.string().uuid()).min(1).max(500),
   })
   .strict();
 

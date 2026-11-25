@@ -145,7 +145,7 @@ export const createEmployeesRoutes = (
     validateBody(terminateEmployeeSchema),
     (req, res) => {
       req.body = { ...terminateEmployeeSchema.parse(req.body), status: 'TERMINATED' };
-      return controller.changeEmployeeStatus(req, res);
+      return controller.changeEmployeeStatus(req, res, 'termination');
     },
   );
   router.post(
@@ -155,7 +155,7 @@ export const createEmployeesRoutes = (
     validateBody(rehireEmployeeSchema),
     (req, res) => {
       req.body = { ...rehireEmployeeSchema.parse(req.body), status: 'ACTIVE' };
-      return controller.changeEmployeeStatus(req, res);
+      return controller.changeEmployeeStatus(req, res, 'rehire');
     },
   );
   router.get('/:id', requirePermission('employees.read'), validateId, (req, res) =>

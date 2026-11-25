@@ -1,4 +1,4 @@
-import { DocumentPersistencePort, DocumentRecord as Row } from '../ports/document-persistence.port';
+import { DocumentCollection, DocumentPersistencePort, DocumentRecord as Row } from '../ports/document-persistence.port';
 import {
   RecordStoreContext,
   RecordStorePort,
@@ -146,14 +146,16 @@ export class DocumentsApplicationService {
       throw fail(`O ficheiro deve ter entre 1 byte e ${max} bytes.`);
     if (input.checksumSha256 && !/^[a-f0-9]{64}$/i.test(input.checksumSha256))
       throw fail('SHA-256 inválido.');
-    const requestHash = digest({
+    const partSizeBytes = Number(process.env.DOCUMENTS_MULTIPART_PART_BYTES || 8388608);
+    const fingerprint = {
       name,
       mimeType,
       size,
       categoryCode: input.categoryCode || null,
       confidentiality: input.confidentiality || 'RESTRICTED',
       checksumSha256: input.checksumSha256 || null,
-    });
+    };
+    const requestHash = digest(input.documentId ? { ...fingerprint, documentId: input.documentId } : fingerprint);
     const existing = await this.tenant(companyId, async (tx) =>
       this.persistence.collections.documentUploadSession.findOne({
         where: { companyId, key: `idem:${input.idempotencyKey}` },
@@ -161,9 +163,14 @@ export class DocumentsApplicationService {
       }),
     );
     if (existing) {
+      if (existing.data.actorUserId !== actor) throw fail('Sessão de carregamento pertence a outro utilizador.', 403);
       if (existing.data.requestHash !== requestHash)
         throw fail('A chave de idempotência já foi utilizada com dados diferentes.', 409);
-      return { ...existing.data, sessionId: existing.id, idempotent: true };
+      const { documentId, versionId, mode, expiresAt, parts } = existing.data;
+      if (existing.status !== 'UPLOADING' || Date.parse(expiresAt) <= Date.now())
+        throw fail('Sessão de carregamento concluída ou expirada.', 409);
+      return { documentId, versionId, mode, expiresAt, parts, partSizeBytes: existing.data.partSizeBytes ?? partSizeBytes,
+        sessionId: existing.id, idempotent: true };
     }
     const id = randomUUID(),
       documentId = input.documentId || randomUUID(),
@@ -178,6 +185,11 @@ export class DocumentsApplicationService {
         : null;
       if (input.categoryCode && !category)
         throw fail('Categoria documental inexistente ou inactiva.', 404);
+      const policy = await this.persistence.collections.documentPolicy.findOne({
+        where: { companyId, key: 'policy' }, transaction: tx,
+      });
+      if (policy?.data.maxFileBytes && size > Number(policy.data.maxFileBytes))
+        throw fail('O ficheiro excede o limite definido pela empresa.', 413);
       const prior = input.documentId
         ? await this.persistence.collections.document.findOne({
             where: { companyId, id: documentId },
@@ -185,8 +197,10 @@ export class DocumentsApplicationService {
             forUpdate: true,
           })
         : null;
-      if (input.documentId && (!prior || !['ACTIVE', 'ARCHIVED'].includes(prior.status)))
+      if (input.documentId && (!prior || prior.status !== 'ACTIVE'))
         throw fail('Documento inexistente ou indisponível para nova versão.', 404);
+      if (prior?.data.pendingVersionId && prior.data.pendingVersionId !== prior.data.currentVersionId)
+        throw fail('Já existe uma versão em processamento.', 409);
       const usage = await this.usage(companyId, tx);
       const u = usage.data;
       if (Number(u.usedBytes || 0) + Number(u.reservedBytes || 0) + size > Number(u.quotaBytes))
@@ -196,13 +210,20 @@ export class DocumentsApplicationService {
         { data: { ...u, reservedBytes: Number(u.reservedBytes || 0) + size }, updatedAt: now },
         { transaction: tx },
       );
-      const versionNumber = prior ? prior.version + 1 : 1;
+      const latest = prior ? await this.persistence.collections.documentVersion.findOne({
+        where: { companyId, runId: documentId }, order: [['version', 'DESC']], transaction: tx,
+      }) : null;
+      const versionNumber = Math.max(prior?.version ?? 0, latest?.version ?? 0) + 1;
       const metadata = {
         name,
         mimeType,
         sizeBytes: size,
         categoryCode: input.categoryCode || prior?.data.categoryCode || null,
-        confidentiality: input.confidentiality || prior?.data.confidentiality || 'RESTRICTED',
+        confidentiality: prior?.data.confidentiality || input.confidentiality || category?.data.confidentiality ||
+          policy?.data.defaultConfidentiality || 'RESTRICTED',
+        ...(Number(policy?.data.defaultRetentionDays) > 0 ? {
+          retentionUntil: new Date(+now + Number(policy?.data.defaultRetentionDays) * 86400000).toISOString(),
+        } : {}),
         createdBy: actor,
         pendingVersionId: versionId,
         checksumSha256: input.checksumSha256 || null,
@@ -224,7 +245,7 @@ export class DocumentsApplicationService {
       if (prior)
         await this.persistence.update(
           doc,
-          { data: { ...prior.data, pendingVersionId: versionId }, updatedAt: now },
+          { data: { ...prior.data, pendingVersionId: versionId }, version: versionNumber, updatedAt: now },
           { transaction: tx },
         );
       await this.record(
@@ -259,10 +280,11 @@ export class DocumentsApplicationService {
         fileName: name,
         sizeBytes: size,
         mimeType,
-        partSizeBytes: Number(process.env.DOCUMENTS_MULTIPART_PART_BYTES || 8388608),
+        partSizeBytes,
       });
       const data = {
         ...allocation,
+        partSizeBytes,
         documentId,
         versionId,
         requestHash,
@@ -305,7 +327,7 @@ export class DocumentsApplicationService {
         mode: allocation.mode,
         expiresAt: allocation.expiresAt,
         parts: allocation.parts,
-        storageKey: allocation.storageKey,
+        partSizeBytes,
       };
     } catch (error) {
       await this.tenant(companyId, async (tx) => {
@@ -321,8 +343,11 @@ export class DocumentsApplicationService {
           { transaction: tx },
         );
         await this.one(companyId, this.persistence.collections.document, documentId, tx).then((r) =>
-          this.persistence.update(r, { status: 'UPLOAD_FAILED' }, { transaction: tx }),
+          this.persistence.update(r, { status: r.data.currentVersionId ? 'ACTIVE' : 'UPLOAD_FAILED',
+            data: { ...r.data, pendingVersionId: null } }, { transaction: tx }),
         );
+        const version = await this.one(companyId, this.persistence.collections.documentVersion, versionId, tx);
+        await this.persistence.update(version, { status: 'UPLOAD_FAILED' }, { transaction: tx });
       });
       throw error;
     }
@@ -602,7 +627,7 @@ export class DocumentsApplicationService {
             ...doc.data,
             checksumSha256: sha,
             ...(status === 'ACTIVE'
-              ? { currentVersionId: version.id }
+              ? { currentVersionId: version.id, pendingVersionId: null, mimeType: version.data.mimeType, sizeBytes: version.data.sizeBytes }
               : { pendingVersionId: version.id }),
           },
         },
@@ -686,7 +711,8 @@ export class DocumentsApplicationService {
       );
       await this.persistence.update(
         doc,
-        { status: 'QUARANTINED', data: { ...doc.data, quarantineReason: reason } },
+        { status: doc.data.currentVersionId ? 'ACTIVE' : 'QUARANTINED',
+          data: { ...doc.data, quarantineReason: reason, pendingVersionId: null } },
         { transaction: tx },
       );
       const version = await this.one(
@@ -747,7 +773,10 @@ export class DocumentsApplicationService {
         session.data.documentId,
         tx,
       );
-      await this.persistence.update(doc, { status: 'DELETED' }, { transaction: tx });
+      await this.persistence.update(doc, { status: doc.data.currentVersionId ? 'ACTIVE' : 'DELETED',
+        data: { ...doc.data, pendingVersionId: null } }, { transaction: tx });
+      const version = await this.one(companyId, this.persistence.collections.documentVersion, session.data.versionId, tx);
+      await this.persistence.update(version, { status: 'ABORTED' }, { transaction: tx });
       const usage = await this.usage(companyId, tx);
       await this.persistence.update(
         usage,
@@ -769,6 +798,8 @@ export class DocumentsApplicationService {
     companyId: number,
     filter: {
       status?: string;
+      scope?: 'EMPLOYEE' | 'COMPANY';
+      expiring?: 'true';
       employeeId?: string;
       categoryCode?: string;
       search?: string;
@@ -776,19 +807,35 @@ export class DocumentsApplicationService {
       limit: number;
     },
   ) {
-    const rows = await this.tenant(companyId, (tx) =>
-      this.persistence.collections.document.findAll({
+    const rows = await this.tenant(companyId, async (tx) => {
+      const scope = filter.scope ? await this.persistence.collections.documentCategory.findAll({
+        where: { companyId, 'data.scope': filter.scope, ...(filter.categoryCode ? { key: filter.categoryCode } : {}) }, transaction: tx,
+      }) : null;
+      if (scope && !scope.length) return [];
+      const associations = filter.employeeId ? await this.persistence.collections.documentAssociation.findAll({
+        where: { companyId, employeeId: filter.employeeId, status: 'ACTIVE' }, transaction: tx,
+      }) : [];
+      const documentIds = associations.flatMap(association => association.runId ? [association.runId] : []);
+      const now = new Date();
+      return this.persistence.collections.document.findAll({
         where: {
           companyId,
           ...(filter.status ? { status: filter.status } : {}),
-          ...(filter.employeeId ? { employeeId: filter.employeeId } : {}),
+          ...(filter.employeeId ? {
+            [Op.or]: [{ employeeId: filter.employeeId }, { id: { [Op.in]: documentIds } }],
+          } : {}),
+          ...(filter.categoryCode ? { 'data.categoryCode': filter.categoryCode } :
+            scope ? { 'data.categoryCode': { [Op.in]: scope.map(category => category.key) } } : {}),
+          ...(filter.search ? { 'data.name': { [Op.like]: '%' + filter.search + '%' } } : {}),
+          ...(filter.expiring ? { 'data.expiresAt': { [Op.gte]: now.toISOString(),
+            [Op.lte]: new Date(+now + 30 * 86400000).toISOString() } } : {}),
         },
         order: [['updatedAt', 'DESC']],
         limit: filter.limit,
         offset: (filter.page - 1) * filter.limit,
         transaction: tx,
-      }),
-    );
+      });
+    });
     return rows.map((r) => this.present(r));
   }
   async get(companyId: number, id: string) {
@@ -799,11 +846,12 @@ export class DocumentsApplicationService {
   }
   private present(row: Row) {
     const r = json(row);
+    const { storageKey: _storageKey, multipartUploadId: _uploadId, parts: _parts, requestHash: _hash, ...data } = r.data;
     return {
       id: r.id,
       companyId: r.companyId,
       status: r.status,
-      ...r.data,
+      ...data,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
     };
@@ -814,9 +862,8 @@ export class DocumentsApplicationService {
     id: string,
     patch: Record<string, unknown>,
   ) {
-    const row = await this.tenant(companyId, (tx) =>
-      this.one(companyId, this.persistence.collections.document, id, tx),
-    );
+    const row = await this.tenant(companyId, async (tx) => {
+    const row = await this.one(companyId, this.persistence.collections.document, id, tx);
     if (['DELETED', 'PENDING_DELETION'].includes(row.status))
       throw fail('Documento indisponível para alteração.', 409);
     const allowed = [
@@ -834,7 +881,15 @@ export class DocumentsApplicationService {
       if (key === 'name' && typeof value === 'string') data.name = safeName(value);
       else data[key] = value;
     }
-    await this.persistence.update(row, { data, updatedAt: new Date() });
+    if (row.data.retentionUntil && Date.parse(row.data.retentionUntil) > Date.now() &&
+      (!data.retentionUntil || Date.parse(data.retentionUntil) < Date.parse(row.data.retentionUntil)))
+      throw fail('O prazo de retenção activo não pode ser reduzido.', 409);
+    if (data.categoryCode && !await this.persistence.collections.documentCategory.findOne({
+      where: { companyId, key: data.categoryCode, status: 'ACTIVE' }, transaction: tx,
+    })) throw fail('Categoria documental inexistente ou inactiva.', 404);
+    await this.persistence.update(row, { data, updatedAt: new Date() }, { transaction: tx });
+    return row;
+    });
     await this.audit.record({
       companyId,
       actorUserId: actor,
@@ -902,9 +957,10 @@ export class DocumentsApplicationService {
     return { url, expiresInSeconds: 120, name: doc.data.name, mimeType: doc.data.mimeType };
   }
   async archive(companyId: number, actor: number, id: string, restore = false) {
-    const doc = await this.tenant(companyId, (tx) =>
-      this.one(companyId, this.persistence.collections.document, id, tx),
-    );
+    const doc = await this.tenant(companyId, async tx => {
+    const doc = await this.one(companyId, this.persistence.collections.document, id, tx);
+    if (doc.data.pendingVersionId && doc.data.pendingVersionId !== doc.data.currentVersionId)
+      throw fail('Existe uma versão em processamento.', 409);
     if (restore && doc.status !== 'ARCHIVED')
       throw fail('Só documentos arquivados podem ser restaurados.', 409);
     if (!restore && doc.status !== 'ACTIVE')
@@ -917,6 +973,8 @@ export class DocumentsApplicationService {
         [restore ? 'restoredAt' : 'archivedAt']: new Date().toISOString(),
         updatedBy: actor,
       },
+    }, { transaction: tx });
+    return doc;
     });
     await this.audit.record({
       companyId,
@@ -928,12 +986,14 @@ export class DocumentsApplicationService {
     return this.present(doc);
   }
   async submitValidation(companyId: number, actor: number, id: string, notes?: string) {
-    const doc = await this.tenant(companyId, (tx) =>
-      this.one(companyId, this.persistence.collections.document, id, tx),
-    );
+    const validation = await this.tenant(companyId, async tx => {
+    const doc = await this.one(companyId, this.persistence.collections.document, id, tx);
     if (doc.status !== 'PENDING_VALIDATION') throw fail('Documento não aguarda validação.', 409);
-    const validation = await this.tenant(companyId, (tx) =>
-      this.record(
+    const existing = await this.persistence.collections.documentValidation.findOne({
+      where: { companyId, runId: id, status: 'PENDING' }, transaction: tx,
+    });
+    if (existing) return existing;
+      return this.record(
         companyId,
         this.persistence.collections.documentValidation,
         {
@@ -944,8 +1004,8 @@ export class DocumentsApplicationService {
           data: { submittedBy: actor, notes: notes || null, submittedAt: new Date().toISOString() },
         },
         tx,
-      ),
-    );
+      );
+    });
     await this.audit.record({
       companyId,
       actorUserId: actor,
@@ -962,22 +1022,18 @@ export class DocumentsApplicationService {
     decision: 'APPROVED' | 'REJECTED',
     reason?: string,
   ) {
-    const doc = await this.tenant(companyId, (tx) =>
-      this.one(companyId, this.persistence.collections.document, id, tx),
-    );
+    const doc = await this.tenant(companyId, async tx => {
+    const doc = await this.one(companyId, this.persistence.collections.document, id, tx);
     if (doc.status !== 'PENDING_VALIDATION') throw fail('Documento não aguarda validação.', 409);
-    const pending = await this.tenant(companyId, (tx) =>
-      this.persistence.collections.documentValidation.findOne({
+    const pending = await this.persistence.collections.documentValidation.findOne({
         where: { companyId, runId: id, status: 'PENDING' },
         order: [['createdAt', 'DESC']],
         transaction: tx,
-      }),
-    );
+      });
     if (!pending) throw fail('Pedido de validação inexistente.', 404);
     if (pending.data.submittedBy === actor)
       throw fail('Quem submeteu não pode aprovar o próprio documento.', 403);
     const status = decision === 'APPROVED' ? 'ACTIVE' : 'REJECTED';
-    await this.tenant(companyId, async (tx) => {
       await this.persistence.update(
         pending,
         {
@@ -997,14 +1053,15 @@ export class DocumentsApplicationService {
         doc.data.pendingVersionId || doc.data.currentVersionId,
         tx,
       );
+      if (version.data.createdBy === actor) throw fail('A versão exige revisão independente.', 403);
       await this.persistence.update(
         doc,
         {
-          status,
+          status: decision === 'REJECTED' && doc.data.currentVersionId ? 'ACTIVE' : status,
           data: {
             ...doc.data,
             validationStatus: decision,
-            ...(decision === 'APPROVED' ? { currentVersionId: version.id } : {}),
+            ...(decision === 'APPROVED' ? { currentVersionId: version.id, mimeType: version.data.mimeType, sizeBytes: version.data.sizeBytes } : {}),
             pendingVersionId: null,
           },
         },
@@ -1015,6 +1072,7 @@ export class DocumentsApplicationService {
         { status, data: { ...version.data, validationStatus: decision } },
         { transaction: tx },
       );
+      return doc;
     });
     await this.audit.record({
       companyId,
@@ -1078,9 +1136,16 @@ export class DocumentsApplicationService {
     id: string,
     input: { reason: string; reference?: string },
   ) {
-    await this.get(companyId, id);
-    const hold = await this.tenant(companyId, (tx) =>
-      this.record(
+    const hold = await this.tenant(companyId, async (tx) => {
+      const doc = await this.one(companyId, this.persistence.collections.document, id, tx);
+      if (doc.status === 'DELETED') throw fail('Documento indisponível para bloqueio.', 409);
+      if (doc.status === 'PENDING_DELETION') {
+        const approved = await this.persistence.collections.documentDeletionRequest.findOne({
+          where: { companyId, runId: id, status: 'APPROVED' }, transaction: tx,
+        });
+        if (approved) throw fail('A eliminação do documento já foi autorizada.', 409);
+      }
+      return this.record(
         companyId,
         this.persistence.collections.documentLegalHold,
         {
@@ -1091,8 +1156,8 @@ export class DocumentsApplicationService {
           data: { ...input, createdBy: actor, createdAt: new Date().toISOString() },
         },
         tx,
-      ),
-    );
+      );
+    });
     await this.audit.record({
       companyId,
       actorUserId: actor,
@@ -1104,9 +1169,8 @@ export class DocumentsApplicationService {
     return json(hold);
   }
   async releaseHold(companyId: number, actor: number, holdId: string, reason: string) {
-    const hold = await this.tenant(companyId, (tx) =>
-      this.one(companyId, this.persistence.collections.documentLegalHold, holdId, tx),
-    );
+    const hold = await this.tenant(companyId, async tx => {
+    const hold = await this.one(companyId, this.persistence.collections.documentLegalHold, holdId, tx);
     if (hold.status !== 'ACTIVE') throw fail('Retenção legal já encerrada.', 409);
     await this.persistence.update(hold, {
       status: 'RELEASED',
@@ -1116,25 +1180,25 @@ export class DocumentsApplicationService {
         releaseReason: reason,
         releasedAt: new Date().toISOString(),
       },
+    }, { transaction: tx });
+    return hold;
     });
     return json(hold);
   }
   async requestDeletion(companyId: number, actor: number, id: string, reason: string) {
-    const doc = await this.tenant(companyId, (tx) =>
-      this.one(companyId, this.persistence.collections.document, id, tx),
-    );
+    const req = await this.tenant(companyId, async tx => {
+    const doc = await this.one(companyId, this.persistence.collections.document, id, tx);
     if (['DELETED', 'PENDING_DELETION'].includes(doc.status))
       throw fail('Documento já está eliminado ou pendente de eliminação.', 409);
-    const hold = await this.tenant(companyId, (tx) =>
-      this.persistence.collections.documentLegalHold.findOne({
+    if (doc.data.pendingVersionId && doc.data.pendingVersionId !== doc.data.currentVersionId)
+      throw fail('Existe uma versão em processamento.', 409);
+    const hold = await this.persistence.collections.documentLegalHold.findOne({
         where: { companyId, runId: id, status: 'ACTIVE' },
         transaction: tx,
-      }),
-    );
+      });
     if (hold) throw fail('Documento protegido por retenção legal.', 409);
     if (doc.data.retentionUntil && new Date(doc.data.retentionUntil) > new Date())
       throw fail('Prazo de retenção ainda não terminou.', 409);
-    const req = await this.tenant(companyId, async (tx) => {
       const r = await this.record(
         companyId,
         this.persistence.collections.documentDeletionRequest,
@@ -1143,7 +1207,7 @@ export class DocumentsApplicationService {
           status: 'PENDING',
           runId: id,
           key: `deletion:${id}:${randomUUID()}`,
-          data: { requestedBy: actor, reason, requestedAt: new Date().toISOString() },
+          data: { requestedBy: actor, reason, requestedAt: new Date().toISOString(), previousStatus: doc.status },
         },
         tx,
       );
@@ -1159,14 +1223,12 @@ export class DocumentsApplicationService {
     approve: boolean,
     reason?: string,
   ) {
-    const request = await this.tenant(companyId, (tx) =>
-      this.one(companyId, this.persistence.collections.documentDeletionRequest, requestId, tx),
-    );
+    const status = approve ? 'APPROVED' : 'REJECTED';
+    const request = await this.tenant(companyId, async tx => {
+    const request = await this.one(companyId, this.persistence.collections.documentDeletionRequest, requestId, tx);
     if (request.status !== 'PENDING') throw fail('Pedido já decidido.', 409);
     if (request.data.requestedBy === actor && approve)
       throw fail('O requerente não pode aprovar a própria eliminação.', 403);
-    const status = approve ? 'APPROVED' : 'REJECTED';
-    await this.tenant(companyId, async (tx) => {
       await this.persistence.update(
         request,
         {
@@ -1186,11 +1248,19 @@ export class DocumentsApplicationService {
         request.runId!,
         tx,
       );
+      if (approve) {
+        const hold = await this.persistence.collections.documentLegalHold.findOne({
+          where: { companyId, runId: doc.id, status: 'ACTIVE' }, transaction: tx,
+        });
+        if (hold || Date.parse(doc.data.retentionUntil) > Date.now())
+          throw fail('Documento protegido por retenção ou bloqueio legal.', 409);
+      }
       await this.persistence.update(
         doc,
-        { status: approve ? 'PENDING_DELETION' : 'ACTIVE' },
+        { status: approve ? 'PENDING_DELETION' : request.data.previousStatus || (doc.data.currentVersionId ? 'ACTIVE' : 'REJECTED') },
         { transaction: tx },
       );
+    return request;
     });
     if (approve && this.enqueue) await this.enqueue(companyId, 'DELETE', requestId, actor);
     return { ...json(request), status };
@@ -1227,7 +1297,7 @@ export class DocumentsApplicationService {
         { transaction: tx },
       );
       const usage = await this.usage(companyId, tx),
-        bytes = versions.reduce((total, v) => total + Number(v.data.sizeBytes || 0), 0);
+        bytes = versions.filter(v => v.data.storageKey || v.status === 'QUARANTINED').reduce((total, v) => total + Number(v.data.sizeBytes || 0), 0);
       await this.persistence.update(
         usage,
         {
@@ -1288,6 +1358,40 @@ export class DocumentsApplicationService {
     return this.tenant(companyId, async (tx) => {
       const row = await this.usage(companyId, tx);
       return row.data;
+    });
+  }
+  async administration(companyId: number, kind: 'uploads' | 'batches' | 'deletions' | 'holds' | 'reviews', page: number, limit: number, documentId?: string) {
+    const collections: Record<typeof kind, DocumentCollection> = {
+      uploads: 'documentUploadSession', batches: 'documentBatch', deletions: 'documentDeletionRequest',
+      holds: 'documentLegalHold', reviews: 'documentValidation',
+    };
+    const columns: Record<typeof kind, string[]> = {
+      uploads: ['name', 'documentId', 'expectedSizeBytes', 'mode', 'quarantineReason'],
+      batches: ['total', 'failed', 'createdBy'],
+      deletions: ['reason', 'requestedBy', 'decidedBy', 'decisionReason'],
+      holds: ['reason', 'reference', 'createdBy', 'releasedBy'],
+      reviews: ['submittedBy', 'decidedBy', 'reason', 'decidedAt'],
+    };
+    return this.tenant(companyId, async tx => {
+      const store = this.persistence.collections[collections[kind]];
+      const where = { companyId, ...(documentId ? { runId: documentId } : {}) };
+      const rows = await store.findAll({ where, transaction: tx, limit, offset: (page - 1) * limit,
+        order: [['createdAt', 'DESC'], ['id', 'DESC']] });
+      const total = Number(await store.count({ where, transaction: tx }));
+      return { page, limit, total, items: rows.map(row => ({
+        id: row.id, status: row.status, documentId: row.runId, createdAt: row.createdAt,
+        ...Object.fromEntries(columns[kind].map(key => [key, row.data[key]])),
+      })) };
+    });
+  }
+  async oversight(companyId: number) {
+    return this.tenant(companyId, async tx => {
+      const groups = await this.persistence.collections.document.count({ where: { companyId }, group: ['status'], transaction: tx });
+      const storage = await this.persistence.collections.documentStorageUsage.findOne({ where: { companyId }, transaction: tx });
+      return {
+        byStatus: Object.fromEntries(Array.isArray(groups) ? groups.map(row => [row.status, Number(row.count)]) : []),
+        storage: storage ? { usedBytes: storage.data.usedBytes, reservedBytes: storage.data.reservedBytes, quotaBytes: storage.data.quotaBytes } : null,
+      };
     });
   }
   async getPolicy(companyId: number) {

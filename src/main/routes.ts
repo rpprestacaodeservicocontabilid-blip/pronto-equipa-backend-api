@@ -1,3 +1,9 @@
+import JobsManager from '../jobs';
+import { createPlatformOperationsModule } from '../modules/platform-operations/platform-operations.module';
+import { createIntegrationsModule } from '../modules/integrations/integrations.module';
+import { listAiPlatform } from '../modules/ai-assistant/infrastructure/platform-ai-reads';
+import { notificationChannelInventory } from '../modules/notifications/application/notification-channel-inventory';
+import { createAuthorizationAdminRoutes } from '../modules/authorization/presentation/routes/authorization-admin.routes';
 import { createAuditModule, auditRequestMiddleware } from '../modules/audit/audit.module';
 import { auditRequestContext } from '../shared/infrastructure/context/audit-request-context';
 import { logger } from '../config/logger';
@@ -7,6 +13,7 @@ import { createSupportModule } from '../modules/support/support.module';
 import { createPlatformNotificationsRoutes } from '../modules/notifications/presentation/routes/platform-notifications.routes';
 import { createPlatformSupportRoutes } from '../modules/support/presentation/routes/platform-support.routes';
 import { CompanyModel } from '../modules/tenancy/infrastructure/persistence/models/company.model';
+import { createIdentityAdminRoutes, createLegacyAccountLifecycleRoutes } from '../modules/identity/identity.module';
 import { SequelizePlatformRoleChecker } from '../modules/authorization/infrastructure/persistence/sequelize-platform-role-checker';
 import { CompanyMemberModel } from '../modules/tenancy/infrastructure/persistence/models/company-member.model';
 import { createOnboardingModule } from '../modules/onboarding/onboarding.module';
@@ -128,6 +135,7 @@ router.use('/admin/audit', authenticate, audit.platformRoutes);
 router.use('/audit/personal', authenticate, audit.personalRoutes);
 router.use('/audit', authenticate, authz.tenantContext, audit.routes);
 const employees = createEmployeesModule({
+  transactionalAudit: audit.transactionalActivityAudit,
   requirePermission: authz.requirePermission,
   audit: tenancy.auditRecorder,
 });
@@ -223,7 +231,13 @@ router.use('/oauth', createOAuthRoutes());
 
 router.use('/sessions', createSessionRoutes());
 
-router.use('/authorization', createAuthorizationCheckRoutes());
+router.use(
+  '/authorization/admin',
+  authenticate,
+  authz.requirePlatformRole('SUPER_ADMIN'),
+  createAuthorizationAdminRoutes(authz.authorizationService),
+);
+router.use('/authorization', authenticate, createAuthorizationCheckRoutes(authz.authorizationService, new SequelizePlatformRoleChecker()));
 
 /**
  * ============================================================
@@ -254,6 +268,12 @@ const userModule = UserModule({
   tokenService,
 });
 
+// Own-profile reads retain the existing controller and authenticated session.
+// Every other legacy user operation addresses platform-wide account data.
+router.use('/users', authenticate, (req, res, next) => {
+  if (req.method === 'GET' && req.path === '/profile/me') return next();
+  return authz.requirePlatformRole('SUPER_ADMIN')(req, res, next);
+});
 router.use('/users/profile', userModule.routes.profile);
 
 router.use('/users/roles', userModule.routes.role);
@@ -262,6 +282,7 @@ router.use('/users/permissions', userModule.routes.permission);
 
 router.use('/users/recent', createRecentUsersModule());
 
+router.use('/users', createLegacyAccountLifecycleRoutes(tenancy.auditRecorder, new SequelizePlatformRoleChecker(), userModule.invalidateUser));
 router.use('/users', userModule.routes.user);
 
 /**
@@ -329,9 +350,35 @@ router.use(
 );
 router.use('/payslips', authenticate, authz.tenantContext, payslips.routes);
 router.use('/platform/reports', authenticate, authz.requirePlatformRole('SUPER_ADMIN'), platformReports.routes);
+router.use('/identity/admin', authenticate, authz.requirePlatformRole('SUPER_ADMIN'),
+  createIdentityAdminRoutes(tenancy.auditRecorder, new SequelizePlatformRoleChecker()));
 router.use('/ai-assistant/admin', authenticate, authz.requirePlatformRole('SUPER_ADMIN'), createPlatformAiRoutes(tenancy.auditRecorder));
 router.use('/reports', authenticate, authz.tenantContext, reports.routes);
 router.use('/simulations', authenticate, authz.tenantContext, simulations.routes);
+router.get('/platform/simulations/:companyId/overview', authenticate, authz.requirePlatformRole('SUPER_ADMIN'),
+  async (req, res, next) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      if (!Number.isInteger(companyId) || companyId < 1 || companyId > 2147483647) { res.sendStatus(400); return; }
+      const company = await CompanyModel.findByPk(companyId, { attributes: ['id', 'name'] });
+      if (!company) { res.sendStatus(404); return; }
+      res.set('Cache-Control', 'private, no-store').json({
+        success: true, data: { company: { id: company.id, name: company.name }, ...await simulations.service.oversight(companyId) },
+      });
+    } catch (error) { next(error); }
+  });
+router.get('/platform/documents/:companyId/overview', authenticate, authz.requirePlatformRole('SUPER_ADMIN'),
+  async (req, res, next) => {
+    try {
+      const companyId = Number(req.params.companyId);
+      if (!Number.isInteger(companyId) || companyId < 1 || companyId > 2147483647) { res.sendStatus(400); return; }
+      const company = await CompanyModel.findByPk(companyId, { attributes: ['id', 'name'] });
+      if (!company) { res.sendStatus(404); return; }
+      res.set('Cache-Control', 'no-store').json({
+        success: true, data: { company: { id: company.id, name: company.name }, ...await documents.service.oversight(companyId) },
+      });
+    } catch (error) { next(error); }
+  });
 router.use('/documents', authenticate, authz.tenantContext, documents.routes);
 router.use(
   '/subscriptions/admin',
@@ -445,6 +492,45 @@ router.use(
   notifications.adminRoutes,
 );
 router.use('/notifications', authenticate, authz.tenantContext, notifications.routes);
+
+router.use('/platform-operations', authenticate, authz.requirePlatformRole('SUPER_ADMIN'),
+  createPlatformOperationsModule(() => JobsManager.operationalSchedules()));
+
+router.use('/integrations/admin', authenticate, authz.requirePlatformRole('SUPER_ADMIN'), createIntegrationsModule({
+  PAYMENTS: {
+    authorize: principalId => authz.authorizationService.authorize({
+      principalId, context: { type: 'platform' }, permission: 'payments.platform.integrations.read',
+    }),
+    read: () => {
+      const items = payments.service.listProviders().map(provider => ({
+        id: provider.id, name: provider.name, type: provider.type, state: 'REGISTERED' as const,
+        capabilities: provider.capabilities,
+      }));
+      return { items, total: items.length };
+    },
+  },
+  NOTIFICATIONS: {
+    read: () => {
+      const items = notificationChannelInventory().map(({ channel, configured }) => ({
+        id: channel, name: channel === 'EMAIL' ? 'Email' : 'SMS', type: channel,
+        state: configured ? 'CONFIGURED' as const : 'NOT_CONFIGURED' as const,
+      }));
+      return { items, total: items.length };
+    },
+  },
+  AI: {
+    async read() {
+      const result = await listAiPlatform('providers', { page: 1, limit: 100 });
+      return {
+        total: result.total,
+        items: result.items.map(item => {
+          const { id, name, status } = item as { id: string; name: string; status: string };
+          return { id, name, type: 'AI', state: status === 'ACTIVE' || status === 'DISABLED' ? status : 'UNKNOWN' };
+        }),
+      };
+    },
+  },
+}));
 export const support = createSupportModule({
   requirePermission: authz.requirePermission,
   audit: tenancy.auditRecorder,

@@ -1,4 +1,5 @@
 import { logger } from '../config/logger';
+import type { ScheduleView } from '../modules/platform-operations/platform-operations.module';
 import { ContractExpirationJob } from '../modules/contracts/infrastructure/jobs/contract-expiration.job';
 
 /**
@@ -29,6 +30,14 @@ export class JobsManager {
     } catch (error) {
       logger.error('[JobsManager] Erro ao inicializar jobs:', { err: error });
     }
+  }
+
+  static operationalSchedules(): ScheduleView[] {
+    const nextRunAt = this.contractExpirationJob?.nextRunAt() ?? null;
+    return [{
+      key: 'contract-expiration', status: nextRunAt ? 'ACTIVE' : 'NOT_STARTED',
+      timezone: ContractExpirationJob.timezone, nextRunAt,
+    }];
   }
 
   static stopAllJobs(): void {

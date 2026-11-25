@@ -6,6 +6,7 @@ export interface ChangeCompanyStatusInput {
   companyId: number;
   actorUserId: number;
   action: 'company.suspended' | 'company.activated';
+  reason?: string;
   ipAddress?: string | null;
   userAgent?: string | null;
 }
@@ -23,31 +24,26 @@ export class ChangeCompanyStatusUseCase {
   ) {}
 
   async execute(input: ChangeCompanyStatusInput) {
-    const company = await this.companyRepository.findById(input.companyId);
+    const saved = await this.companyRepository.mutate(input.companyId, company => {
 
-    if (!company) {
-      throw new NotFoundError('Company');
-    }
-
-    const before = company.toPrimitives();
-
-    if (input.action === 'company.suspended') {
-      company.suspend();
-    } else {
-      company.activate();
-    }
-
-    const saved = await this.companyRepository.save(company);
-    const after = saved.toPrimitives();
+      if (input.action === 'company.suspended') {
+        company.suspend();
+      } else {
+        company.activate();
+      }
+    });
+    if (!saved) throw new NotFoundError('Company');
+    const before = saved.before.toPrimitives();
+    const after = saved.after.toPrimitives();
 
     await this.audit.record({
-      companyId: saved.id,
+      companyId: after.id,
       actorUserId: input.actorUserId,
       action: input.action,
       entityType: 'company',
-      entityId: saved.id,
+      entityId: after.id,
       before: before as unknown as Record<string, unknown>,
-      after: after as unknown as Record<string, unknown>,
+      after: { ...after, ...(input.reason ? { reason: input.reason } : {}) },
       ipAddress: input.ipAddress,
       userAgent: input.userAgent,
     });
