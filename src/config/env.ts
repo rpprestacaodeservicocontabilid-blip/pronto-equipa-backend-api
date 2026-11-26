@@ -3,6 +3,10 @@ import path from 'path';
 
 type EnvType = 'development' | 'test' | 'production';
 
+dotenv.config({
+  path: path.resolve(process.cwd(), '.env'),
+});
+
 const NODE_ENV = (process.env.NODE_ENV as EnvType) || 'development';
 
 // ======================================================
@@ -19,7 +23,6 @@ dotenv.config({
 
 dotenv.config({
   path: path.resolve(process.cwd(), `src/config/env/${NODE_ENV}.env`),
-  override: true,
 });
 
 // ======================================================

@@ -109,8 +109,8 @@ const fields = [
 async function installCapture(q) {
   const dialect = q.sequelize.getDialect(),
     quote = (s) => q.queryGenerator.quoteIdentifier(s);
-  if (!['postgres', 'sqlite'].includes(dialect))
-    throw new Error('Audit capture requires PostgreSQL (SQLite only for tests).');
+  if (!['postgres', 'sqlite', 'mysql'].includes(dialect))
+    throw new Error('Audit capture supports PostgreSQL, MySQL 8, and SQLite tests.');
   for (const table of captures) {
     if (!(await q.tableExists(table))) continue;
     const columns = await q.describeTable(table);
@@ -275,6 +275,59 @@ async function installCapture(q) {
           quote(name) +
           '();',
       );
+    } else if (dialect === 'mysql') {
+      const jsonObject = (alias) => {
+        const projected = keys.flatMap((key) => [
+          "'" + key + "'",
+          /amount|salary|gross/i.test(key) ? "'[REDACTED]'" : alias + '.' + quote(key),
+        ]);
+        if (columns.data) {
+          const links = [
+            'subscriptionId', 'invoiceId', 'paymentId', 'receiptId', 'transactionId',
+            'contractId', 'employeeId', 'runId', 'eventId', 'planId', 'parentId',
+            'requesterId', 'approverId', 'providerId', 'messageId',
+          ];
+          const linkProjection = links.flatMap((key) => {
+            const value = `JSON_EXTRACT(${alias}.${quote('data')},'$.${key}')`;
+            return [
+              `'${key}'`,
+              `CASE WHEN JSON_TYPE(${value}) IN ('STRING','INTEGER','DOUBLE') THEN LEFT(JSON_UNQUOTE(${value}),200) ELSE NULL END`,
+            ];
+          });
+          projected.push("'links'", `JSON_OBJECT(${linkProjection.join(',')})`);
+        }
+        return `JSON_OBJECT(${projected.join(',')})`;
+      };
+      const tenant = (alias) => company(alias);
+      const resourceId = (alias) => columns.id
+        ? `CAST(${alias}.id AS CHAR)`
+        : `CONCAT(CAST(${alias}.${quote('roleId')} AS CHAR),':',CAST(${alias}.${quote('permissionId')} AS CHAR))`;
+      const notificationGuard = (alias) => table !== 'communication_records'
+        ? 'TRUE'
+        : `${alias}.kind IN ('MESSAGE','DELIVERY') AND ${alias}.${quote('key')} NOT LIKE 'audit-alert:%' AND NOT EXISTS (SELECT 1 FROM communication_records parent WHERE CAST(parent.id AS CHAR)=JSON_UNQUOTE(JSON_EXTRACT(${alias}.data,'$.messageId')) AND parent.${quote('key')} LIKE 'audit-alert:%')`;
+
+      for (const operation of ['INSERT', 'UPDATE', 'DELETE']) {
+        const name = 'audit_capture_' + table + '_' + operation.toLowerCase();
+        const ref = operation === 'DELETE' ? 'OLD' : 'NEW';
+        const actorRef = "NULLIF(@app_audit_actor,'')";
+        const correlationRef = "NULLIF(@app_audit_correlation,'')";
+        const before = operation === 'INSERT' ? 'NULL' : jsonObject('OLD');
+        const after = operation === 'DELETE' ? 'NULL' : jsonObject('NEW');
+        const scopeKey = `CASE WHEN ${tenant(ref)} IS NULL THEN 'platform' ELSE CONCAT('tenant:',CAST(${tenant(ref)} AS CHAR)) END`;
+        const roleMap = table === 'roles'
+          ? `INSERT INTO audit_role_scopes (${quote('roleId')},${quote('companyId')}) VALUES (${ref}.id,${ref}.${quote('companyId')}) ON DUPLICATE KEY UPDATE ${quote('companyId')}=VALUES(${quote('companyId')});`
+          : '';
+        const capture = `${roleMap}
+          INSERT INTO audit_scope_catalog (${quote('scopeKey')},${quote('companyId')}) VALUES (${scopeKey},${tenant(ref)}) ON DUPLICATE KEY UPDATE ${quote('companyId')}=VALUES(${quote('companyId')});
+          INSERT INTO audit_capture_events (id,${quote('companyId')},${quote('sourceId')},${quote('eventType')},${quote('resourceType')},${quote('resourceId')},${quote('actorId')},${quote('correlationId')},${quote('occurredAt')},payload)
+          VALUES (UUID(),${tenant(ref)},'database',CONCAT('database.${table}.','${operation.toLowerCase()}'),'${table}',${resourceId(ref)},${actorRef},${correlationRef},UTC_TIMESTAMP(3),JSON_OBJECT('operation','${operation}','before',${before},'after',${after}));`;
+        const body = table === 'communication_records'
+          ? `BEGIN IF ${notificationGuard(ref)} THEN ${capture} END IF; END`
+          : `BEGIN ${capture} END`;
+        await q.sequelize.query(
+          `CREATE TRIGGER IF NOT EXISTS ${quote(name)} AFTER ${operation} ON ${quote(table)} FOR EACH ROW ${body}`,
+        );
+      }
     } else
       for (const operation of ['INSERT', 'UPDATE', 'DELETE']) {
         const name = 'audit_capture_' + table + '_' + operation.toLowerCase(),
@@ -338,11 +391,12 @@ async function installCapture(q) {
 }
 module.exports = {
   async up(q, S) {
-    if (!['postgres', 'sqlite'].includes(q.sequelize.getDialect()))
-      throw new Error('Audit migrations require PostgreSQL; SQLite is reserved for tests.');
+    if (!['postgres', 'sqlite', 'mysql'].includes(q.sequelize.getDialect()))
+      throw new Error('Audit migrations support PostgreSQL, MySQL 8, and SQLite tests.');
     const string = (n = 200) => ({ type: S.STRING(n), allowNull: false }),
       nullable = (n = 200) => ({ type: S.STRING(n), allowNull: true });
-    const scope = { scopeKey: string(), companyId: { type: S.INTEGER, allowNull: true } };
+    const companyType = q.sequelize.getDialect() === 'mysql' ? S.INTEGER.UNSIGNED : S.INTEGER;
+    const scope = { scopeKey: string(), companyId: { type: companyType, allowNull: true } };
     const record = {
       id: { type: S.UUID, primaryKey: true, allowNull: false },
       ...scope,
@@ -404,7 +458,21 @@ module.exports = {
         .query(`CREATE TABLE audit_record_identities ("scopeKey" varchar(200) NOT NULL,"companyId" integer,id uuid NOT NULL,"sourceId" varchar(200) NOT NULL,"eventId" varchar(200) NOT NULL,sequence bigint NOT NULL,"receivedAt" timestamptz NOT NULL,PRIMARY KEY("scopeKey","sourceId","eventId"),UNIQUE("scopeKey",sequence),UNIQUE(id));
         CREATE FUNCTION audit_reserve_identity() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$ BEGIN INSERT INTO audit_record_identities VALUES(NEW."scopeKey",NEW."companyId",NEW.id,NEW."sourceId",NEW."eventId",NEW.sequence,NEW."receivedAt"); RETURN NEW; END; $$;
         CREATE TRIGGER audit_reserve_identity BEFORE INSERT ON audit_records FOR EACH ROW EXECUTE FUNCTION audit_reserve_identity(); REVOKE ALL ON audit_record_identities FROM PUBLIC;`);
-    } else await q.createTable('audit_records', record);
+    } else {
+      await q.createTable('audit_records', record);
+      if (q.sequelize.getDialect() === 'mysql') {
+        await q.createTable('audit_record_identities', {
+          scopeKey: { ...string(), primaryKey: true },
+          sourceId: { ...string(), primaryKey: true },
+          eventId: { ...string(), primaryKey: true },
+          companyId: { type: companyType, allowNull: true },
+          id: { type: S.UUID, allowNull: false, unique: true },
+          sequence: { type: S.BIGINT, allowNull: false },
+          receivedAt: { type: S.DATE, allowNull: false },
+        });
+        await q.addIndex('audit_record_identities', ['scopeKey', 'sequence'], { unique: true });
+      }
+    }
     const temporal = q.sequelize.getDialect() === 'postgres' ? ['receivedAt'] : [];
     await q.addIndex('audit_records', ['scopeKey', 'sourceId', 'eventId', ...temporal], {
       unique: true,
@@ -497,6 +565,22 @@ module.exports = {
         await q.sequelize.query(
           `CREATE TRIGGER audit_record_immutable_${op.toLowerCase()} BEFORE ${op} ON audit_records BEGIN SELECT RAISE(ABORT,'audit records are append-only'); END;`,
         );
+    else if (q.sequelize.getDialect() === 'mysql') {
+      await q.sequelize.query(
+        "CREATE TRIGGER IF NOT EXISTS audit_reserve_identity BEFORE INSERT ON audit_records FOR EACH ROW INSERT INTO audit_record_identities (scopeKey,companyId,id,sourceId,eventId,sequence,receivedAt) VALUES (NEW.scopeKey,NEW.companyId,NEW.id,NEW.sourceId,NEW.eventId,NEW.sequence,NEW.receivedAt)",
+      );
+      for (const [table, operations, message] of [
+        ['audit_records', ['UPDATE', 'DELETE'], 'Audit records are append-only'],
+        ['audit_record_identities', ['UPDATE', 'DELETE'], 'Audit identities are immutable'],
+      ]) {
+        for (const operation of operations) {
+          const name = `${table}_${operation.toLowerCase()}_immutable`;
+          await q.sequelize.query(
+            `CREATE TRIGGER IF NOT EXISTS ${q.queryGenerator.quoteIdentifier(name)} BEFORE ${operation} ON ${q.queryGenerator.quoteIdentifier(table)} FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='${message}'`,
+          );
+        }
+      }
+    }
   },
   async down() {
     throw new Error(

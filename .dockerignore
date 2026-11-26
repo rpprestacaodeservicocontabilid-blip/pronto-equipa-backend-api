@@ -11,8 +11,13 @@ yarn-error.log
 
 # Environment
 .env
+.env.production
 .env.*
 **/.env.*
+secrets/
+**/secrets/**
+*.pem
+*.key
 .env.local
 .env.*.local
 **/*.env

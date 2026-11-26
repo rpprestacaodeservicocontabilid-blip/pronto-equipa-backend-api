@@ -1,0 +1,236 @@
+name: prontoequipas
+
+services:
+  api:
+    image: ${APP_IMAGE:-prontoequipas-api:local}
+    build:
+      context: .
+      target: production
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-bookworm-slim}
+    env_file:
+      - ${APP_ENV_FILE:-.env.production}
+    environment:
+      NODE_ENV: production
+      APP_ENV_FILE: ""
+      HOST: 0.0.0.0
+      PORT: 3333
+      DB_DIALECT: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:?Set DB_USER in .env.production}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      MYSQL_ROOT_PASSWORD_FILE: ""
+      DB_MIGRATION_PASSWORD_FILE: ""
+      DB_ACL_PASSWORD_FILE: ""
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      PAYMENTS_PII_ENCRYPTION_KEY_FILE: /run/secrets/payments_pii_encryption_key
+      AUDIT_SIGNING_PRIVATE_KEY_FILE: /run/secrets/audit_signing_private_key
+      AUDIT_ANCHOR_ROOT: /app/audit-anchors
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      LOG_DIR: /tmp/logs
+      PAYSLIPS_STORAGE_PATH: /app/storage/payslips
+    ports:
+      - "${APP_BIND_IP:-127.0.0.1}:${APP_PORT:-3333}:3333"
+    volumes:
+      - app_storage:/app/storage
+      - type: bind
+        source: ${AUDIT_ANCHOR_HOST_PATH:?Set AUDIT_ANCHOR_HOST_PATH in .env.production}
+        target: /app/audit-anchors
+        bind:
+          create_host_path: false
+    secrets:
+      - jwt_secret
+      - db_password
+      - redis_password
+      - payments_pii_encryption_key
+      - audit_signing_private_key
+    depends_on:
+      grant-runtime:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+      - egress
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 200
+    mem_limit: 1g
+    cpus: 1.5
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:3333/health/ready',r=>{r.resume();if(r.statusCode!==200)process.exitCode=1}).on('error',()=>process.exitCode=1)"
+      interval: 30s
+      timeout: 5s
+      start_period: 45s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  mysql:
+    image: ${MYSQL_IMAGE:-mysql:8.4}
+    command: ["--log-bin-trust-function-creators=ON"]
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
+      MYSQL_DATABASE: ${DB_NAME:?Set DB_NAME in .env.production}
+      DB_USER: ${DB_USER:?Set DB_USER in .env.production}
+      MYSQL_USER: ${DB_MIGRATION_USER:?Set DB_MIGRATION_USER in .env.production}
+      MYSQL_PASSWORD_FILE: /run/secrets/db_migration_password
+      DB_ACL_USER: ${DB_ACL_USER:?Set DB_ACL_USER in .env.production}
+    secrets:
+      - mysql_root_password
+      - db_migration_password
+      - db_password
+      - db_acl_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql-create-runtime-user.sh:/docker-entrypoint-initdb.d/010-create-runtime-user.sh:ro
+    networks:
+      - backend
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$(cat /run/secrets/mysql_root_password)\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+  migrations:
+    image: ${APP_IMAGE:-prontoequipas-api:local}-migrations
+    build:
+      context: .
+      target: migrations
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-bookworm-slim}
+    environment:
+      NODE_ENV: production
+      DB_DIALECT: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:?Set DB_NAME in .env.production}
+      DB_USER: ${DB_MIGRATION_USER:?Set DB_MIGRATION_USER in .env.production}
+      DB_PASSWORD_FILE: /run/secrets/db_migration_password
+      DB_SSL: ${DB_SSL:-false}
+    secrets:
+      - db_migration_password
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command:
+      - node
+      - scripts/docker-entrypoint.cjs
+      - ./node_modules/.bin/sequelize-cli
+      - db:migrate
+      - --config
+      - src/config/sequelize-production.cjs
+      - --migrations-path
+      - src/infra/database/migrations
+      - --env
+      - production
+    networks:
+      - backend
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+
+  grant-runtime:
+    image: ${MYSQL_IMAGE:-mysql:8.4}
+    entrypoint: ["/bin/sh", "/scripts/grant-runtime-user.sh"]
+    environment:
+      DB_NAME: ${DB_NAME:?Set DB_NAME in .env.production}
+      DB_USER: ${DB_USER:?Set DB_USER in .env.production}
+      DB_ACL_USER: ${DB_ACL_USER:?Set DB_ACL_USER in .env.production}
+      DB_ACL_PASSWORD_FILE: /run/secrets/db_acl_password
+      MYSQL_HOST: mysql
+    secrets:
+      - db_acl_password
+    volumes:
+      - ./docker/mysql-grant-runtime-user.sh:/scripts/grant-runtime-user.sh:ro
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    networks:
+      - backend
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    build:
+      context: .
+      dockerfile: docker/redis.Dockerfile
+      args:
+        REDIS_IMAGE: ${REDIS_IMAGE:-redis:7.4-alpine}
+    environment:
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+    secrets:
+      - redis_password
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$(cat /run/secrets/redis_password)\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "5"
+
+networks:
+  backend:
+    internal: true
+  egress:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  redis_data:
+  app_storage:
+
+secrets:
+  mysql_root_password:
+    file: ${MYSQL_ROOT_PASSWORD_FILE:?Set MYSQL_ROOT_PASSWORD_FILE in .env.production}
+  db_password:
+    file: ${DB_PASSWORD_FILE:?Set DB_PASSWORD_FILE in .env.production}
+  db_migration_password:
+    file: ${DB_MIGRATION_PASSWORD_FILE:?Set DB_MIGRATION_PASSWORD_FILE in .env.production}
+  db_acl_password:
+    file: ${DB_ACL_PASSWORD_FILE:?Set DB_ACL_PASSWORD_FILE in .env.production}
+  jwt_secret:
+    file: ${JWT_SECRET_FILE:?Set JWT_SECRET_FILE in .env.production}
+  redis_password:
+    file: ${REDIS_PASSWORD_FILE:?Set REDIS_PASSWORD_FILE in .env.production}
+  payments_pii_encryption_key:
+    file: ${PAYMENTS_PII_ENCRYPTION_KEY_FILE:?Set PAYMENTS_PII_ENCRYPTION_KEY_FILE in .env.production}
+  audit_signing_private_key:
+    file: ${AUDIT_SIGNING_PRIVATE_KEY_FILE:?Set AUDIT_SIGNING_PRIVATE_KEY_FILE in .env.production}

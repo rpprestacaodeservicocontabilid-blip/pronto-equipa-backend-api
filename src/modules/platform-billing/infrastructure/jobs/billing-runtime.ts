@@ -47,11 +47,12 @@ export class BillingRuntime {
       }
       for (const company of companies)
         await sequelize.transaction(async (tx) => {
-          await sequelize.query("SELECT set_config('app.current_tenant', :tenant, true)", {
-            replacements: { tenant: String(company.id) },
-            type: QueryTypes.SELECT,
-            transaction: tx,
-          });
+          if (sequelize.getDialect() === 'postgres')
+            await sequelize.query("SELECT set_config('app.current_tenant', :tenant, true)", {
+              replacements: { tenant: String(company.id) },
+              type: QueryTypes.SELECT,
+              transaction: tx,
+            });
           const events = await BillingRecord.findAll({
             where: {
               companyId: company.id,

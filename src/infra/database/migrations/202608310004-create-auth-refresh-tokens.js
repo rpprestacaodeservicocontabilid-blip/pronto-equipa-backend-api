@@ -18,7 +18,8 @@ module.exports = {
 
       sessionId: {
         type: Sequelize.INTEGER,
-        allowNull: false,
+        // The foreign key added later uses ON DELETE SET NULL.
+        allowNull: true,
       },
 
       tokenHash: {

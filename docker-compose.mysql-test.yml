@@ -1,0 +1,54 @@
+name: prontoequipas-mysql-migration-test
+
+services:
+  migrations-test:
+    profiles: [migrate-test]
+    build:
+      context: .
+      target: migrations
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-bookworm-slim}
+    environment:
+      NODE_ENV: production
+      DB_DIALECT: mysql
+      DB_HOST: mysql-test
+      DB_PORT: 3306
+      DB_NAME: prontoequipas_migration_test
+      DB_USER: root
+      DB_PASSWORD: mysql_test_root_only
+      DB_SSL: "false"
+    depends_on:
+      mysql-test:
+        condition: service_healthy
+
+  grant-runtime-test:
+    profiles: [grants-test]
+    image: mysql:8.4
+    entrypoint: ["/bin/sh", "/scripts/grant-runtime-user.sh"]
+    environment:
+      DB_NAME: prontoequipas_migration_test
+      DB_USER: prontoequipas_runtime_test
+      DB_ACL_USER: prontoequipas_acl_test
+      DB_ACL_PASSWORD: mysql_test_acl_only
+      MYSQL_HOST: mysql-test
+    volumes:
+      - ./docker/mysql-grant-runtime-user.sh:/scripts/grant-runtime-user.sh:ro
+    depends_on:
+      mysql-test:
+        condition: service_healthy
+
+  mysql-test:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql_test_root_only
+      MYSQL_DATABASE: prontoequipas_migration_test
+    ports:
+      - "127.0.0.1:13316:3306"
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: "no"

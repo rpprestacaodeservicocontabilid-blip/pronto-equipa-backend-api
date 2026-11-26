@@ -4,7 +4,7 @@ import fs from 'fs';
 import { ENV } from './env';
 import { SENSITIVE_FIELDS } from './logger.config';
 
-const LOG_DIR = path.resolve(process.cwd(), 'logs');
+const LOG_DIR = path.resolve(process.env.LOG_DIR || 'logs');
 
 if (!fs.existsSync(LOG_DIR)) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -44,6 +44,7 @@ const redactFormat = winston.format((info) => {
   const { level, message, timestamp, ...rest } = info;
 
   return {
+    ...info,
     level,
     message,
     timestamp,

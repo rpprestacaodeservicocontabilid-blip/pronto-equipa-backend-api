@@ -5,7 +5,7 @@ module.exports = {
     await q.createTable('legal_rule_sets', {
       id: { type: S.UUID, primaryKey: true, allowNull: false },
       companyId: {
-        type: S.INTEGER,
+        type: S.INTEGER.UNSIGNED,
         allowNull: true,
         references: { model: 'companies', key: 'id' },
         onDelete: 'RESTRICT',

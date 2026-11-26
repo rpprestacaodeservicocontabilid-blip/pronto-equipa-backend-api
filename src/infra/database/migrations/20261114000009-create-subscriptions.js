@@ -82,7 +82,7 @@ module.exports = {
       await q.createTable(table, {
         id: { type: S.UUID, primaryKey: true, allowNull: false },
         companyId: {
-          type: S.INTEGER,
+          type: S.INTEGER.UNSIGNED,
           allowNull: global,
           references: { model: 'companies', key: 'id' },
           onDelete: 'RESTRICT',
@@ -103,6 +103,45 @@ module.exports = {
           unique: true,
           name: `uq_${table}_key`,
         });
+      if (q.sequelize.getDialect() === 'mysql') {
+        const globalParentByTable = {
+          subscription_plan_versions: 'subscription_plans',
+          subscription_plan_prices: 'subscription_plan_versions',
+          subscription_plan_features: 'subscription_plan_versions',
+          subscription_plan_limits: 'subscription_plan_versions',
+        };
+        const globalParent = globalParentByTable[table];
+        if (globalParent)
+          await q.addConstraint(table, {
+            fields: ['runId'],
+            type: 'foreign key',
+            name: `fk_${table}_parent`,
+            references: { table: globalParent, fields: ['id'] },
+            onDelete: 'RESTRICT',
+          });
+        const tenantParentByTable = {
+          subscription_periods: 'tenant_subscriptions',
+          subscription_trials: 'tenant_subscriptions',
+          subscription_entitlements: 'tenant_subscriptions',
+          subscription_overrides: 'tenant_subscriptions',
+          subscription_change_requests: 'tenant_subscriptions',
+          subscription_usage_accounts: 'tenant_subscriptions',
+          subscription_transitions: 'tenant_subscriptions',
+          subscription_notifications: 'tenant_subscriptions',
+          subscription_usage_reservations: 'subscription_usage_accounts',
+          subscription_usage_records: 'subscription_usage_accounts',
+          subscription_approvals: 'subscription_change_requests',
+        };
+        const tenantParent = tenantParentByTable[table];
+        if (tenantParent)
+          await q.addConstraint(table, {
+            fields: ['companyId', 'runId'],
+            type: 'foreign key',
+            name: `fk_${table}_tenant_parent`,
+            references: { table: tenantParent, fields: ['companyId', 'id'] },
+            onDelete: 'RESTRICT',
+          });
+      }
       if (q.sequelize.getDialect() === 'postgres') {
         await q.sequelize.query(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY`);
         await q.sequelize.query(`ALTER TABLE "${table}" FORCE ROW LEVEL SECURITY`);
@@ -166,8 +205,11 @@ module.exports = {
         updatedAt: now,
       }));
     if (rows.length) await q.bulkInsert('permissions', rows);
-    const [oldFeatures] = await q.sequelize.query('SELECT "key" FROM subscription_features');
-    const featureKeys = new Set(oldFeatures.map((row) => row.key));
+    const featureKeyColumn = q.queryGenerator.quoteIdentifier('key');
+    const [oldFeatures] = await q.sequelize.query(
+      `SELECT ${featureKeyColumn} AS featureKey FROM subscription_features`,
+    );
+    const featureKeys = new Set(oldFeatures.map((row) => row.featureKey));
     const featureRows = features
       .filter(([code]) => !featureKeys.has(code))
       .map(([code, name]) => ({
@@ -178,7 +220,7 @@ module.exports = {
         employeeId: null,
         key: code,
         version: 1,
-        data: { code, name, description: null, system: true },
+        data: JSON.stringify({ code, name, description: null, system: true }),
         createdAt: now,
         updatedAt: now,
       }));

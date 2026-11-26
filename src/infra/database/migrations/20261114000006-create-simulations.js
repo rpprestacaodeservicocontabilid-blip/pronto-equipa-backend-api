@@ -57,7 +57,7 @@ module.exports = {
       await q.createTable(table, {
         id: { type: S.UUID, primaryKey: true, allowNull: false },
         companyId: {
-          type: S.INTEGER,
+          type: S.INTEGER.UNSIGNED,
           allowNull: false,
           references: { model: 'companies', key: 'id' },
           onDelete: 'RESTRICT',
@@ -78,6 +78,28 @@ module.exports = {
       });
       if (unique.includes(table))
         await q.addIndex(table, ['companyId', 'key'], { unique: true, name: `uq_${table}_key` });
+      if (q.sequelize.getDialect() === 'mysql') {
+        const parentByTable = {
+          simulation_scenario_versions: 'simulation_scenarios',
+          simulation_runs: 'simulation_scenarios',
+          simulation_run_items: 'simulation_runs',
+          simulation_comparisons: 'simulation_runs',
+          simulation_proposals: 'simulation_runs',
+          simulation_approvals: 'simulation_proposals',
+          simulation_projections: 'simulation_runs',
+          simulation_exports: 'simulation_runs',
+          simulation_issues: 'simulation_runs',
+        };
+        const parent = parentByTable[table];
+        if (parent)
+          await q.addConstraint(table, {
+            fields: ['companyId', 'runId'],
+            type: 'foreign key',
+            name: `fk_${table}_tenant_parent`,
+            references: { table: parent, fields: ['companyId', 'id'] },
+            onDelete: 'RESTRICT',
+          });
+      }
       if (q.sequelize.getDialect() === 'postgres') {
         await q.sequelize.query(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY`);
         await q.sequelize.query(`ALTER TABLE "${table}" FORCE ROW LEVEL SECURITY`);

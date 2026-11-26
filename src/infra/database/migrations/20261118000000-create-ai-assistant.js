@@ -3,7 +3,8 @@ const schema = require('../helpers/ai-schema.cjs');
 module.exports = {
   async up(q, S) {
     const dialect = q.sequelize.getDialect();
-    if (!['postgres','sqlite'].includes(dialect)) throw new Error('AI requires PostgreSQL; SQLite is supported for isolated tests.');
+    if (!['postgres','mysql','sqlite'].includes(dialect))
+      throw new Error('AI migrations support PostgreSQL, MySQL 8, and SQLite tests.');
     const definitions = schema(S);
     await q.sequelize.transaction(async transaction => {
       for (const definition of definitions) {

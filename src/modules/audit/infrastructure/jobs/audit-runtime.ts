@@ -48,8 +48,9 @@ export class AuditRuntime {
       return;
     }
     if (process.env.NODE_ENV === 'production') {
-      if (sequelize.getDialect() !== 'postgres')
-        throw new Error('Production audit requires PostgreSQL.');
+      const dialect = sequelize.getDialect();
+      if (dialect !== 'postgres' && dialect !== 'mysql')
+        throw new Error('Production audit requires MySQL or PostgreSQL.');
       if (!process.env.AUDIT_ANCHOR_ROOT || !process.env.AUDIT_SIGNING_PRIVATE_KEY)
         throw new Error('Configure audit signing and independent anchoring.');
       if (!process.env.AUDIT_ALERT_RECIPIENTS_JSON)
@@ -57,6 +58,8 @@ export class AuditRuntime {
       this.services.core.crypto.sign('audit-startup-check');
       if (!(await sequelize.getQueryInterface().tableExists('audit_scope_catalog')))
         throw new Error('Apply the audit migrations before startup.');
+      let triggerNames: Set<string>;
+      if (dialect === 'postgres') {
       const protections = await sequelize.query<{ name: string; rls: boolean; forced: boolean }>(
         "SELECT relname AS name,relrowsecurity AS rls,relforcerowsecurity AS forced FROM pg_class WHERE oid IN ('audit_records'::regclass,'audit_chain_heads'::regclass,'audit_capture_events'::regclass)",
         { type: QueryTypes.SELECT },
@@ -81,6 +84,27 @@ export class AuditRuntime {
         "SELECT tgname AS name FROM pg_trigger WHERE NOT tgisinternal AND tgenabled='O'",
         { type: QueryTypes.SELECT },
       );
+      triggerNames = new Set(triggers.map((t) => t.name));
+      } else {
+        const schema = String(sequelize.config.database || '');
+        const triggers = await sequelize.query<{ name: string }>(
+          'SELECT name FROM audit_trigger_inventory',
+          { type: QueryTypes.SELECT },
+        );
+        triggerNames = new Set(triggers.map((t) => t.name));
+        const grants = await sequelize.query<Record<string, string>>('SHOW GRANTS', {
+          type: QueryTypes.SELECT,
+        });
+        const grantText = grants.flatMap((row) => Object.values(row)).join('\n').toUpperCase();
+        if (/GRANT OPTION|ALL PRIVILEGES ON|SUPER|SYSTEM_USER|CREATE USER|TRIGGER ON/.test(grantText))
+          throw new Error('MySQL audit runtime account has excessive privileges.');
+        const protectedGrants = await sequelize.query<{ tableName: string; privilege: string }>(
+          "SELECT TABLE_NAME AS tableName,PRIVILEGE_TYPE AS privilege FROM information_schema.TABLE_PRIVILEGES WHERE TABLE_SCHEMA=:schema AND ((TABLE_NAME='audit_records' AND PRIVILEGE_TYPE IN ('UPDATE','DELETE','TRIGGER','ALTER','DROP','REFERENCES')) OR (TABLE_NAME='audit_record_identities' AND PRIVILEGE_TYPE IN ('INSERT','UPDATE','DELETE','TRIGGER','ALTER','DROP','REFERENCES')) OR (TABLE_NAME='audit_capture_events' AND PRIVILEGE_TYPE IN ('INSERT','DELETE','TRIGGER','ALTER','DROP','REFERENCES')))",
+          { replacements: { schema }, type: QueryTypes.SELECT },
+        );
+        if (protectedGrants.length)
+          throw new Error('MySQL audit runtime account has write access to protected audit evidence.');
+      }
       for (const table of [
         'companies',
         'company_members',
@@ -96,11 +120,19 @@ export class AuditRuntime {
         'payroll_payment_transactions',
         'platform_billing_records',
       ])
-        if (!triggers.some((t) => t.name === `audit_capture_${table}`))
+        if (
+          dialect === 'postgres'
+            ? !triggerNames.has(`audit_capture_${table}`)
+            : !['insert', 'update', 'delete'].every((operation) =>
+                triggerNames.has(`audit_capture_${table}_${operation}`),
+              )
+        )
           throw new Error(`Critical audit capture missing: ${table}`);
       if (
-        !triggers.some((t) => t.name === 'audit_record_immutable') ||
-        !triggers.some((t) => t.name === 'audit_record_no_truncate')
+        dialect === 'postgres'
+          ? !triggerNames.has('audit_record_immutable') || !triggerNames.has('audit_record_no_truncate')
+          : !triggerNames.has('audit_records_update_immutable') ||
+            !triggerNames.has('audit_records_delete_immutable')
       )
         throw new Error('Audit immutability protections are missing.');
       if (process.env.AUDIT_QUEUE_ENABLED !== 'true')

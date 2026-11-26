@@ -35,7 +35,7 @@ module.exports = {
     await q.createTable('report_records', {
       id: { type: S.UUID, primaryKey: true, allowNull: false },
       companyId: {
-        type: S.INTEGER,
+        type: S.INTEGER.UNSIGNED,
         allowNull: false,
         references: { model: 'companies', key: 'id' },
         onDelete: 'RESTRICT',

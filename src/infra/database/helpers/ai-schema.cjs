@@ -16,7 +16,7 @@ module.exports = (DataTypes) => [
     ],updated:false},
 {table:'ai_safety_incidents',columns:{
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
-    companyId: { type: DataTypes.INTEGER, allowNull: true },
+    companyId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true },
     interactionId: { type: DataTypes.UUID, allowNull: true },
     category: { type: DataTypes.STRING(60), allowNull: false },
     severity: { type: DataTypes.STRING(20), allowNull: false },
@@ -90,7 +90,7 @@ module.exports = (DataTypes) => [
 {table:'ai_conversations',columns:{
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
     companyId: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       references: { model: 'companies', key: 'id' },
       onDelete: 'CASCADE',
@@ -111,7 +111,7 @@ module.exports = (DataTypes) => [
 {table:'ai_messages',columns:{
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
     companyId: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       references: { model: 'companies', key: 'id' },
       onDelete: 'CASCADE',
@@ -135,7 +135,7 @@ module.exports = (DataTypes) => [
 {table:'ai_message_citations',columns:{
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
     companyId: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       references: { model: 'companies', key: 'id' },
       onDelete: 'CASCADE',
@@ -151,7 +151,7 @@ module.exports = (DataTypes) => [
 {table:'ai_context_snapshots',columns:{
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
     companyId: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       references: { model: 'companies', key: 'id' },
       onDelete: 'CASCADE',
@@ -171,7 +171,7 @@ module.exports = (DataTypes) => [
 {table:'ai_interactions',columns:{
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
     companyId: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       references: { model: 'companies', key: 'id' },
       onDelete: 'CASCADE',
@@ -219,7 +219,7 @@ module.exports = (DataTypes) => [
 {table:'ai_model_invocations',columns:{
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
     companyId: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       references: { model: 'companies', key: 'id' },
       onDelete: 'CASCADE',
@@ -253,7 +253,7 @@ module.exports = (DataTypes) => [
 {table:'ai_feedback',columns:{
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
     companyId: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       references: { model: 'companies', key: 'id' },
       onDelete: 'CASCADE',
@@ -275,7 +275,7 @@ module.exports = (DataTypes) => [
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
     scope: { type: DataTypes.STRING(20), allowNull: false },
     companyId: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: true,
       references: { model: 'companies', key: 'id' },
       onDelete: 'CASCADE',
@@ -300,7 +300,7 @@ module.exports = (DataTypes) => [
     ],updated:true},
 {table:'ai_knowledge_chunks',columns:{
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
-    companyId: { type: DataTypes.INTEGER, allowNull: true },
+    companyId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true },
     scope: { type: DataTypes.STRING(20), allowNull: false },
     documentId: { type: DataTypes.UUID, allowNull: false },
     documentVersionId: { type: DataTypes.STRING(80), allowNull: false },
@@ -319,7 +319,7 @@ module.exports = (DataTypes) => [
     ],updated:false},
 {table:'ai_indexing_jobs',columns:{
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
-    companyId: { type: DataTypes.INTEGER, allowNull: true },
+    companyId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true },
     sourceId: { type: DataTypes.UUID, allowNull: false },
     kind: { type: DataTypes.STRING(20), allowNull: false },
     documentId: { type: DataTypes.UUID, allowNull: true },
@@ -338,7 +338,7 @@ module.exports = (DataTypes) => [
     ],updated:true},
 {table:'ai_outbox',columns:{
     id: { type: DataTypes.BIGINT, autoIncrement: true, primaryKey: true },
-    companyId: { type: DataTypes.INTEGER, allowNull: true },
+    companyId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true },
     eventName: { type: DataTypes.STRING(80), allowNull: false },
     aggregateId: { type: DataTypes.UUID, allowNull: false },
     userId: { type: DataTypes.INTEGER, allowNull: true },
@@ -373,7 +373,7 @@ module.exports = (DataTypes) => [
 {table:'ai_tool_executions',columns:{
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
     companyId: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       references: { model: 'companies', key: 'id' },
       onDelete: 'CASCADE',
@@ -399,7 +399,7 @@ module.exports = (DataTypes) => [
 {table:'ai_action_approvals',columns:{
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
     companyId: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       references: { model: 'companies', key: 'id' },
       onDelete: 'CASCADE',
@@ -435,7 +435,7 @@ module.exports = (DataTypes) => [
 {table:'ai_usage_accounts',columns:{
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
     companyId: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       references: { model: 'companies', key: 'id' },
       onDelete: 'CASCADE',
@@ -458,7 +458,7 @@ module.exports = (DataTypes) => [
 {table:'ai_usage_records',columns:{
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
     companyId: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       references: { model: 'companies', key: 'id' },
       onDelete: 'CASCADE',
@@ -482,7 +482,7 @@ module.exports = (DataTypes) => [
     ],updated:false},
 {table:'ai_cost_records',columns:{
     id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
-    companyId: { type: DataTypes.INTEGER, allowNull: true },
+    companyId: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true },
     usageRecordId: { type: DataTypes.UUID, allowNull: true },
     interactionId: { type: DataTypes.UUID, allowNull: true },
     providerId: { type: DataTypes.STRING(60), allowNull: false },

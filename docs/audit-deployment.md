@@ -4,7 +4,7 @@
 
 O módulo tem domínio, casos de uso, portas, adaptadores de persistência, API, workers e migrações. Usa **Sequelize**, que é o ORM já adoptado nesta aplicação; as portas não dependem do ORM. A especificação de referência é o documento do módulo Audit, versão 1, fornecido para o PRONTOEQUIPAS.
 
-**A homologação final está pendente.** Não foram aplicadas migrações numa base operacional. Os testes PostgreSQL, Redis, armazenamento independente, carga e recuperação de backups necessitam do ambiente de destino.
+**O Compose de produção passou na validação funcional numa stack descartável.** A conta dedicada aplicou as migrações numa base MySQL 8.4 vazia, a API ficou pronta e o worker processou uma captura através do Redis. A conta da API conseguiu consultar o inventário dos triggers e teve escritas directas em evidências protegidas recusadas. O armazenamento definitivo das âncoras, a carga e a recuperação de backups ainda dependem da homologação no ambiente de destino.
 
 Nesta sessão, os nove testes de compatibilidade em `src/tests/integration/audit.test.ts` passaram. A última execução de `audit-engine.test.ts` teve nove cenários aprovados e uma asserção de código HTTP incorrecta; a asserção foi corrigida, assim como a expectativa do download de outro utilizador. Houve alterações posteriores que precisam de nova execução completa. A verificação final de TypeScript foi bloqueada pela revisão automática porque o processo tentou contactar `dc.services.visualstudio.com`, com conteúdo de transmissão desconhecido. Não foi contornado o bloqueio.
 
@@ -43,21 +43,22 @@ O domínio não importa Express, Sequelize, Redis ou serviços externos. A aplic
 
 Aplicar, pelo procedimento normal de migrações da aplicação:
 
-1. `20261116000010-create-audit-engine.js` — registos, cabeçalhos, capturas, catálogo de âmbitos, mapa de papéis, workflows, índices, triggers e RLS.
+1. `20261116000010-create-audit-engine.js` — registos, cabeçalhos, capturas, catálogo de âmbitos, mapa de papéis, workflows, índices e triggers; RLS é instalada apenas no PostgreSQL.
 2. `20261116000011-seed-audit-permissions.js` — permissões granulares e modelo de notificação `AUDIT_ALERT`.
 3. `20261117000000-create-audit-projections.js` - vistas relacionais de actores, recursos, alterações, contextos, integridade, preservação, investigações e exportações.
+4. `20261126000001-create-mysql-audit-trigger-view.js` — inventário dos nomes dos triggers, consultável pela API sem privilégio para os gerir.
 
 ```sh
 npm run db:migrate:production
 ```
 
-O destino de produção é **PostgreSQL**. SQLite serve para desenvolvimento e testes. A migração recusa outros dialectos antes de criar tabelas. A configuração geral passou a aceitar PostgreSQL; a compatibilidade do histórico completo de migrações e de todos os módulos deve ser validada na homologação da aplicação.
+O destino de produção definido é **MySQL 8.4**. O histórico completo foi aplicado numa base vazia de teste. PostgreSQL continua disponível para integrações específicas; SQLite serve para desenvolvimento e testes.
 
-`audit_records` usa partições mensais por `receivedAt` em PostgreSQL. A chave física é `(scopeKey,id,receivedAt)`. O registo imutável `audit_record_identities` garante unicidade global de ID e unicidade por âmbito de evento e sequência, incluindo entre meses. RLS é activada e forçada no pai, nas partições e nos workflows. Doze vistas relacionais expõem os objectos do payload e dos workflows sem duplicar os dados; usam `security_invoker` e exigem PostgreSQL 15 ou posterior. O perfil de testes usa PostgreSQL 16.
+`audit_records` usa partições mensais por `receivedAt` em PostgreSQL; no MySQL usa uma tabela InnoDB sem partições. `audit_record_identities` garante unicidade de ID, evento e sequência no MySQL e entre partições PostgreSQL. MySQL instala triggers para reservar identidades e rejeitar UPDATE/DELETE; as vistas de projeção usam `SQL SECURITY INVOKER`. O perfil PostgreSQL continua a validar RLS, partições e funções próprias desse dialeto.
 
 Executar `npm run audit:partitions` regularmente com `AUDIT_PARTITION_DATABASE_URL` e uma role de migração para preparar o mês actual e os dois seguintes. A partição default evita perder ingestão fora dos períodos preparados; monitorizar a sua ocupação. A movimentação de dados já presentes nessa partição exige um procedimento administrativo revisto. Se uma versão anterior desta migração já tiver sido aplicada, preparar uma migração incremental antes de actualizar; não apagar o histórico de migrações nem reaplicar a inicial sobre dados existentes.
 
-O comando de produção usa `src/config/sequelize-production.cjs`, com credenciais apenas em variáveis de ambiente. O alvo Docker `migrations` inclui o CLI; a imagem final inclui apenas dependências de execução. A aplicação e as migrações suportam `DB_SSL` e `DB_SSL_REJECT_UNAUTHORIZED`.
+O comando de produção usa `src/config/sequelize-production.cjs`, com segredos montados em ficheiros. A imagem de migrações inclui o CLI e corre como utilizador não-root; a imagem final inclui apenas dependências de execução. A aplicação e as migrações suportam `DB_SSL` e `DB_SSL_REJECT_UNAUTHORIZED`.
 
 Os workflows têm tabelas separadas para investigações, evidências, exportações, políticas, retenção, execuções, bloqueios legais, alertas, checkpoints, verificações, falhas, reconciliações, cursores e outbox. `audit_scope_catalog` contém apenas identificadores para descoberta interna pelos workers. `audit_role_scopes` preserva o âmbito de papéis eliminados. Nenhuma rota expõe estes dois catálogos.
 
@@ -67,7 +68,7 @@ As migrações não disponibilizam rollback destrutivo automático. Não elimina
 
 A lista `captures` na migração é a fonte exacta de cobertura. Abrange identidade, vínculos e permissões, colaboradores, contratos, estrutura salarial, processamento salarial, pagamentos, regras legais, documentos, recibos de vencimento, subscrições, cobrança da plataforma, simulações, relatórios, onboarding e suporte, quando as respectivas tabelas existem.
 
-O arranque de produção verifica os triggers essenciais de empresas, vínculos, papéis, permissões, contratos, salários, payroll, pagamentos e cobrança. Ao acrescentar uma tabela ou renomear uma tabela existente, criar uma nova migração de captura. Não presumir que uma tabela nova está coberta só porque pertence a um módulo já existente.
+O arranque de produção verifica os triggers essenciais de empresas, vínculos, papéis, permissões, contratos, salários, payroll, pagamentos e cobrança, assim como imutabilidade e privilégios do ledger. Ao acrescentar uma tabela ou renomear uma tabela existente, criar uma nova migração de captura. Não presumir que uma tabela nova está coberta só porque pertence a um módulo já existente.
 
 Os eventos sem actor HTTP identificado são atribuídos ao actor técnico `database-capture` e assinalados com `actorIdentified=false`. As operações emitidas pelos módulos conservam o actor semântico. Os eventos de identidade deixaram de depender de `console.info` e usam o mesmo ledger. Os registos antigos em `audit_logs` continuam consultáveis pela rota de compatibilidade, com mascaramento reforçado; não foram retroactivamente assinados nem convertidos em capturas transaccionais.
 
@@ -75,7 +76,7 @@ Os eventos sem actor HTTP identificado são atribuídos ao actor técnico `datab
 
 | Variável                          | Utilização                                                                                    |
 | --------------------------------- | --------------------------------------------------------------------------------------------- |
-| `DB_DIALECT=postgres`             | PostgreSQL em produção                                                                        |
+| `DB_DIALECT=mysql`                | MySQL 8.4 em produção                                                                          |
 | `AUDIT_WORKER_ENABLED=true`       | Activar processamento; obrigatório em produção                                                |
 | `AUDIT_QUEUE_ENABLED=true`        | Usar as oito filas BullMQ; obrigatório em produção                                            |
 | `AUDIT_POLL_INTERVAL_MS=10000`    | Descoberta de trabalho; mínimo 1000 ms                                                        |
@@ -89,9 +90,11 @@ Os eventos sem actor HTTP identificado são atribuídos ao actor técnico `datab
 
 Não colocar uma chave real no repositório. `AUDIT_SIGNING_PRIVATE_KEY` aceita PEM com quebras de linha reais ou `\n` escapado. Conservar as chaves públicas antigas após rotação, enquanto existir evidência assinada por elas. O adaptador actual assina localmente; uma integração KMS/HSM exige outro adaptador para a porta de criptografia.
 
-O processo de execução não pode usar uma role PostgreSQL `SUPERUSER` ou `BYPASSRLS`. Usar uma role distinta da role de migrações, sem DDL ou permissão para desactivar triggers. Conceder apenas os acessos de leitura, inserção e workflows necessários. Não conceder acesso directo às partições. A protecção de ficheiros e de âncoras deve usar contas, ACL, montagem e backups independentes da conta que administra a base.
+Em produção MySQL, a conta da API é distinta da conta de migração. Ela recebe DML por tabela, sem DDL, `TRIGGER`, `GRANT` nem escrita nas identidades de auditoria. O grantor de ACL tem apenas SELECT/INSERT/UPDATE/DELETE com `GRANT OPTION` no schema e é usado pelo serviço one-shot; mantenha o seu segredo só no host de deploy. A conta da API não tem privilégios globais.
 
-A role da aplicação também não pode ser proprietária do ledger nem inserir directamente em `audit_capture_events`. Os triggers usam funções `SECURITY DEFINER` da role de migrações. Conceder à aplicação `SELECT` sobre capturas e `UPDATE` **apenas da coluna `processedAt`**; não conceder escrita sobre payloads, datas ou identificadores da fonte. O arranque verifica a ausência de privilégio directo de inserção e de pertença à role proprietária do ledger. O ledger precisa de `SELECT,INSERT`; cabeçalhos, catálogo de âmbitos e workflows precisam dos acessos usados pelos repositórios, sem expurgo. Estas concessões devem ser feitas pelo administrador com os nomes reais das roles de implantação.
+A conta da API não insere directamente em `audit_capture_events`; recebe `SELECT,UPDATE` nessa tabela para processar capturas, `SELECT,INSERT` no ledger e `SELECT,INSERT,UPDATE` nos cabeçalhos. O app não recebe acesso a `audit_record_identities`. Os triggers são executados com o definer da migração. O arranque valida os privilégios proibidos e os triggers críticos. PostgreSQL mantém a verificação equivalente de RLS e roles `SUPERUSER`/`BYPASSRLS`.
+
+**Limite de isolamento:** MySQL não fornece RLS. A aplicação filtra todas as leituras pelo âmbito da empresa e usa FKs compostas onde há relações entre tenants; isso não protege contra uma consulta SELECT nova ou defeituosa sem filtro. O controlo de leitura depende dos repositórios e serviços da aplicação.
 
 ### Alertas
 
@@ -161,7 +164,7 @@ A entrega de alertas tem marcador `notifiedAt` e chave idempotente. Capturas de 
 
 ## Validação e homologação
 
-O ensaio independente `npm run test:audit:sql` passou em SQLite isolado: captura durável, rollback, mascaramento, vistas relacionais, idempotência e bloqueios de alteração. O ficheiro `docker-compose.audit-test.yml` prepara PostgreSQL e Redis descartáveis em portas locais 55442 e 56389. Estes testes não demonstram ainda isolamento PostgreSQL, publicação Redis, recuperação de backups ou desempenho em produção. A compilação e os testes TypeScript finais continuam pendentes devido ao bloqueio automático indicado no estado da entrega.
+`docker compose -f docker-compose.mysql-test.yml --profile migrate-test run --build --rm migrations-test` aplicou todas as migrações numa base MySQL 8.4 vazia. Os triggers de companies capturaram INSERT/UPDATE; o trigger de identidade inseriu a reserva correspondente; UPDATE no ledger foi rejeitado. O perfil `grants-test` confirmou a criação de grants por tabela e uma escrita da conta runtime foi capturada. Os testes de isolamento RLS PostgreSQL permanecem opt-in e separados.
 
 Comandos preparados para executar após resolver o bloqueio da validação:
 
@@ -179,7 +182,7 @@ O script `scripts/audit-load.cjs` prepara carga HTTP de leitura contra localhost
 
 `/admin/metrics` inclui contagem e bytes dos payloads da empresa, ficheiros e bytes de evidências/âncoras, atraso de ingestão e pendências. Os bytes dos payloads não incluem todo o custo físico de índices, cabeçalhos, TOAST e partições; o administrador deve também monitorizar o volume total de PostgreSQL e o espaço livre dos volumes privados.
 
-Antes de produção: validar a cadeia de migrações em PostgreSQL, executar os testes finais, medir carga de ingestão e consultas, parar/reiniciar workers durante trabalho, testar permissões reais, rotação de chaves, indisponibilidade do armazenamento e recuperação de backups.
+Antes de produção: executar os testes finais da aplicação, medir carga de ingestão e consultas, parar/reiniciar workers durante trabalho, configurar TLS e permissões reais, testar rotação de chaves, indisponibilidade do armazenamento e recuperação de backups.
 
 ### Recuperação de backups
 

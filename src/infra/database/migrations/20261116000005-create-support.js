@@ -48,7 +48,7 @@ module.exports = {
     await q.createTable('support_records', {
       id: { type: S.UUID, primaryKey: true, allowNull: false },
       companyId: {
-        type: S.INTEGER,
+        type: S.INTEGER.UNSIGNED,
         allowNull: true,
         references: { model: 'companies', key: 'id' },
         onDelete: 'RESTRICT',
@@ -98,7 +98,7 @@ module.exports = {
       key: 'DEFAULT:1',
       status: 'ACTIVE',
       userId: null,
-      data: {
+      data: JSON.stringify({
         code: 'DEFAULT',
         version: 1,
         firstResponseHours: 24,
@@ -107,7 +107,7 @@ module.exports = {
         businessStartHour: 9,
         businessEndHour: 17,
         baseline: true,
-      },
+      }),
       createdAt: now,
       updatedAt: now,
     }]);

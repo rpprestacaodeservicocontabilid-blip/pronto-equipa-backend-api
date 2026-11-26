@@ -4,7 +4,7 @@ module.exports = {
     await q.createTable('platform_billing_records', {
       id: { type: S.UUID, primaryKey: true, allowNull: false },
       companyId: {
-        type: S.INTEGER,
+        type: S.INTEGER.UNSIGNED,
         allowNull: false,
         references: { model: 'companies', key: 'id' },
         onDelete: 'RESTRICT',
@@ -12,7 +12,10 @@ module.exports = {
       kind: { type: S.STRING(40), allowNull: false },
       key: { type: S.STRING(240), allowNull: false },
       status: { type: S.STRING(40), allowNull: false },
-      data: { type: S.JSONB, allowNull: false },
+      data: {
+        type: q.sequelize.getDialect() === 'postgres' ? S.JSONB : S.JSON,
+        allowNull: false,
+      },
       createdAt: { type: S.DATE, allowNull: false },
       updatedAt: { type: S.DATE, allowNull: false },
     });

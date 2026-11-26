@@ -62,8 +62,9 @@ module.exports = {
     if (rows.length) await q.bulkInsert('permissions', rows);
     // Sensitive and approval privileges are deliberately assigned by administrators, never through a blanket ADMIN grant.
     if (await q.tableExists('communication_records')) {
+      const quote = (name) => q.queryGenerator.quoteIdentifier(name);
       const [templates] = await q.sequelize.query(
-        "SELECT id FROM communication_records WHERE kind='TEMPLATE' AND \"scopeKey\"='platform' AND \"key\"='AUDIT_ALERT:1'",
+        `SELECT id FROM communication_records WHERE kind='TEMPLATE' AND ${quote('scopeKey')}='platform' AND ${quote('key')}='AUDIT_ALERT:1'`,
       );
       if (!templates.length)
         await q.bulkInsert('communication_records', [
@@ -75,14 +76,14 @@ module.exports = {
             key: 'AUDIT_ALERT:1',
             status: 'PUBLISHED',
             userId: null,
-            data: {
+            data: JSON.stringify({
               code: 'AUDIT_ALERT',
               category: 'SECURITY',
               version: 1,
               mandatory: true,
               subject: 'Alerta de auditoria: {{severity}}',
               body: 'Foi registado o alerta {{alertId}} no âmbito {{scope}}. Consulte a área de auditoria com as suas permissões.',
-            },
+            }),
             createdAt: now,
             updatedAt: now,
           },

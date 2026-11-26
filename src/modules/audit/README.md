@@ -10,4 +10,4 @@ O contrato público encontra-se em `audit.module.ts`. A composição da aplicaç
 
 Consultas não recebem o tenant do corpo do pedido: o contexto é resolvido antes do router. Exportações exigem decisão independente; leitura sensível é uma permissão adicional. Registos confirmados não têm API de edição ou eliminação.
 
-Ver [instalação, API, permissões, garantias e validações pendentes](../../../docs/audit-deployment.md). As migrações e os testes estão em `src/infra/database/migrations` e `src/tests/integration`. O ensaio de RLS PostgreSQL é opt-in numa base vazia e descartável.
+Ver [instalação, API, permissões, garantias e limites de isolamento](../../../docs/audit-deployment.md). As migrações e os testes estão em `src/infra/database/migrations` e `src/tests/integration`. O histórico MySQL 8.4 é exercitado com `docker-compose.mysql-test.yml`; o ensaio de RLS PostgreSQL continua opt-in numa base vazia e descartável.

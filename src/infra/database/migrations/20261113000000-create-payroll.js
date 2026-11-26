@@ -11,7 +11,7 @@ module.exports = {
     const identity = () => ({
       id: { type: S.UUID, primaryKey: true, allowNull: false },
       companyId: {
-        type: S.INTEGER,
+        type: S.INTEGER.UNSIGNED,
         allowNull: false,
         references: { model: 'companies', key: 'id' },
       },
@@ -79,6 +79,23 @@ module.exports = {
     await q.addIndex('payroll_runs', ['companyId', 'idempotencyKey'], { unique: true });
     for (const table of ['payroll_employee_results', 'payroll_input_snapshots'])
       await q.addIndex(table, ['companyId', 'runId', 'employeeId'], { unique: true });
+    if (q.sequelize.getDialect() === 'mysql') {
+      for (const [source, field, target, name] of [
+        ['payroll_runs', 'periodId', 'payroll_periods', 'fk_payroll_runs_period_tenant'],
+        ['payroll_employee_results', 'runId', 'payroll_runs', 'fk_payroll_results_run_tenant'],
+        ['payroll_input_snapshots', 'runId', 'payroll_runs', 'fk_payroll_snapshots_run_tenant'],
+        ['payroll_employee_results', 'employeeId', 'employees', 'fk_payroll_results_employee_tenant'],
+        ['payroll_input_snapshots', 'employeeId', 'employees', 'fk_payroll_snapshots_employee_tenant'],
+      ]) {
+        await q.addConstraint(source, {
+          fields: ['companyId', field],
+          type: 'foreign key',
+          name,
+          references: { table: target, fields: ['companyId', 'id'] },
+          onDelete: 'RESTRICT',
+        });
+      }
+    }
     if (q.sequelize.getDialect() === 'postgres') {
       for (const [source, field, target] of [
         ['payroll_runs', 'periodId', 'payroll_periods'],

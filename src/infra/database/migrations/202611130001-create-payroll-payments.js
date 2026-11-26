@@ -2,7 +2,7 @@
 
 const base = (S) => ({
   id: { type: S.UUID, primaryKey: true, allowNull: false },
-  companyId: { type: S.INTEGER, allowNull: false },
+  companyId: { type: S.INTEGER.UNSIGNED, allowNull: false },
   createdAt: { type: S.DATE, allowNull: false, defaultValue: S.literal('CURRENT_TIMESTAMP') },
   updatedAt: { type: S.DATE, allowNull: false, defaultValue: S.literal('CURRENT_TIMESTAMP') },
 });

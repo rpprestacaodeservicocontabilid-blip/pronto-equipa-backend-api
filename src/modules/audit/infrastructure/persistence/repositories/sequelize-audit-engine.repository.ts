@@ -63,12 +63,19 @@ export class SequelizeAuditEngineRepository implements AuditRepositoryPort {
     scope: AuditScope,
     context: RecordStoreContext,
   ): Promise<{ records: number; payloadBytes: number }> {
+    const dialect = sequelize.getDialect();
+    const queryGenerator = (sequelize.getQueryInterface() as any).queryGenerator;
+    const quote = (identifier: string) => queryGenerator.quoteIdentifier(identifier);
     const size =
-      sequelize.getDialect() === 'postgres'
-        ? 'pg_column_size(payload)'
-        : 'length(CAST(payload AS BLOB))';
+      dialect === 'postgres'
+        ? `pg_column_size(${quote('payload')})`
+        : dialect === 'mysql'
+          ? `OCTET_LENGTH(${quote('payload')})`
+          : `length(CAST(${quote('payload')} AS BLOB))`;
+    const company =
+      scope.companyId === null ? `${quote('companyId')} IS NULL` : `${quote('companyId')}=:companyId`;
     const rows = await sequelize.query<{ records: string | number; payloadBytes: string | number }>(
-      `SELECT COUNT(*) AS records,COALESCE(SUM(${size}),0) AS "payloadBytes" FROM audit_records WHERE "scopeKey"=:scopeKey AND ${scope.companyId === null ? '"companyId" IS NULL' : '"companyId"=:companyId'}`,
+      `SELECT COUNT(*) AS records,COALESCE(SUM(${size}),0) AS ${quote('payloadBytes')} FROM ${quote('audit_records')} WHERE ${quote('scopeKey')}=:scopeKey AND ${company}`,
       {
         replacements: { scopeKey: scope.scopeKey, companyId: scope.companyId },
         transaction: resolveRecordTransaction(context),

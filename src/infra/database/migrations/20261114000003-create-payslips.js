@@ -18,15 +18,11 @@ const tables = [
 
 module.exports = {
   async up(q, S) {
-    await q.addIndex('employees', ['companyId', 'id'], {
-      unique: true,
-      name: 'uq_employees_company_id',
-    });
     for (const table of tables) {
       await q.createTable(table, {
         id: { type: S.UUID, primaryKey: true, allowNull: false },
         companyId: {
-          type: S.INTEGER,
+          type: S.INTEGER.UNSIGNED,
           allowNull: false,
           references: { model: 'companies', key: 'id' },
           onDelete: 'RESTRICT',
@@ -66,6 +62,24 @@ module.exports = {
     await q.addIndex('payslip_access_logs', ['companyId', 'key', 'createdAt'], {
       name: 'idx_payslip_access_history',
     });
+    if (q.sequelize.getDialect() === 'mysql') {
+      for (const [table, field, target, name] of [
+        ['payslips', 'runId', 'payroll_runs', 'fk_payslips_run_tenant'],
+        ['payslips', 'employeeId', 'employees', 'fk_payslips_employee_tenant'],
+        ['payslip_batches', 'runId', 'payroll_runs', 'fk_payslip_batches_run_tenant'],
+        ['payslip_batch_items', 'runId', 'payroll_runs', 'fk_payslip_items_run_tenant'],
+        ['payslip_batch_items', 'employeeId', 'employees', 'fk_payslip_items_employee_tenant'],
+        ['employee_user_links', 'employeeId', 'employees', 'fk_employee_user_links_employee_tenant'],
+      ]) {
+        await q.addConstraint(table, {
+          fields: ['companyId', field],
+          type: 'foreign key',
+          name,
+          references: { table: target, fields: ['companyId', 'id'] },
+          onDelete: 'RESTRICT',
+        });
+      }
+    }
     if (q.sequelize.getDialect() === 'postgres') {
       await q.sequelize.query(
         `ALTER TABLE payslips ADD FOREIGN KEY ("companyId", "runId") REFERENCES payroll_runs ("companyId", "id") ON DELETE RESTRICT`,
@@ -107,6 +121,5 @@ module.exports = {
       await q.sequelize.query('DROP FUNCTION IF EXISTS protect_payslip_snapshot()');
     }
     for (const table of [...tables].reverse()) await q.dropTable(table);
-    await q.removeIndex('employees', 'uq_employees_company_id').catch(() => undefined);
   },
 };

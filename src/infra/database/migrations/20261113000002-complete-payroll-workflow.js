@@ -21,7 +21,7 @@ module.exports = {
       await q.createTable(table, {
         id: { type: S.UUID, primaryKey: true, allowNull: false },
         companyId: {
-          type: S.INTEGER,
+          type: S.INTEGER.UNSIGNED,
           allowNull: false,
           references: { model: 'companies', key: 'id' },
         },
@@ -36,6 +36,22 @@ module.exports = {
       });
       await q.addIndex(table, ['companyId', 'key'], { unique: true });
       await q.addIndex(table, ['companyId', 'runId', 'status']);
+      if (q.sequelize.getDialect() === 'mysql') {
+        await q.addConstraint(table, {
+          fields: ['companyId', 'runId'],
+          type: 'foreign key',
+          name: `fk_${table}_run_tenant`,
+          references: { table: 'payroll_runs', fields: ['companyId', 'id'] },
+          onDelete: 'RESTRICT',
+        });
+        await q.addConstraint(table, {
+          fields: ['companyId', 'employeeId'],
+          type: 'foreign key',
+          name: `fk_${table}_employee_tenant`,
+          references: { table: 'employees', fields: ['companyId', 'id'] },
+          onDelete: 'RESTRICT',
+        });
+      }
       if (q.sequelize.getDialect() === 'postgres') {
         await q.sequelize.query(
           `ALTER TABLE "${table}" ADD FOREIGN KEY ("companyId", "runId") REFERENCES payroll_runs ("companyId", id) ON DELETE RESTRICT`,
@@ -50,6 +66,14 @@ module.exports = {
         );
       }
     }
+    if (q.sequelize.getDialect() === 'mysql')
+      await q.addConstraint('payroll_runs', {
+        fields: ['companyId', 'originalRunId'],
+        type: 'foreign key',
+        name: 'fk_payroll_original_run_tenant',
+        references: { table: 'payroll_runs', fields: ['companyId', 'id'] },
+        onDelete: 'RESTRICT',
+      });
     if (q.sequelize.getDialect() === 'postgres') {
       await q.sequelize.query(
         'ALTER TABLE payroll_runs ADD CONSTRAINT fk_payroll_original_run FOREIGN KEY ("companyId", "originalRunId") REFERENCES payroll_runs ("companyId", id)',

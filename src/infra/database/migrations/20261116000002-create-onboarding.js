@@ -4,7 +4,7 @@ module.exports = {
     await q.createTable('onboarding_applications', {
       id: { type: S.UUID, primaryKey: true, allowNull: false },
       ownerId: {
-        type: S.INTEGER,
+        type: S.INTEGER.UNSIGNED,
         allowNull: false,
         references: { model: 'users', key: 'id' },
         onDelete: 'RESTRICT',
@@ -12,7 +12,7 @@ module.exports = {
       operationKey: { type: S.STRING(160), allowNull: false },
       status: { type: S.STRING(40), allowNull: false },
       companyId: {
-        type: S.INTEGER,
+        type: S.INTEGER.UNSIGNED,
         allowNull: true,
         references: { model: 'companies', key: 'id' },
         onDelete: 'RESTRICT',
